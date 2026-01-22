@@ -1,0 +1,352 @@
+package com.ecat.integration.EnvQualityControlManagerIntegration;
+
+import com.ecat.core.State.AttributeBase;
+import com.ecat.core.Device.DeviceBase;
+import com.ecat.core.Device.DeviceRegistry;
+import com.ecat.core.EcatCore;
+import com.ecat.core.Integration.IntegrationRegistry;
+import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
+import com.ecat.integration.EnvDataManagerIntegration.service.IRealdataService;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlReport;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
+import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ReportGenerator;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.*;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+/**
+ * GenZeroAndSpanReport 单元测试类
+ * 测试仪器运行状况检查/校准记录表（零跨报告）生成
+ * 
+ * @version 1.0
+ */
+@ExtendWith(MockitoExtension.class)
+class GenZeroAndSpanReportTest {
+
+    @Mock
+    private EcatCore mockEcatCore;
+
+    @Mock
+    private EcatCoreRuoyiIntegration mockMry;
+
+    @Mock
+    private IntegrationRegistry mockRegistry;
+
+    @Mock
+    private DeviceRegistry mockDeviceRegistry;
+
+    @Mock
+    private IEnvQualityControlRecordsService mockQualityControlRecordsService;
+
+    @Mock
+    private IRealdataService mockRealdataService;
+
+    private ReportGenerator reportGenerator;
+
+    private Date startTime;
+    private Date endTime;
+
+    @BeforeEach
+    void setUp() {
+        // 设置测试时间范围
+        Calendar cal = Calendar.getInstance();
+        cal.set(2025, Calendar.JANUARY, 10, 8, 0, 0);
+        startTime = cal.getTime();
+        
+        cal.set(2025, Calendar.JANUARY, 10, 10, 0, 0);
+        endTime = cal.getTime();
+
+        // 模拟 EcatCore
+        lenient().when(mockEcatCore.getIntegrationRegistry()).thenReturn(mockRegistry);
+        lenient().when(mockRegistry.getIntegration("integration-ecat-core-ruoyi")).thenReturn(mockMry);
+        lenient().when(mockMry.getSpringBean(IEnvQualityControlRecordsService.class)).thenReturn(mockQualityControlRecordsService);
+        lenient().when(mockMry.getSpringBean(IRealdataService.class)).thenReturn(mockRealdataService);
+        lenient().when(mockEcatCore.getDeviceRegistry()).thenReturn(mockDeviceRegistry);
+
+        // 创建 ReportGenerator 实例
+        reportGenerator = new ReportGenerator(mockEcatCore);
+    }
+
+    @Test
+    void testGenZeroAndSpanReport_SO2() {
+        // 准备测试数据 - SO2零跨检查（零点 + 跨度，使用 parameter code="1"）
+        List<EnvQualityControlRecords> records = Arrays.asList(
+            createZeroCheckRecord("1"),  // SO2 code
+            createSpanCheckRecord("1")   // SO2 code
+        );
+        
+        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
+                any(Date.class), any(Date.class), any(), any(Long.class)))
+                .thenReturn(records);
+
+        // 模拟SO2设备和校准系统
+        DeviceBase so2Device = createMockDevice("esa-so2", "SO2分析仪", "SN-SO2-001", "SO2");
+        // DeviceBase calibDevice = createMockCalibDevice();
+        when(mockDeviceRegistry.getDeviceByID("esa-so2")).thenReturn(so2Device);
+        // when(mockDeviceRegistry.getDeviceByID("sms-calib")).thenReturn(calibDevice);
+
+        // 模拟关键参数数据
+        when(mockRealdataService.selectDistinctTypeData(any(Map.class)))
+                .thenReturn(createMockKeyParametersData());
+
+        // 执行测试
+        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+
+        // 验证结果
+        assertNotNull(reports);
+        assertEquals(1, reports.size());
+        
+        EnvQualityControlReport report = reports.get(0);
+        assertNotNull(report);
+        assertEquals("ReportD2", report.getComponent());
+        assertNotNull(report.getReportData());
+        
+        // 验证报告数据
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reportData = report.getReportData();
+        assertTrue(reportData.containsKey("title"));
+        assertTrue(reportData.containsKey("instrument_info"));
+        assertTrue(reportData.containsKey("calibration_points"));
+        assertTrue(reportData.containsKey("zero_drift_result"));
+        assertTrue(reportData.containsKey("span_80_drift_result"));
+        assertTrue(reportData.containsKey("key_parameters"));
+    }
+
+    @Test
+    void testGenZeroAndSpanReport_MultipleGases() {
+        // 准备测试数据 - 多种气体的零跨检查（使用 parameter code）
+        List<EnvQualityControlRecords> records = Arrays.asList(
+            createZeroCheckRecord("1"),  // SO2 code
+            createSpanCheckRecord("1"),  // SO2 code
+            createZeroCheckRecord("2"),  // NO2 code
+            createSpanCheckRecord("2")   // NO2 code
+        );
+        
+        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
+                any(Date.class), any(Date.class), any(), any(Long.class)))
+                .thenReturn(records);
+
+        // 模拟所有气体设备和校准系统
+        setupMockDevices();
+
+        // 模拟关键参数数据
+        when(mockRealdataService.selectDistinctTypeData(any(Map.class)))
+                .thenReturn(createMockKeyParametersData());
+
+        // 执行测试
+        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+
+        // 验证结果 - 应生成2个报告（SO2、NO2各一个）
+        assertNotNull(reports);
+        assertEquals(2, reports.size());
+        
+        // 验证每个报告都有正确的组件
+        for (EnvQualityControlReport report : reports) {
+            assertEquals("ReportD2", report.getComponent());
+            assertNotNull(report.getReportData());
+        }
+    }
+
+    // ==================== 辅助方法 ====================
+
+    /**
+     * 创建零点检查记录
+     * @param parameterCode 参数 code（"1"=SO2, "2"=NO2, "3"=O3, "4"=CO）
+     */
+    private EnvQualityControlRecords createZeroCheckRecord(String parameterCode) {
+        EnvQualityControlRecords record = new EnvQualityControlRecords();
+        record.setId(1L);
+        record.setQualityControlType("0");  // ZERO_CHECK code
+        record.setParameter(parameterCode);  // 使用参数 code 而不是 name
+        
+        Calendar cal = Calendar.getInstance();
+        cal.set(2025, Calendar.JANUARY, 10, 8, 0, 0);
+        record.setStartTime(cal.getTime());
+        
+        cal.set(2025, Calendar.JANUARY, 10, 8, 30, 0);
+        record.setEndTime(cal.getTime());
+        
+        record.setExecutionStatus(2L); // 成功状态
+        
+        // 零点检查执行日志
+        String executionLog = "{"
+                + "\"resultValue\":1.5,"  // 漂移结果
+                + "\"checkCalibLimit\":2500.0,"
+                + "\"stdValue\":0.0,"  // 标准值
+                + "\"deviceValue\":-7.5,"  // 设备显示值
+                + "\"checkPassLimit\":1000.0"
+                + "}";
+        
+        record.setExecutionLog(executionLog);
+        record.setResultEvaluation("零点检查合格");
+        record.setCreatedBy("admin");
+        record.setUpdateBy("admin");
+        record.setCreateTime(record.getStartTime());
+        
+        return record;
+    }
+
+    /**
+     * 创建跨度检查记录
+     * @param parameterCode 参数 code（"1"=SO2, "2"=NO2, "3"=O3, "4"=CO）
+     */
+    private EnvQualityControlRecords createSpanCheckRecord(String parameterCode) {
+        EnvQualityControlRecords record = new EnvQualityControlRecords();
+        record.setId(2L);
+        record.setQualityControlType("1");  // SPAN_CHECK code
+        record.setParameter(parameterCode);  // 使用参数 code 而不是 name
+        
+        Calendar cal = Calendar.getInstance();
+        cal.set(2025, Calendar.JANUARY, 10, 9, 0, 0);
+        record.setStartTime(cal.getTime());
+        
+        cal.set(2025, Calendar.JANUARY, 10, 9, 30, 0);
+        record.setEndTime(cal.getTime());
+        
+        record.setExecutionStatus(2L); // 成功状态
+        
+        // 跨度检查执行日志
+        String executionLog = "{"
+                + "\"resultValue\":1.1,"  // 漂移结果
+                + "\"checkCalibLimit\":10.0,"
+                + "\"stdValue\":40000.0,"  // 标准值（满量程80%）
+                + "\"deviceValue\":39556.0,"  // 设备显示值
+                + "\"checkPassLimit\":5.0"
+                + "}";
+        
+        record.setExecutionLog(executionLog);
+        record.setResultEvaluation("跨度检查合格");
+        record.setCreatedBy("admin");
+        record.setUpdateBy("admin");
+        record.setCreateTime(record.getStartTime());
+        
+        return record;
+    }
+
+    /**
+     * 创建模拟的设备对象
+     */
+    private DeviceBase createMockDevice(String id, String name, String sn, String gasType) {
+        DeviceBase device = mock(DeviceBase.class);
+        lenient().when(device.getId()).thenReturn(id);
+        lenient().when(device.getName()).thenReturn(name);
+        lenient().when(device.getSn()).thenReturn(sn);
+        
+        // 设置属性
+        Map<String, AttributeBase<?>> attrs = new HashMap<>();
+        
+        // 添加标气浓度属性
+        AttributeBase<?> gasConcentration = mock(AttributeBase.class);
+        lenient().when(gasConcentration.getDisplayValue()).thenReturn("400.0ppb");
+        attrs.put(gasType + "StdGasConcentration", gasConcentration);
+        
+        lenient().when(device.getAttrs()).thenReturn(attrs);
+        
+        return device;
+    }
+
+    /**
+     * 创建模拟的校准系统设备
+     */
+    private DeviceBase createMockCalibDevice() {
+        DeviceBase device = mock(DeviceBase.class);
+        lenient().when(device.getId()).thenReturn("sms-calib");
+        lenient().when(device.getName()).thenReturn("校准系统");
+        lenient().when(device.getSn()).thenReturn("SN-CALIB-001");
+        
+        // 设置属性
+        Map<String, AttributeBase<?>> attrs = new HashMap<>();
+        
+        // 添加各种标气浓度属性
+        AttributeBase<?> so2Concentration = mock(AttributeBase.class);
+        lenient().when(so2Concentration.getDisplayValue()).thenReturn("400.0ppb");
+        attrs.put("so2_std_gas_concentration", so2Concentration);
+        
+        AttributeBase<?> noConcentration = mock(AttributeBase.class);
+        lenient().when(noConcentration.getDisplayValue()).thenReturn("400.0ppb");
+        attrs.put("no_std_gas_concentration", noConcentration);
+        
+        AttributeBase<?> o3Concentration = mock(AttributeBase.class);
+        lenient().when(o3Concentration.getDisplayValue()).thenReturn("400.0ppb");
+        attrs.put("o3_gas_concentration", o3Concentration);
+        
+        AttributeBase<?> coConcentration = mock(AttributeBase.class);
+        lenient().when(coConcentration.getDisplayValue()).thenReturn("40.0ppm");
+        attrs.put("co_std_gas_concentration", coConcentration);
+        
+        lenient().when(device.getAttrs()).thenReturn(attrs);
+        
+        return device;
+    }
+
+    /**
+     * 创建模拟的关键参数数据
+     */
+    private List<Map<String, Object>> createMockKeyParametersData() {
+        List<Map<String, Object>> keyData = new ArrayList<>();
+        
+        // 流量
+        Map<String, Object> flow = new HashMap<>();
+        flow.put("pn", "Flow");
+        flow.put("value", 1.2);
+        flow.put("unit_name", "L/min");
+        flow.put("range", "0~5L/min");
+        flow.put("remark", "正常");
+        keyData.add(flow);
+        
+        // 采样压力
+        Map<String, Object> sampleP = new HashMap<>();
+        sampleP.put("pn", "SampleP");
+        sampleP.put("value", 101.3);
+        sampleP.put("unit_name", "kPa");
+        sampleP.put("range", "95~105kPa");
+        sampleP.put("remark", "正常");
+        keyData.add(sampleP);
+        
+        // 气体温度
+        Map<String, Object> gasT = new HashMap<>();
+        gasT.put("pn", "GasT");
+        gasT.put("value", 25.5);
+        gasT.put("unit_name", "°C");
+        gasT.put("range", "20~30°C");
+        gasT.put("remark", "正常");
+        keyData.add(gasT);
+        
+        return keyData;
+    }
+
+    /**
+     * 设置模拟设备
+     */
+    private void setupMockDevices() {
+        // SO2设备
+        DeviceBase so2Device = createMockDevice("esa-so2", "SO2分析仪", "SN-SO2-001", "SO2");
+        lenient().when(mockDeviceRegistry.getDeviceByID("esa-so2")).thenReturn(so2Device);
+        
+        // NO2设备
+        DeviceBase no2Device = createMockDevice("esa-no2", "NO2分析仪", "SN-NO2-001", "NO2");
+        lenient().when(mockDeviceRegistry.getDeviceByID("esa-no2")).thenReturn(no2Device);
+        
+        // O3设备
+        DeviceBase o3Device = createMockDevice("esa-o3", "O3分析仪", "SN-O3-001", "O3");
+        lenient().when(mockDeviceRegistry.getDeviceByID("esa-o3")).thenReturn(o3Device);
+        
+        // CO设备
+        DeviceBase coDevice = createMockDevice("esa-co", "CO分析仪", "SN-CO-001", "CO");
+        lenient().when(mockDeviceRegistry.getDeviceByID("esa-co")).thenReturn(coDevice);
+        
+        // 校准系统设备
+        DeviceBase calibDevice = createMockCalibDevice();
+        lenient().when(mockDeviceRegistry.getDeviceByID("sms-calib")).thenReturn(calibDevice);
+    }
+}
+

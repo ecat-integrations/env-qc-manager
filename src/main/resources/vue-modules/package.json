@@ -1,0 +1,39 @@
+{
+  "name": "integration-env-quality-control-manager",
+  "version": "3.8.9",
+  "description": "生态环境监测工业数据自动化控制系统",
+  "author": "ECAT Open Source Community",
+  "license": "MIT",
+  "scripts": {
+    "gen": "node ../../../../../utils/vue-package/build-ruoyi/build.js ./",
+    "dev": "npm run gen && webpack --config webpack.config.js --mode=development",
+    "release": "npm run gen && webpack --config webpack.config.js --mode=production",
+    "test": "webpack --config webpack.config.js --mode=development"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.10",
+    "@babel/preset-env": "^7.26.9",
+    "@tailwindcss/cli": "^4.1.7",
+    "@tailwindcss/postcss": "^4.1.7",
+    "autoprefixer": "^10.4.21",
+    "babel-loader": "^10.0.0",
+    "css-loader": "^7.1.2",
+    "dayjs": "^1.11.13",
+    "element-plus": "^2.10.2",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^3.0.1",
+    "file-saver": "^2.0.5",
+    "xlsx": "^0.18.5",
+    "mini-css-extract-plugin": "^2.9.2",
+    "postcss-loader": "^8.1.1",
+    "sass": "^1.77.5",
+    "sass-loader": "^16.0.5",
+    "style-loader": "^4.0.0",
+    "tailwindcss": "^4.1.7",
+    "unplugin-auto-import": "0.17.6",
+    "vue": "^3.4.31",
+    "vue-loader": "^17.4.2",
+    "webpack": "^5.99.6",
+    "webpack-cli": "^6.0.1"
+  }
+}

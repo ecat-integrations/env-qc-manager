@@ -1,0 +1,77 @@
+{
+  "public_path": "/ecat-integrations/integration-env-quality-control-manager/",
+  "module_path": "/ecat-integrations/integration-env-quality-control-manager/",
+  "module_name": "integration-env-quality-control-manager",
+  "sub_modules": [
+    {
+      "module": "quality-control-manager",
+      "mtype": "web",
+      "module_routes": [
+        {
+          "name": "index",
+          "path": "index",
+          "hidden": false,
+          "redirect": "noRedirect",
+          "component": "Layout",
+          "alwaysShow": true,
+          "meta": {
+            "title": "质控查询",
+            "icon": "education",
+            "noCache": false,
+            "link": null
+          },
+          "children": [
+            {
+              "name": "quality_control_records",
+              "path": "quality_control_records",
+              "hidden": false,
+              "component": "views/quality_control/records",
+              "meta": {
+                "title": "质控记录",
+                "icon": "excel",
+                "noCache": false,
+                "link": null
+              }
+            },
+            {
+              "name": "quality_control_report",
+              "path": "quality_control_report",
+              "hidden": false,
+              "component": "views/quality_control/report",
+              "meta": {
+                "title": "质控报告",
+                "icon": "pdf",
+                "noCache": false,
+                "link": null
+              }
+            },
+            {
+              "name": "quality_control_custom_audit_span_check",
+              "path": "quality_control_custom_audit_span_check",
+              "hidden": false,
+              "component": "views/quality_control/custom/audit_span_check",
+              "meta": {
+                "title": "人工核查",
+                "icon": "example",
+                "noCache": false,
+                "link": null
+              }
+            },
+            {
+              "name": "gas_setting",
+              "path": "gas_setting",
+              "hidden": false,
+              "component": "views/GasSetting",
+              "meta": {
+                "title": "钢瓶气设置",
+                "icon": "edit",
+                "noCache": false,
+                "link": null
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

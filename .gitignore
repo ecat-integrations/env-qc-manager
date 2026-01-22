@@ -1,0 +1,4 @@
+**/utils/request.js
+# Auto-added essential ignore rules
+*.log
+target/

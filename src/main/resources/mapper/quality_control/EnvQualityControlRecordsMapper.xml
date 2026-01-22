@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecat.integration.EnvQualityControlManagerIntegration.mapper.EnvQualityControlRecordsMapper">
+    
+    <resultMap type="EnvQualityControlRecords" id="EnvQualityControlRecordsResult">
+        <result property="id"    column="id"    />
+        <result property="taskType"    column="task_type"    />
+        <result property="qualityControlType"    column="quality_control_type"    />
+        <result property="parameter"    column="parameter"    />
+        <result property="startTime"    column="start_time"    />
+        <result property="endTime"    column="end_time"    />
+        <result property="standardValue"    column="standard_value"    />
+        <result property="monitoringData"    column="monitoring_data"    />
+        <result property="calculatedValue"    column="calculated_value"    />
+        <result property="executionStatus"    column="execution_status"    />
+        <result property="executionLog"    column="execution_log"    />
+        <result property="resultEvaluation"    column="result_evaluation"    />
+        <result property="qualityControlPlanId"    column="quality_control_plan_id"    />
+        <result property="createdBy"    column="created_by"    />
+        <result property="updatedBy"    column="updated_by"    />
+        <result property="createTime"    column="create_time"    />
+        <result property="updateTime"    column="update_time"    />
+    </resultMap>
+
+    <sql id="selectEnvQualityControlRecordsVo">
+        select id, task_type, quality_control_type, parameter, start_time, end_time, standard_value, monitoring_data, calculated_value, execution_status, execution_log, result_evaluation, quality_control_plan_id, created_by, updated_by, create_time, update_time from env_quality_control_records
+    </sql>
+
+    <select id="selectEnvQualityControlRecordsList" parameterType="EnvQualityControlRecords" resultMap="EnvQualityControlRecordsResult">
+        <include refid="selectEnvQualityControlRecordsVo"/>
+        <where>  
+            <if test="taskType != null  and taskType != ''"> and task_type = #{taskType}</if>
+            <if test="qualityControlType != null  and qualityControlType != ''"> and quality_control_type = #{qualityControlType}</if>
+            <if test="executionStatus != null "> and execution_status = #{executionStatus}</if>
+            <if test="params.beginEndTime != null and params.endEndTime != ''"> and end_time between '${params.beginEndTime}' and '${params.endEndTime}'</if>
+        </where>
+        order by create_time desc
+    </select>
+
+    <!--支持多种参数查询-->
+    <select id="selectEnvQualityControlRecordsByTypeTime" parameterType="map" resultMap="EnvQualityControlRecordsResult">
+        <include refid="selectEnvQualityControlRecordsVo"/>
+        <where>
+            <if test="qualityControlType != null  and qualityControlType != ''"> and quality_control_type = #{qualityControlType}</if>
+            <if test="beginStartTime != null and endStartTime != null"> and end_time between #{beginStartTime} and #{endStartTime}</if>
+            <!-- 增加 choose 支持默认值 execution_status 默认为2 取执行成功完成的质控记录-->
+            <choose>
+                <when test="executionStatus != null"> and execution_status = #{executionStatus} </when>
+                <otherwise> and execution_status = 2 </otherwise>
+            </choose>
+        </where>
+        order by create_time desc
+    </select>
+
+    <select id="selectEnvQualityControlRecordsById" parameterType="Long" resultMap="EnvQualityControlRecordsResult">
+        <include refid="selectEnvQualityControlRecordsVo"/>
+        where id = #{id}
+    </select>
+
+    <insert id="insertEnvQualityControlRecords" parameterType="EnvQualityControlRecords" useGeneratedKeys="true" keyProperty="id">
+        insert into env_quality_control_records
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="id != null">id,</if>
+            <if test="taskType != null and taskType != ''">task_type,</if>
+            <if test="qualityControlType != null and qualityControlType != ''">quality_control_type,</if>
+            <if test="parameter != null and parameter != ''">parameter,</if>
+            <if test="startTime != null">start_time,</if>
+            <if test="endTime != null">end_time,</if>
+            <if test="standardValue != null">standard_value,</if>
+            <if test="monitoringData != null">monitoring_data,</if>
+            <if test="calculatedValue != null">calculated_value,</if>
+            <if test="executionStatus != null">execution_status,</if>
+            <if test="executionLog != null">execution_log,</if>
+            <if test="resultEvaluation != null">result_evaluation,</if>
+            <if test="qualityControlPlanId != null">quality_control_plan_id,</if>
+            <if test="createdBy != null and createdBy != ''">created_by,</if>
+            <if test="updatedBy != null and updatedBy != ''">updated_by,</if>
+            <if test="createTime != null">create_time,</if>
+            <if test="updateTime != null">update_time,</if>
+         </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="id != null">#{id},</if>
+            <if test="taskType != null and taskType != ''">#{taskType},</if>
+            <if test="qualityControlType != null and qualityControlType != ''">#{qualityControlType},</if>
+            <if test="parameter != null and parameter != ''">#{parameter},</if>
+            <if test="startTime != null">#{startTime},</if>
+            <if test="endTime != null">#{endTime},</if>
+            <if test="standardValue != null">#{standardValue},</if>
+            <if test="monitoringData != null">#{monitoringData},</if>
+            <if test="calculatedValue != null">#{calculatedValue},</if>
+            <if test="executionStatus != null">#{executionStatus},</if>
+            <if test="executionLog != null">#{executionLog},</if>
+            <if test="resultEvaluation != null">#{resultEvaluation},</if>
+            <if test="qualityControlPlanId != null">#{qualityControlPlanId},</if>
+            <if test="createdBy != null and createdBy != ''">#{createdBy},</if>
+            <if test="updatedBy != null and updatedBy != ''">#{updatedBy},</if>
+            <if test="createTime != null">#{createTime},</if>
+            <if test="updateTime != null">#{updateTime},</if>
+         </trim>
+    </insert>
+
+    <update id="updateEnvQualityControlRecords" parameterType="EnvQualityControlRecords">
+        update env_quality_control_records
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="taskType != null and taskType != ''">task_type = #{taskType},</if>
+            <if test="qualityControlType != null and qualityControlType != ''">quality_control_type = #{qualityControlType},</if>
+            <if test="parameter != null and parameter != ''">parameter = #{parameter},</if>
+            <if test="startTime != null">start_time = #{startTime},</if>
+            <if test="endTime != null">end_time = #{endTime},</if>
+            <if test="standardValue != null">standard_value = #{standardValue},</if>
+            <if test="monitoringData != null">monitoring_data = #{monitoringData},</if>
+            <if test="calculatedValue != null">calculated_value = #{calculatedValue},</if>
+            <if test="executionStatus != null">execution_status = #{executionStatus},</if>
+            <if test="executionLog != null">execution_log = #{executionLog},</if>
+            <if test="resultEvaluation != null">result_evaluation = #{resultEvaluation},</if>
+            <if test="qualityControlPlanId != null">quality_control_plan_id = #{qualityControlPlanId},</if>
+            <if test="createdBy != null and createdBy != ''">created_by = #{createdBy},</if>
+            <if test="updatedBy != null and updatedBy != ''">updated_by = #{updatedBy},</if>
+            <if test="createTime != null">create_time = #{createTime},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </trim>
+        where id = #{id}
+    </update>
+
+    <!-- 更新executionStatus为1的记录，将其executionStatus置为传入参数，将resultEvaluation置为传入参数，并可选增加起止时间条件 -->
+    <update id="updateRecordsExecutionStatus" parameterType="map">
+        UPDATE env_quality_control_records
+        SET execution_status = #{newExecutionStatus},
+            result_evaluation = #{resultEvaluation}
+        WHERE execution_status in (1,4)
+        <if test="beginStartTime != null and endStartTime != null">
+            AND create_time BETWEEN #{beginStartTime} AND #{endStartTime}
+        </if>
+    </update>
+
+    <delete id="deleteEnvQualityControlRecordsById" parameterType="Long">
+        delete from env_quality_control_records where id = #{id}
+    </delete>
+
+    <delete id="deleteEnvQualityControlRecordsByIds" parameterType="String">
+        delete from env_quality_control_records where id in 
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+</mapper>

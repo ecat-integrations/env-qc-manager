@@ -1,0 +1,19 @@
+/* v3.0 */
+/* @tailwind utilities;
+@tailwind components;
+@tailwind utilities; */
+
+/* v4.0 会与ruoyi-ui css冲突，TODO：建议后期修改ruoyicss，将ruoyi的css进行隔离，确保tailwind效果*/
+/* @import "tailwindcss" prefix(tw); */
+
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme) prefix(qc);
+@import "tailwindcss/utilities.css" layer(utilities) prefix(qc);
+
+
+
+/* v4.0自动扫描vue文件，如果不需要切换主题可以不用下面的配置文件了 */
+/* @config "../../tailwind.config.js"; */
+
+/* v4.0 增加前缀，但是原有的名称也要增加： <div className="tw:text-gray-500">app</div> */
+/* @import "tailwindcss" prefix(tw); */

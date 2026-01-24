@@ -1,6 +1,6 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.tasks;
 
-import com.ecat.core.Config.ParameterMappingResolver;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterMappingResolver;
 import com.ecat.core.EcatCore;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
 import com.ecat.core.Device.DeviceBase;

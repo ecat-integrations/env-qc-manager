@@ -55,7 +55,7 @@ public class EnvQualityControlManagerIntegration extends IntegrationBase  implem
             }
             taskExecutor.addTask(new EnvQualityControlTask(executorMap));
             taskExecutor.addTask(new EnvQualityControlGenReportTask());
-            taskExecutor.addTask(new EnvQualityControlCustomTask());
+            taskExecutor.addTask(new EnvQualityControlCustomTask(executorMap));
         } catch (Exception e) {
             e.printStackTrace();
         }

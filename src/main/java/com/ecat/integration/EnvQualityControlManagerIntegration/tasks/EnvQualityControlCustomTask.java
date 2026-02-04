@@ -37,6 +37,11 @@ public class EnvQualityControlCustomTask extends Task {
     private EcatCoreRuoyiIntegration mry;
 
     protected final Logger log = LoggerFactory.getLogger(this.getClass());
+    private Map<Long, ExecutorBase> executorMap;
+
+    public EnvQualityControlCustomTask(Map<Long, ExecutorBase> executorMap) {
+        this.executorMap = executorMap;
+    }
 
     @Override
     public String getTaskName() {
@@ -68,7 +73,7 @@ public class EnvQualityControlCustomTask extends Task {
                 .add(new ConfigItem<>("readDataCount", Integer.class, true, null ))
                 .add(new ConfigItem<>("readDataSpan", Integer.class, true, null ))
                 .add(new ConfigItem<>("genGasConc", Float.class, true, null ))
-                .add(new ConfigItem<>("stdGasInPortName", String.class, true, null, new StringEnumValidator(validStdGasInPortNameValues)));
+                .add(new ConfigItem<>("stdGasInPortName", String.class, false, null, new StringEnumValidator(validStdGasInPortNameValues)));
 
         configDefinition.define(builder);
         return configDefinition;
@@ -185,6 +190,7 @@ public class EnvQualityControlCustomTask extends Task {
         // Execute a specific calibration task
         String executerClass = QualityControlTypeEnum.valueOf(qualityControlType.toUpperCase()).getClassName();
         ExecutorBase executor = integration.getExecutor(ExecutorType.getEnum(executerClass));
+        executorMap.put(envQualityControlRecords.getId(), executor);
         if (executor == null) {
             log.error("Calibration task failed: No calibration task executor found.");
             String message = "校准任务未执行 " + "没有可用的执行器";

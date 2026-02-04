@@ -166,9 +166,12 @@ public class EnvQualityControlRecordsServiceImpl implements IEnvQualityControlRe
         record.setExecutionStatus(ExecutionStatusEnum.STOPING.getCode());
         EnvQualityControlManagerIntegration integration = (EnvQualityControlManagerIntegration) core.getIntegrationRegistry().getIntegration("integration-env-quality-control-manager");
         Map<Long, ExecutorBase> executorMap = integration.executorMap;
+        log.info("stopEnvQualityControlRecords:executorMap={}", executorMap.size());
+        log.info("stopEnvQualityControlRecords:id={}", id);
         if(executorMap.containsKey(id)){
             ExecutorBase executor = executorMap.get(id);
             executor.stop();
+            log.info("stopEnvQualityControlRecords:开启终止成功");
         }
         record.setUpdateTime(new Date());
         record.setUpdatedBy(getUsername());

@@ -3,10 +3,15 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.service.impl;
 import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.Device.DeviceRegistry;
 import com.ecat.core.EcatCore;
+import com.ecat.core.Integration.IIntegrationTaskManagement;
+import com.ecat.core.Task.Task;
 import com.ecat.integration.EnvDeviceCalibrationIntegration.AuditCheckExecuteParam;
 import com.ecat.integration.EnvDeviceCalibrationIntegration.EnvDeviceCalibrationIntegration;
+import com.ecat.integration.EnvQualityControlManagerIntegration.EnvQualityControlManagerIntegration;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlCustomService;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.EnvQualityControlCustomTask;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -27,13 +32,13 @@ public class EnvQualityControlCustomServiceImpl implements IEnvQualityControlCus
 
     @Autowired
     private EcatCore core;
-
+    protected final Logger log = LoggerFactory.getLogger(this.getClass());
     private AuditCheckExecuteParam params;
     private EnvDeviceCalibrationIntegration integration;
     private DeviceRegistry deviceRegistry;
     private ExecutorService executor;
     private Map<String, Object> configMap;
-    private EnvQualityControlCustomTask envQualityControlCustomTask = new EnvQualityControlCustomTask();
+
 
     /**
      * 立即更换滤膜
@@ -62,9 +67,15 @@ public class EnvQualityControlCustomServiceImpl implements IEnvQualityControlCus
 
         // 调用原版的执行任务的代码
         try {
-            envQualityControlCustomTask.callExecuteImpl(parameters);
+            log.info("executeCustomAuditCheck, gas: {}, genGasTime: {}, readDataCount: {}, readDataSpan: {}, genGasConc: {}, stdGasInPortName: {}", gas, genGasTime, readDataCount, readDataSpan, genGasConc, stdGasInPortName);
+            IIntegrationTaskManagement envQualityControlCustomTask = (IIntegrationTaskManagement) core.getIntegrationRegistry()
+                    .getIntegration("integration-env-quality-control-manager");
+            Task wantedTask = envQualityControlCustomTask.getTaskExecutor().getTask("EnvQualityControlCustomTask");
+            wantedTask.execute(parameters);
+            log.info("executeCustomAuditCheck, gas: {}, genGasTime: {}, readDataCount: {}, readDataSpan: {}, genGasConc: {}, stdGasInPortName: {}, execute success", gas, genGasTime, readDataCount, readDataSpan, genGasConc, stdGasInPortName);
             return true;
         } catch (RuntimeException e) {
+            log.error("executeCustomAuditCheck, gas: {}, genGasTime: {}, readDataCount: {}, readDataSpan: {}, genGasConc: {}, stdGasInPortName: {}, execute failed, error: {}", gas, genGasTime, readDataCount, readDataSpan, genGasConc, stdGasInPortName, e.getMessage());
             return false;
         }
     }

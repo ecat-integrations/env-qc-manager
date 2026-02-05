@@ -8,19 +8,19 @@
         <relativePath />
     </parent>
     <artifactId>integration-env-quality-control-manager</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <name>integration-env-quality-control-manager</name>
     <dependencies>
         <dependency>
             <groupId>com.ecat</groupId>
             <artifactId>ruoyi-system</artifactId>
-            <version>3.8.9</version>
+            <version>1.0.1</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.ecat</groupId>
             <artifactId>ruoyi-framework</artifactId>
-            <version>3.8.9</version>
+            <version>1.0.1</version>
             <scope>provided</scope>
         </dependency>
         <dependency>

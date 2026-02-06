@@ -126,8 +126,6 @@
             </plugin>
         </plugins>
     </build>
-<<<<<<< HEAD
-=======
     <licenses>
         <license>
             <name>Apache License, Version 2.0</name>
@@ -136,5 +134,4 @@
             <comments>This integration is part of ECAT Project and licensed under Apache 2.0</comments>
         </license>
     </licenses>
->>>>>>> 9b973781be57899c4bbe6e3d33b6cac4ed4cecf9
 </project>

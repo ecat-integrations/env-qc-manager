@@ -8,19 +8,19 @@
         <relativePath />
     </parent>
     <artifactId>integration-env-quality-control-manager</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <name>integration-env-quality-control-manager</name>
     <dependencies>
         <dependency>
             <groupId>com.ecat</groupId>
             <artifactId>ruoyi-system</artifactId>
-            <version>3.8.9</version>
+            <version>1.0.1</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.ecat</groupId>
             <artifactId>ruoyi-framework</artifactId>
-            <version>3.8.9</version>
+            <version>1.0.1</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -50,31 +50,31 @@
         <dependency>
             <groupId>com.ecat</groupId>
             <artifactId>integration-ecat-core-ruoyi</artifactId>
-            <version>1.0.0</version>
+            <version>[1.0.0,2.0.0)</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.ecat</groupId>
             <artifactId>integration-env-device-calibration</artifactId>
-            <version>1.2.1</version>
+            <version>[1.2.0,2.0.0)</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.ecat</groupId>
             <artifactId>integration-env-device-manager</artifactId>
-            <version>1.0.0</version>
+            <version>[1.0.0,2.0.0)</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.ecat</groupId>
             <artifactId>integration-env-data-manager</artifactId>
-            <version>1.0.0</version>
+            <version>[1.0.0,2.0.0)</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.ecat</groupId>
             <artifactId>ecat-core</artifactId>
-            <version>1.0.0</version>
+            <version>[1.0.0,2.0.0)</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -126,4 +126,15 @@
             </plugin>
         </plugins>
     </build>
+<<<<<<< HEAD
+=======
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+            <comments>This integration is part of ECAT Project and licensed under Apache 2.0</comments>
+        </license>
+    </licenses>
+>>>>>>> 9b973781be57899c4bbe6e3d33b6cac4ed4cecf9
 </project>

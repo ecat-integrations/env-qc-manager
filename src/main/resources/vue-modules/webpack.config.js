@@ -1,5 +1,5 @@
 const path = require("path");
-const getCommonWebpackConfig = require("../../../../../utils/vue-package/webpack.config.js");
+const getCommonWebpackConfig = require("../../../../../env-dev-utils/vue-package/webpack.config.js");
 const { VueLoaderPlugin } = require("vue-loader");
 // const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 
@@ -61,7 +61,7 @@ const customConfig = {
         use: [
           {
             loader: path.resolve(
-              "../../../../../utils/vue-package/webpack-loaders/",
+              "../../../../../env-dev-utils/vue-package/webpack-loaders/",
               "ecat-tailwind-loader.js"
             ),
             options: {

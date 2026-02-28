@@ -479,21 +479,26 @@ class GenZeroAndSpanReport extends ReportGenerator {
                 // 解析record.getExecutionLog(),将JsonString转换成Map
                 Map<String, Object> executionLogMap = JsonUtils.parseNonStandardMap(record.getExecutionLog(), String.class, Object.class);
                 // {"resultValue":492.255,"checkCalibLimit":2500.0,"stdValue":0.0,"deviceValue":-492.255,"checkPassLimit":1000.0}
-                report.setZeroDriftResult(executionLogMap.get("resultValue") + "");
+
                 if(record.getParameter().equals("4")) {
                     try {
                         report.setZeroStandardConcentration((Double)executionLogMap.get("stdValue")/1000 + "");
                         report.setZeroDisplayResponse((Double)executionLogMap.get("deviceValue")/1000 + "");
                         report.setZeroCalibrationResponse((Double)executionLogMap.get("stdValue")/1000 + "");
+                        report.setZeroDriftResult((Double)executionLogMap.get("resultValue")/1000 + "");
                     }catch (Exception e){
                         report.setZeroStandardConcentration(executionLogMap.get("stdValue") + "");
                         report.setZeroDisplayResponse(executionLogMap.get("deviceValue") + "");
                         report.setZeroCalibrationResponse(executionLogMap.get("stdValue") + "");
+                        report.setZeroDriftResult(executionLogMap.get("resultValue") + "");
                     }
+                }else{
+                    report.setZeroStandardConcentration(executionLogMap.get("stdValue") + "");
+                    report.setZeroDisplayResponse(executionLogMap.get("deviceValue") + "");
+                    report.setZeroCalibrationResponse(executionLogMap.get("stdValue") + "");
+                    report.setZeroDriftResult(executionLogMap.get("resultValue") + "");
                 }
-                report.setZeroStandardConcentration(executionLogMap.get("stdValue") + "");
-                report.setZeroDisplayResponse(executionLogMap.get("deviceValue") + "");
-                report.setZeroCalibrationResponse(executionLogMap.get("stdValue") + "");  // TODO 暂时为标准浓度值，实际取稳定6分钟，其中的一个值)。
+                  // TODO 暂时为标准浓度值，实际取稳定6分钟，其中的一个值)。
                 String zeroCalibrationResult = (boolean) executionLogMap.getOrDefault("isPass", false) ? "合格": "不合格";
                 report.setZeroCalibrationResult(zeroCalibrationResult);
 

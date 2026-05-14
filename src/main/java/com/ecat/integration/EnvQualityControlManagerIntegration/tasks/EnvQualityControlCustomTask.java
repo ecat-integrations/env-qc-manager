@@ -5,9 +5,16 @@ import com.ecat.core.EcatCore;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
 import com.ecat.core.Task.Task;
 import com.ecat.core.Utils.DynamicConfig.*;
-import com.ecat.integration.EnvDeviceCalibrationIntegration.*;
+import com.ecat.integration.EnvCalibrationComposerIntegration.*;
+import com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ExecutionStatusEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDeviceReportSupport;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionLogHelper;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.TaskTypeEnum;
 import com.ruoyi.common.utils.DateUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,7 +28,7 @@ import java.util.concurrent.ExecutorService;
  * EnvQualityControlCustomTask
  *
  * @author caohongbo
- * @version 1.0
+ * @version 2.0
  * @description
  */
 
@@ -37,9 +44,9 @@ public class EnvQualityControlCustomTask extends Task {
     private EcatCoreRuoyiIntegration mry;
 
     protected final Logger log = LoggerFactory.getLogger(this.getClass());
-    private Map<Long, ExecutorBase> executorMap;
+    private Map<Long, AbstractCalibrationFlow> executorMap;
 
-    public EnvQualityControlCustomTask(Map<Long, ExecutorBase> executorMap) {
+    public EnvQualityControlCustomTask(Map<Long, AbstractCalibrationFlow> executorMap) {
         this.executorMap = executorMap;
     }
 
@@ -80,40 +87,59 @@ public class EnvQualityControlCustomTask extends Task {
     }
 
     /**
-     * 构造结果
-     * @param params 入参
-     * @param result 执行结果
-     * @param envQualityControlTypeCode 质控类型code
-     * @return 记录质控最终入库的参数+结果
+     * @param core 用于生成关键参数快照，可为 null
      */
-    protected String constructResult(Map<String, Object> params, ExecutorResultBase result, String envQualityControlTypeCode) {
+    protected String constructResult(EcatCore core, Map<String, Object> params, ExecutorResultBase result,
+                                       String envQualityControlTypeCode, long qcRecordIdForSnapshot) {
 
         if (!envQualityControlTypeCode.equals(QualityControlTypeEnum.AUDIT_SPAN_CHECK.getCode())) {
             throw new UnsupportedOperationException("Only support audit check now.");
         }
-        // deal result
-        Map<String, Object> resultContent = new HashMap<>();
         List<Map<String, Object>> resultContentList = new ArrayList<>();
-        if (result != null) {
+        if (result != null && !result.isException()) {
             List<AuditCheckResultItem> deviceValues = ((AuditCheckResult) result).getDeviceValues();
-            // 遍历deviceValues列表
             for (AuditCheckResultItem item : deviceValues) {
-                Map<String, Object> resultContentItem = new HashMap<>();
+                Map<String, Object> resultContentItem = new LinkedHashMap<>();
                 resultContentItem.put("checkData", item.getCheckData());
                 resultContentItem.put("checkTime", item.getCheckTime().format(formatter));
                 resultContentList.add(resultContentItem);
             }
-            // TODO 将执行状态等信息一并存储，
-            // result.isPass(), result.getResultMessage(), result.isException(), result.getErrorMessage()
-            // Map<String, Object> statusMap = ...;
-        } else {
-            // statusMap = null;
         }
-        resultContent.put("result", resultContentList);
-        resultContent.put("params", params);
-        // resultContent.put("statusMap", statusMap);
 
-        return JsonUtils.toJsonString(resultContent);
+        Map<String, Object> serializableParams = new LinkedHashMap<>();
+        if (params != null) {
+            for (Map.Entry<String, Object> e : params.entrySet()) {
+                Object v = e.getValue();
+                if (QualityControlExecutionLogHelper.QC_PHASE_TIMELINES_KEY.equals(e.getKey()) && v instanceof List) {
+                    serializableParams.put(e.getKey(), new ArrayList<>((List<?>) v));
+                    continue;
+                }
+                if (v == null || v instanceof String || v instanceof Number || v instanceof Boolean) {
+                    serializableParams.put(e.getKey(), v);
+                }
+            }
+        }
+
+        List<Map<String, Object>> keySnap = Collections.emptyList();
+        if (qcRecordIdForSnapshot >= 0) {
+            String gasName = params != null ? (String) params.get("gas") : null;
+            keySnap = buildKeyParametersSnapshotAtComplete(core, gasName);
+        }
+
+        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, resultContentList, result, keySnap);
+    }
+
+    private List<Map<String, Object>> buildKeyParametersSnapshotAtComplete(EcatCore core, String gasParameterName) {
+        if (core == null || gasParameterName == null || gasParameterName.isEmpty()) {
+            return Collections.emptyList();
+        }
+        try {
+            List<Map<String, Object>> rows = LogicDeviceReportSupport.buildAnalyzerKeyParameters(core, gasParameterName);
+            return rows != null ? rows : Collections.emptyList();
+        } catch (Exception e) {
+            log.debug("audit keyParametersSnapshot skipped: {}", e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
 
@@ -138,6 +164,10 @@ public class EnvQualityControlCustomTask extends Task {
         int readDataSpan = (int) parameters.get("readDataSpan");
         float genGasConc = (float) parameters.get("genGasConc");
         String stdGasInPortName = (String) parameters.get("stdGasInPortName");
+        Number flowRateNum = (Number) parameters.get("flowRateLpm");
+        if (flowRateNum == null) {
+            flowRateNum = (Number) parameters.get("targetFlowLpm");
+        }
 
         // （提前）组装质控记录数据
         // 增加记录
@@ -162,14 +192,14 @@ public class EnvQualityControlCustomTask extends Task {
             throw new RuntimeException("insert records failed.");
         }
 
-        // envDeviceCalibrationIntegration instantiation
-        EnvDeviceCalibrationIntegration integration = (EnvDeviceCalibrationIntegration) core.getIntegrationRegistry().getIntegration("integration-env-device-calibration");
+        // env-calibration-composer
+        EnvCalibrationComposerIntegration integration = (EnvCalibrationComposerIntegration) core.getIntegrationRegistry().getIntegration("integration-env-calibration-composer");
 
-        // Check if any calibration task is running
-        if (integration.isRunning()) {
+        // 占用判断（与 EnvCalibrationComposerIntegration#isRunning() 一致）
+        if (Boolean.TRUE.equals(integration.isRunning())) {
             log.error("Calibration task exit: Other calibration task is currently running.");
             String message = "校准任务退出 已有执行中的校准任务";
-            String resultContentJson = constructResult(parameters, null, envQualityControlRecords.getQualityControlType());
+            String resultContentJson = constructResult(core, parameters, null, envQualityControlRecords.getQualityControlType(), -1L);
             envQualityControlRecords.setExecutionLog(resultContentJson);  // 执行日志
             envQualityControlRecords.setResultEvaluation(message);  // 结果评价
             envQualityControlRecords.setEndTime(DateUtils.getNowDate());
@@ -179,7 +209,7 @@ public class EnvQualityControlCustomTask extends Task {
         } else {
             log.info("Calibration task start, no other calibration task is running at the moment.");
             String message = "校准任务执行中...";
-            String resultContentJson = constructResult(parameters, null, envQualityControlRecords.getQualityControlType());
+            String resultContentJson = constructResult(core, parameters, null, envQualityControlRecords.getQualityControlType(), -1L);
             envQualityControlRecords.setExecutionLog(resultContentJson);
             envQualityControlRecords.setResultEvaluation(message);
             envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.RUNNING.getCode());
@@ -189,12 +219,29 @@ public class EnvQualityControlCustomTask extends Task {
         // Has available executor or not for this calibration task
         // Execute a specific calibration task
         String executerClass = QualityControlTypeEnum.valueOf(qualityControlType.toUpperCase()).getClassName();
-        ExecutorBase executor = integration.getExecutor(ExecutorType.getEnum(executerClass));
+        ExecutorType execType = ExecutorType.getEnum(executerClass);
+        String gasForComposer = LogicDeviceBindingIds.composerGasKeyFromParameterName(gas);
+
+        Map<String, Object> flowParams = new HashMap<>();
+        flowParams.put("stableTimeSeconds", genGasTime);
+        flowParams.put("sampleCount", readDataCount);
+        flowParams.put("sampleIntervalSeconds", readDataSpan);
+        // 前端与旧版约定浓度单位为 ppm，ComposerContext 使用 ppb
+        flowParams.put("spanConcentrationPpb", genGasConc * 1000.0f);
+        if (flowRateNum != null) {
+            flowParams.put("flowRateLpm", flowRateNum.floatValue());
+        }
+
+        // 通过编排器 execute(type, gas, params) 启动，登记 runningFlow；自定义通气/采样/浓度覆盖参数
+        CompletableFuture<ExecutorResultBase> calibrationFuture =
+            integration.execute(execType, gasForComposer, flowParams);
+
+        AbstractCalibrationFlow executor = integration.getRunningExecutor();
         executorMap.put(envQualityControlRecords.getId(), executor);
         if (executor == null) {
             log.error("Calibration task failed: No calibration task executor found.");
             String message = "校准任务未执行 " + "没有可用的执行器";
-            String resultContentJson = constructResult(parameters, null, envQualityControlRecords.getQualityControlType());
+            String resultContentJson = constructResult(core, parameters, null, envQualityControlRecords.getQualityControlType(), -1L);
             envQualityControlRecords.setExecutionLog(resultContentJson);
             envQualityControlRecords.setResultEvaluation(message);
             envQualityControlRecords.setEndTime(DateUtils.getNowDate());
@@ -202,20 +249,11 @@ public class EnvQualityControlCustomTask extends Task {
             envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
             throw new RuntimeException(message);
         }
-        // Result of calibration task, support type:[ SO2, NOx, O3, CO ]
-        gas = gas.equals("NO2")? "NOx": gas;
-        AuditCheckExecuteParam params = new AuditCheckExecuteParam(gas);
-        params.setGenGasTime(genGasTime);
-        params.setReadDataCount(readDataCount);
-        params.setReadDataSpan(readDataSpan);
-        params.setGenGasConc(genGasConc);
-        params.setStdGasInPortName(stdGasInPortName);
+        if (stdGasInPortName != null) {
+            log.debug("人工核查 stdGasInPortName={} — 编排器使用固定气路逻辑，此字段已忽略", stdGasInPortName);
+        }
 
-        // 调用base类的execute方法
-        // 同步获取结果.get();
-        // future.get();
-        // 异步获取结果.thenAccept();
-        executor.execute(params).thenAccept(result -> {
+        calibrationFuture.thenAccept(result -> {
             /**
              * 获取执行结果
              * 以单点为例：
@@ -234,7 +272,7 @@ public class EnvQualityControlCustomTask extends Task {
                 throw new RuntimeException(result.getErrorMessage());
             }
 
-            String resultContentJson = constructResult(parameters, result, envQualityControlRecords.getQualityControlType());
+            String resultContentJson = constructResult(core, parameters, result, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
 
             // Is pass or not about the calibration
             if (result.isPass()) {
@@ -259,7 +297,7 @@ public class EnvQualityControlCustomTask extends Task {
             log.error("Calibration task executed exception: " + ex.getMessage());
             String cleanMessage = ex.getMessage().replaceAll("^(java\\.lang\\.[A-Za-z]+: )", "");
             final String message = "校准任务过程异常 " + cleanMessage;
-            String resultContentJson = constructResult(parameters, null, envQualityControlRecords.getQualityControlType());
+            String resultContentJson = constructResult(core, parameters, null, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
             envQualityControlRecords.setExecutionLog(resultContentJson);
             envQualityControlRecords.setResultEvaluation(message);
             envQualityControlRecords.setEndTime(DateUtils.getNowDate());

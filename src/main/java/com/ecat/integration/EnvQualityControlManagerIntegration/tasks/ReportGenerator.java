@@ -1,12 +1,16 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.tasks;
 
-import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterMappingResolver;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.JsonUtils;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDeviceReportSupport;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionLogHelper;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ReportTypeEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ZeroSpanDayPairSelector;
 import com.ecat.core.EcatCore;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
 import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.Device.DeviceRegistry;
-import com.ecat.integration.EnvDataManagerIntegration.service.IRealdataService;
-import com.ecat.integration.EnvQualityControlManagerIntegration.config.CalibrationConfigReader;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlReport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
@@ -15,10 +19,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ParameterEnum.*;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.QualityControlTypeEnum.*;
+import static com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum.*;
+import static com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum.*;
 
 
 /**
@@ -64,17 +70,15 @@ import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.Qua
  */
 public class ReportGenerator {
 
+    /** 与质控记录 {@code start_time} 归日一致，用于日报分桶与 {@code report_date}。 */
+    public static final ZoneId QC_REPORT_ZONE = ZoneId.of("Asia/Shanghai");
+
     private EcatCore core;
     protected EcatCoreRuoyiIntegration mry;
 
     private static final Logger logger = LoggerFactory.getLogger(ReportGenerator.class);
 
     private IEnvQualityControlRecordsService envQualityControlRecordsService;
-    
-    // 设备映射配置（从校准配置文件加载）
-    private Map<String, String> gasToDeviceIdMap = new HashMap<>();
-    private CalibrationConfigReader configReader;
-    private final ParameterMappingResolver parameterMappingResolver = ParameterMappingResolver.getInstance();
 
     public String reportType;
     // 存储报告最终结果
@@ -86,51 +90,86 @@ public class ReportGenerator {
 
     public ReportGenerator(EcatCore core) {
         this.core = core;
-        loadDeviceMapping();
     }
     
+    protected String getStdGasConcentration(String gasType) {
+        return LogicDeviceReportSupport.readStandardGasCylinderConcentration(core, gasType);
+    }
+
     /**
-     * 从校准配置文件加载设备映射
-     * <p>读取 EnvDeviceCalibrationIntegration.yml 中的 tested_devices 配置</p>
-     * <p>避免硬编码设备ID，支持不同厂商的设备（如 esa-so2 或 sms-so2）</p>
+     * 关键参数：优先使用 execution_log 中已存快照；否则读当前逻辑设备属性。
+     * {@code beginPickTime}/{@code endPickTime} 在存在 {@link QualityControlExecutionLogHelper#QC_PHASE_TIMELINES_KEY}
+     * 读数相位时已解析为该窗口（供将来按时刻查询历史读数时沿用），当前实现仍与即时读数一致。
      */
-    private void loadDeviceMapping() {
-        try {
-            configReader = new CalibrationConfigReader();
-            boolean loaded = configReader.loadConfig();
-            
-            if (loaded) {
-                gasToDeviceIdMap = configReader.getAllDeviceIdMappings();
-                logger.info("设备映射加载成功: {}", gasToDeviceIdMap);
-            } else {
-                logger.warn("设备映射加载失败，将使用默认映射");
-                loadDefaultDeviceMapping();
+    protected List<Map<String, Object>> queryKeyParameters(
+            Date beginPickTime, Date endPickTime, String param, String deviceId) {
+        return LogicDeviceReportSupport.buildAnalyzerKeyParameters(core, param);
+    }
+
+    /**
+     * 合并各质控记录 execution_log 根级 {@code keyParametersSnapshot}（顺序：先零后跨）；无快照时返回空列表。
+     */
+    @SuppressWarnings("unchecked")
+    protected static List<Map<String, Object>> mergeKeyParameterSnapshotsFromRecords(
+            EnvQualityControlRecords zero,
+            EnvQualityControlRecords span) {
+        List<Map<String, Object>> merged = new ArrayList<>();
+        appendKeySnapshotRows(merged, zero);
+        appendKeySnapshotRows(merged, span);
+        return merged;
+    }
+
+    @SuppressWarnings("unchecked")
+    protected static void appendKeySnapshotRows(List<Map<String, Object>> merged, EnvQualityControlRecords r) {
+        if (r == null || r.getExecutionLog() == null || r.getExecutionLog().trim().isEmpty()) {
+            return;
+        }
+        Map<String, Object> root = QualityControlExecutionLogHelper.parseRootMap(r.getExecutionLog());
+        Object raw = root.get("keyParametersSnapshot");
+        if (!(raw instanceof List)) {
+            return;
+        }
+        for (Object row : (List<?>) raw) {
+            if (row instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> copy = new LinkedHashMap<>((Map<String, Object>) row);
+                merged.add(copy);
             }
-        } catch (Exception e) {
-            logger.error("加载设备映射异常: {}", e.getMessage(), e);
-            loadDefaultDeviceMapping();
         }
     }
 
-    protected String getStdGasConcentration(String gasType) {
-        Optional<String> valueOpt = parameterMappingResolver.getAttributeValue(
-                "std_gas_concentration",
-                gasType,
-                null,
-                id -> core.getDeviceRegistry().getDeviceByID(id));
-        return valueOpt.orElse("");
+    protected static Date[] firstReadPhaseWindowForKeyParameters(EnvQualityControlRecords... records) {
+        for (EnvQualityControlRecords r : records) {
+            if (r == null) {
+                continue;
+            }
+            Date[] w = QualityControlExecutionLogHelper.resolveReadPhaseWindowForKeyParameters(r.getExecutionLog());
+            if (w != null) {
+                return w;
+            }
+        }
+        return null;
     }
-    
+
     /**
-     * 加载默认设备映射（降级方案）
-     * <p>当配置文件不可用时使用默认的 esa 设备</p>
+     * 逻辑层未就绪时的物理设备 ID（与历史默认表一致）。
      */
-    private void loadDefaultDeviceMapping() {
-        gasToDeviceIdMap.put("SO2", "esa-so2");
-        gasToDeviceIdMap.put("NO2", "esa-no2");
-        gasToDeviceIdMap.put("O3", "esa-o3");
-        gasToDeviceIdMap.put("CO", "esa-co");
-        logger.info("使用默认设备映射: {}", gasToDeviceIdMap);
+    private static String fallbackPhysicalDeviceIdForReportGas(String param) {
+        if (param == null) {
+            return "sms-qc";
+        }
+        switch (param.trim().toUpperCase(Locale.ROOT)) {
+            case "SO2":
+                return "esa-so2";
+            case "NO2":
+                return "esa-no2";
+            case "O3":
+                return "esa-o3";
+            case "CO":
+                return "esa-co";
+            default:
+                return "sms-qc";
+        }
     }
 
     /**
@@ -183,21 +222,25 @@ public class ReportGenerator {
     }
 
     /**
-     * 根据气态参数获取设备信息
-     * <p>从校准配置文件中动态获取设备ID，支持不同厂商设备</p>
-     * <p>例如：SO2 可能对应 esa-so2 或 sms-so2，取决于实际部署配置</p>
-     * 
+     * 根据气态参数获取物理 {@link DeviceBase}。
+     * <p>优先从 {@link EcatCore#getLogicDeviceRegistry()} 中标准分析仪逻辑设备的 {@code mappings} 解析
+     * {@code device_id}；若无映射则按历史约定降级为 esa-* / sms-qc。</p>
+     *
      * @param param 气态参数 (SO2, NO2, CO, O3)
-     * @return 设备对象，如果未找到返回 sms-qc 设备（降级方案）
+     * @return 设备对象；core 未初始化或设备不存在时可能为 {@code null}
      */
     public DeviceBase getDeviceInfo(String param) {
-        // 从配置映射中获取设备ID
-        String deviceId = gasToDeviceIdMap.get(param);
-        
-        // 如果未找到映射，使用默认的质控系统设备
-        if (deviceId == null) {
-            logger.warn("未找到气体 {} 的设备映射，使用默认质控设备 sms-qc", param);
-            deviceId = "sms-qc";
+        if (core == null) {
+            logger.error("EcatCore 未初始化，无法解析设备");
+            return null;
+        }
+        String deviceId = LogicDeviceReportSupport.resolveAnalyzerPhysicalDeviceId(core, param);
+        if (deviceId == null || deviceId.isEmpty()) {
+            deviceId = fallbackPhysicalDeviceIdForReportGas(param);
+            logger.warn(
+                    "逻辑设备未解析到物理 device_id，气体 {} 使用降级设备 {}；请检查 logicdevice.* 的 data.mappings 是否为主浓度属性配置了 device_id（无物理设备/仅占位时无法解析）。将 LogicDeviceReportSupport 调至 DEBUG 可查看 mappingsKeys 与逻辑入口是否注册",
+                    param,
+                    deviceId);
         }
 
         logger.debug("获取设备信息: {} -> {}", param, deviceId);
@@ -320,13 +363,27 @@ public class ReportGenerator {
             }
         }
 
-        // 遍历zeroSpanLineMap的各个参数，处理零跨时间线上的零点和跨度质控
+        // 遍历 zeroSpanLineMap：按参数、按自然日（start_time 在 QC_REPORT_ZONE）分桶后择优配对，每日至多一张零跨报告
         for (Map.Entry<String, List<EnvQualityControlRecords>> entry : zeroSpanLineMap.entrySet()) {
             List<EnvQualityControlRecords> zeroSpanLine = entry.getValue();
-            // 如果零跨时间线不为空，则进行零跨处理
-            if (!zeroSpanLine.isEmpty()) {
-                GenZeroAndSpanReport genReport = new GenZeroAndSpanReport(core, zeroSpanLine);
-                reports.add(genReport.getReport());
+            if (zeroSpanLine.isEmpty()) {
+                continue;
+            }
+            zeroSpanLine.sort(Comparator.comparing(EnvQualityControlRecords::getStartTime, Comparator.nullsFirst(Comparator.naturalOrder())));
+            Map<LocalDate, List<EnvQualityControlRecords>> byDay = new TreeMap<>();
+            for (EnvQualityControlRecords r : zeroSpanLine) {
+                if (r.getStartTime() == null) {
+                    continue;
+                }
+                LocalDate day = r.getStartTime().toInstant().atZone(QC_REPORT_ZONE).toLocalDate();
+                byDay.computeIfAbsent(day, d -> new ArrayList<>()).add(r);
+            }
+            for (Map.Entry<LocalDate, List<EnvQualityControlRecords>> dayEntry : byDay.entrySet()) {
+                List<EnvQualityControlRecords> chosen = ZeroSpanDayPairSelector.select(dayEntry.getValue());
+                if (chosen.isEmpty()) {
+                    continue;
+                }
+                reports.add(new GenZeroAndSpanReport(core, dayEntry.getKey(), chosen).getReport());
             }
         }
 
@@ -341,6 +398,59 @@ public class ReportGenerator {
 
 
         return reports;
+    }
+
+    /**
+     * 单条成功质控记录的报告预览数据（与定时任务 Gen* 报表生成器同源），供前端「质控结果」弹窗复用。
+     */
+    public static Map<String, Object> buildSingleRecordPreviewPayload(EcatCore core, EnvQualityControlRecords r) {
+        Objects.requireNonNull(core, "core");
+        Objects.requireNonNull(r, "record");
+        if (r.getStartTime() == null) {
+            throw new IllegalArgumentException("record.startTime is required");
+        }
+        LocalDate day = r.getStartTime().toInstant().atZone(QC_REPORT_ZONE).toLocalDate();
+        String qcType = r.getQualityControlType();
+        Object gen;
+        if (ZERO_CHECK.getCode().equals(qcType) || SPAN_CHECK.getCode().equals(qcType)) {
+            gen = new GenZeroAndSpanReport(core, day, Collections.singletonList(r));
+        } else if (MULTI_CHECK.getCode().equals(qcType)) {
+            gen = new GenMultiCheckReport(core, r);
+        } else if (PRECISION_CHECK.getCode().equals(qcType)) {
+            gen = new GenPrecisionReport(core, r);
+        } else if (ACCURACY_CHECK.getCode().equals(qcType)) {
+            gen = new GenAccuracyReport(core, r);
+        } else if (CONVERSION_CHECK.getCode().equals(qcType)) {
+            gen = new GenConversionReport(core, r);
+        } else if ("calibration_check".equals(qcType)) {
+            gen = new GenTransferAndTraceReport(core, r);
+        } else if (AUDIT_SPAN_CHECK.getCode().equals(qcType)) {
+            gen = new GenAuditSpanReport(core, Collections.singletonList(r));
+        } else {
+            throw new IllegalArgumentException("Unsupported quality control type for preview: " + qcType);
+        }
+        try {
+            Object reportBean = gen.getClass().getMethod("getReport").invoke(gen);
+            String component = (String) reportBean.getClass().getMethod("getComponent").invoke(reportBean);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> data = (Map<String, Object>) reportBean.getClass().getMethod("getReportData").invoke(reportBean);
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("component", component != null ? component : "");
+            out.put("reportData", data != null ? data : new HashMap<String, Object>());
+            if ("ReportD4".equals(component) && data != null && !data.containsKey("audit_result")) {
+                try {
+                    Object cal = reportBean.getClass().getMethod("getCalibrationResult").invoke(reportBean);
+                    if (cal != null) {
+                        data.put("audit_result", String.valueOf(cal));
+                    }
+                } catch (ReflectiveOperationException ignored) {
+                    // ignore
+                }
+            }
+            return out;
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException("Failed to assemble report preview", e);
+        }
     }
 
 }
@@ -363,7 +473,7 @@ class GenZeroAndSpanReport extends ReportGenerator {
 
     private EcatCore core;
 
-    private IRealdataService realdataService;
+    private final LocalDate businessDay;
 
     @Getter
     private ZeroAndSpanReport report;
@@ -372,17 +482,17 @@ class GenZeroAndSpanReport extends ReportGenerator {
     public final static String FULL_SPAN_CO = "50ppm";
 
     /**
-     * 实际执行此方法 生成报告
-     * @param records
+     * @param businessDay   监管日（与记录 start_time 在同一时区下的日历日一致）
+     * @param chosenRecords 择优后的 1～2 条记录（零点、跨度各至多一条）
      */
-    public GenZeroAndSpanReport(EcatCore core, List<EnvQualityControlRecords> records) {
+    public GenZeroAndSpanReport(EcatCore core, LocalDate businessDay, List<EnvQualityControlRecords> chosenRecords) {
         super(core);
         this.core = core;
+        this.businessDay = businessDay;
         report = new ZeroAndSpanReport();
-        report = parseRecordToReport(records);
+        report = parseRecordToReport(chosenRecords);
         report.setComponent(ReportTypeEnum.ZERO_SPAN.getComponent());
 
-        // 用于报告展示的主要内容
         Map<String, Object> reportData = constructReportContent();
         report.setReportData(reportData);
         String reportContent = JsonUtils.toJsonString(reportData);
@@ -390,155 +500,149 @@ class GenZeroAndSpanReport extends ReportGenerator {
     }
 
     /**
-     * 获取关键参数
-     * 查询实时数据表，获取某段时间内的数据
-     * @example
-     * <pre>
-     *  keyParameters.add(new HashMap<String, Object>() {{
-     *      put("tName", "Flow");
-     *      put("tValue", "1.2L/min");
-     *      put("tRange", "0~100L/min");
-     *      put("tRemark", "处理记录111");
-     *  }});
-     *  keyParameters.add(new HashMap<String, Object>() {{
-     *      put("tName", "GasPressure");
-     *      put("tValue", "50.0psi");
-     *      put("tRange", "-50~50.0psi");
-     *      put("tRemark", "处理记录222");
-     *  }});
-     * @param beginPickTime 开始时间
-     * @param  endPickTime 结束时间
-     */
-    private List< Map<String, Object> > queryKeyParameters(Date beginPickTime, Date endPickTime, String param, String deviceId) {
-        // xxx监测仪 | esa-co | esa-no2 | esa-o3 | esa-so2 |
-        List<String> types = new ArrayList<>();
-        types.add("Flow");  // 流量
-        types.add("SampleP");  // 采样压力
-        types.add("GasPressure");  // 气体压力
-        types.add("GasT");  // 气体温度
-        types.add("InternalTemp");  // 内部温度
-        types.add(param + "_concentration");  // XX浓度
-
-        Map<String, Object> queryParams = new HashMap<>();
-        queryParams.put("beginPickTime", beginPickTime);
-        queryParams.put("endPickTime", endPickTime);
-        queryParams.put("pids", types);
-        queryParams.put("sid", deviceId);
-
-        // 实时数据获取关键参数，每种参数取一条
-        if (mry == null) {
-            mry = (EcatCoreRuoyiIntegration) core.getIntegrationRegistry().getIntegration("integration-ecat-core-ruoyi");
-        }
-        realdataService = mry.getSpringBean(IRealdataService.class);
-        List< Map<String, Object> > keyDatas = realdataService.selectDistinctTypeData(queryParams);
-
-        List< Map<String, Object> > keyParameters = new ArrayList<>();
-        for (Map<String, Object> keyData : keyDatas) { 
-            keyParameters.add(new HashMap<String, Object>() {{
-                put("tName", keyData.getOrDefault("pn", ""));
-                put("tValue", keyData.getOrDefault("value", "")+ " " +keyData.getOrDefault("unit_name", ""));
-                put("tRange", keyData.getOrDefault("range", ""));
-                put("tRemark", keyData.getOrDefault("remark", ""));
-            }});
-        }
-        return keyParameters;
-    }
-
-    /**
      * 解析质控记录中的用于报告的数据
-     * @param records 质控记录
+     * @param chosenRecords 择优后的记录列表
      * @return report 质控报告
      */
-    private ZeroAndSpanReport parseRecordToReport(List<EnvQualityControlRecords> records) {
-        EnvQualityControlRecords records_0 = records.get(0);
+    private ZeroAndSpanReport parseRecordToReport(List<EnvQualityControlRecords> chosenRecords) {
+        EnvQualityControlRecords zero = null;
+        EnvQualityControlRecords span = null;
+        for (EnvQualityControlRecords r : chosenRecords) {
+            if (ZERO_CHECK.getCode().equals(r.getQualityControlType())) {
+                zero = r;
+            } else if (SPAN_CHECK.getCode().equals(r.getQualityControlType())) {
+                span = r;
+            }
+        }
+        EnvQualityControlRecords anchor = zero != null ? zero : span;
+        if (anchor == null) {
+            throw new IllegalArgumentException("Zero/span report requires at least one record");
+        }
 
-        report.setReportDate(records_0.getCreateTime()); // 报告日期 默认是质控记录开始时间
-        report.setFiler(records_0.getCreatedBy());  // 填表人 默认是质控记录创建者
-        report.setReviewer(records_0.getUpdateBy());  // 复核人 默认是质控记录更新者
-        report.setCreatedBy(records_0.getCreatedBy());
-        report.setUpdatedBy(records_0.getUpdateBy());
-        report.setGasType(records_0.getParameter());
+        report.setReportDate(Date.from(businessDay.atStartOfDay(ReportGenerator.QC_REPORT_ZONE).toInstant()));
+        report.setFiler(anchor.getCreatedBy());
+        report.setReviewer(anchor.getUpdateBy());
+        report.setCreatedBy(anchor.getCreatedBy());
+        report.setUpdatedBy(anchor.getUpdateBy());
+        report.setGasType(anchor.getParameter());
         String param = ParameterEnum.getNameByCode(report.getGasType());
-        report.setGasSource(param);  // 标气来源 暂为标气展示类型
+        report.setGasSource(param);
         DeviceBase device = getDeviceInfo(param);
         report.setInstrumentName(device.getName());
         report.setReportName(device.getName() + report.getReportName());
         report.setInstrumentNo(device.getSn());
         report.setInstrumentNameAndNo(device.getName() + device.getSn());
-        // 获取钢瓶气浓度
         String gasConcentration = getStdGasConcentration(param);
         report.setGasConcentration(gasConcentration == null ? "" : gasConcentration);
 
-        String reportNote = "";
-        for (EnvQualityControlRecords record : records) {
-            reportNote += record.getExecutionLog() + "\n";
-            if (record.getQualityControlType().equals(ZERO_CHECK.getCode())) {
-                // 从record中获取零点数据
-                report.setZeroStartTime(sdf.format(record.getStartTime()));
-                report.setZeroEndTime(sdf.format(record.getEndTime()));
-                // 解析record.getExecutionLog(),将JsonString转换成Map
-                Map<String, Object> executionLogMap = JsonUtils.parseNonStandardMap(record.getExecutionLog(), String.class, Object.class);
-                // {"resultValue":492.255,"checkCalibLimit":2500.0,"stdValue":0.0,"deviceValue":-492.255,"checkPassLimit":1000.0}
+        StringBuilder reportNote = new StringBuilder();
+        if (zero != null) {
+            if (zero.getExecutionLog() != null) {
+                reportNote.append(zero.getExecutionLog()).append('\n');
+            }
+            report.setZeroStartTime(fmtTime(zero.getStartTime()));
+            report.setZeroEndTime(fmtTime(zero.getEndTime() != null ? zero.getEndTime() : zero.getStartTime()));
+            Map<String, Object> executionLogMap = QualityControlExecutionLogHelper.metricsForReport(zero.getExecutionLog());
+            applyZeroMetrics(executionLogMap, zero.getParameter());
+            boolean zp = QualityControlExecutionLogHelper.readBoolean(executionLogMap, "isPass");
+            report.setZeroCalibrationResult(zp ? "合格" : "不合格");
+        }
+        if (span != null) {
+            if (span.getExecutionLog() != null) {
+                reportNote.append(span.getExecutionLog()).append('\n');
+            }
+            report.setSpan80StartTime(fmtTime(span.getStartTime()));
+            report.setSpan80EndTime(fmtTime(span.getEndTime() != null ? span.getEndTime() : span.getStartTime()));
+            Map<String, Object> resultEvaluation = QualityControlExecutionLogHelper.metricsForReport(span.getExecutionLog());
+            applySpanMetrics(resultEvaluation, span.getParameter());
+            boolean sp = QualityControlExecutionLogHelper.readBoolean(resultEvaluation, "isPass");
+            report.setSpanCalibrationResult(sp ? "合格" : "不合格");
+        }
+        report.setReportNote(reportNote.toString());
 
-                if(record.getParameter().equals("4")) {
-                    try {
-                        report.setZeroStandardConcentration((Double)executionLogMap.get("stdValue")/1000 + "");
-                        report.setZeroDisplayResponse((Double)executionLogMap.get("deviceValue")/1000 + "");
-                        report.setZeroCalibrationResponse((Double)executionLogMap.get("stdValue")/1000 + "");
-                        report.setZeroDriftResult((Double)executionLogMap.get("resultValue")/1000 + "");
-                    }catch (Exception e){
-                        report.setZeroStandardConcentration(executionLogMap.get("stdValue") + "");
-                        report.setZeroDisplayResponse(executionLogMap.get("deviceValue") + "");
-                        report.setZeroCalibrationResponse(executionLogMap.get("stdValue") + "");
-                        report.setZeroDriftResult(executionLogMap.get("resultValue") + "");
-                    }
-                }else{
-                    report.setZeroStandardConcentration(executionLogMap.get("stdValue") + "");
-                    report.setZeroDisplayResponse(executionLogMap.get("deviceValue") + "");
-                    report.setZeroCalibrationResponse(executionLogMap.get("stdValue") + "");
-                    report.setZeroDriftResult(executionLogMap.get("resultValue") + "");
-                }
-                  // TODO 暂时为标准浓度值，实际取稳定6分钟，其中的一个值)。
-                String zeroCalibrationResult = (boolean) executionLogMap.getOrDefault("isPass", false) ? "合格": "不合格";
-                report.setZeroCalibrationResult(zeroCalibrationResult);
-
-            } else if (record.getQualityControlType().equals(SPAN_CHECK.getCode())){
-                // 从record中获取跨度数据
-                report.setSpan80StartTime(sdf.format(record.getStartTime()));
-                report.setSpan80EndTime(sdf.format(record.getEndTime()));
-                // 解析record.getExecutionLog(),将JsonString转换成Map
-                Map<String, Object> resultEvaluation= JsonUtils.parseNonStandardMap(record.getExecutionLog(), String.class, Object.class);
-                // {"resultValue":1.1075928,"checkCalibLimit":10.0,"stdValue":40000.0,"deviceValue":39556.96,"checkPassLimit":5.0}
-                report.setSpan80DriftResult(resultEvaluation.get("resultValue") + "");
-                if(record.getParameter().equals("4")){
-                    try {
-                        report.setSpan80StandardConcentration((Double)resultEvaluation.get("stdValue")/1000 + "");
-                        report.setSpan80DisplayResponse((Double)resultEvaluation.get("deviceValue")/1000 + "");
-                        report.setSpan80CalibrationResponse((Double)resultEvaluation.get("stdValue")/1000 + "");
-                    }catch (Exception e){
-                        report.setSpan80StandardConcentration(resultEvaluation.get("stdValue") + "");
-                        report.setSpan80DisplayResponse(resultEvaluation.get("deviceValue") + "");
-                        report.setSpan80CalibrationResponse(resultEvaluation.get("stdValue") + "");
-                    }
-                }else{
-                    report.setSpan80StandardConcentration(resultEvaluation.get("stdValue") + "");
-                    report.setSpan80DisplayResponse(resultEvaluation.get("deviceValue") + "");
-                    report.setSpan80CalibrationResponse(resultEvaluation.get("stdValue") + "");
-                }
-                  // TODO 暂时为标准浓度值，实际取稳定6分钟，其中的一个值)。
-                String spanCalibrationResult = (boolean) resultEvaluation.getOrDefault("isPass", false) ? "合格": "不合格";
-                report.setSpanCalibrationResult(spanCalibrationResult);
-            } else {
-                throw new RuntimeException("Invalid report type for ZeroAndSpanReport: " + record.getQualityControlType());
+        Date kpStart = null;
+        Date kpEnd = null;
+        for (EnvQualityControlRecords r : new EnvQualityControlRecords[]{zero, span}) {
+            if (r == null) {
+                continue;
+            }
+            Date s = r.getStartTime();
+            Date e = r.getEndTime() != null ? r.getEndTime() : r.getStartTime();
+            if (s != null && (kpStart == null || s.before(kpStart))) {
+                kpStart = s;
+            }
+            if (e != null && (kpEnd == null || e.after(kpEnd))) {
+                kpEnd = e;
             }
         }
-        report.setReportNote(reportNote);   // 备注 默认是质控记录结果评价
-
-        // 关键参数
-        List< Map<String, Object> > keyParameters = queryKeyParameters(records_0.getStartTime(), records_0.getEndTime(), param, device.getId());
+        if (kpStart == null) {
+            kpStart = anchor.getStartTime();
+        }
+        if (kpEnd == null) {
+            kpEnd = anchor.getEndTime() != null ? anchor.getEndTime() : anchor.getStartTime();
+        }
+        Date[] readWin = firstReadPhaseWindowForKeyParameters(zero, span);
+        if (readWin != null) {
+            kpStart = readWin[0];
+            kpEnd = readWin[1];
+        }
+        List<Map<String, Object>> keyParameters = ReportGenerator.mergeKeyParameterSnapshotsFromRecords(zero, span);
+        if (keyParameters.isEmpty()) {
+            keyParameters = queryKeyParameters(kpStart, kpEnd, param, device.getId());
+        }
         report.setKeyParameters(keyParameters);
 
         return report;
+    }
+
+    private String fmtTime(Date d) {
+        return d != null ? sdf.format(d) : "";
+    }
+
+    private void applyZeroMetrics(Map<String, Object> executionLogMap, String parameterCode) {
+        if (executionLogMap == null || executionLogMap.isEmpty()) {
+            return;
+        }
+        if ("4".equals(parameterCode)) {
+            try {
+                report.setZeroStandardConcentration(((Number) executionLogMap.get("stdValue")).doubleValue() / 1000 + "");
+                report.setZeroDisplayResponse(((Number) executionLogMap.get("deviceValue")).doubleValue() / 1000 + "");
+                report.setZeroCalibrationResponse(((Number) executionLogMap.get("stdValue")).doubleValue() / 1000 + "");
+                report.setZeroDriftResult(((Number) executionLogMap.get("resultValue")).doubleValue() / 1000 + "");
+            } catch (Exception e) {
+                report.setZeroStandardConcentration(String.valueOf(executionLogMap.get("stdValue")));
+                report.setZeroDisplayResponse(String.valueOf(executionLogMap.get("deviceValue")));
+                report.setZeroCalibrationResponse(String.valueOf(executionLogMap.get("stdValue")));
+                report.setZeroDriftResult(String.valueOf(executionLogMap.get("resultValue")));
+            }
+        } else {
+            report.setZeroStandardConcentration(String.valueOf(executionLogMap.get("stdValue")));
+            report.setZeroDisplayResponse(String.valueOf(executionLogMap.get("deviceValue")));
+            report.setZeroCalibrationResponse(String.valueOf(executionLogMap.get("stdValue")));
+            report.setZeroDriftResult(String.valueOf(executionLogMap.get("resultValue")));
+        }
+    }
+
+    private void applySpanMetrics(Map<String, Object> resultEvaluation, String parameterCode) {
+        if (resultEvaluation == null || resultEvaluation.isEmpty()) {
+            return;
+        }
+        report.setSpan80DriftResult(String.valueOf(resultEvaluation.get("resultValue")));
+        if ("4".equals(parameterCode)) {
+            try {
+                report.setSpan80StandardConcentration(((Number) resultEvaluation.get("stdValue")).doubleValue() / 1000 + "");
+                report.setSpan80DisplayResponse(((Number) resultEvaluation.get("deviceValue")).doubleValue() / 1000 + "");
+                report.setSpan80CalibrationResponse(((Number) resultEvaluation.get("stdValue")).doubleValue() / 1000 + "");
+            } catch (Exception e) {
+                report.setSpan80StandardConcentration(String.valueOf(resultEvaluation.get("stdValue")));
+                report.setSpan80DisplayResponse(String.valueOf(resultEvaluation.get("deviceValue")));
+                report.setSpan80CalibrationResponse(String.valueOf(resultEvaluation.get("stdValue")));
+            }
+        } else {
+            report.setSpan80StandardConcentration(String.valueOf(resultEvaluation.get("stdValue")));
+            report.setSpan80DisplayResponse(String.valueOf(resultEvaluation.get("deviceValue")));
+            report.setSpan80CalibrationResponse(String.valueOf(resultEvaluation.get("stdValue")));
+        }
     }
     /**
      * 组装报表数据
@@ -654,7 +758,7 @@ class GenMultiCheckReport extends ReportGenerator{
         // 从质控记录的日志ExecutionLog中解析质控报表数据
         // {"correlation":-0.0421348,"check_b_scope":5.0,"intercept":3.078246,"deviceValues":[0.4,6.05,3.3,2.8,2.7,2.7],"check_a_max":1.05,"stdValues":[0.0,50.0,100.0,200.0,300.0,400.0],"check_r_min":0.999,"check_a_min":0.95,"slope":-4.947389E-4}
         String executionLog = record.getExecutionLog();
-        Map<String, Object> executionLogMap = JsonUtils.parseMap(executionLog, String.class, Object.class);
+        Map<String, Object> executionLogMap = QualityControlExecutionLogHelper.metricsForReport(executionLog);
         report.setFormula("Y = aX + b");  // 公式
         report.setA(executionLogMap.get("slope") + "");
         report.setB(executionLogMap.get("intercept") + "");
@@ -665,7 +769,7 @@ class GenMultiCheckReport extends ReportGenerator{
         List<Float> instrumentResponse = convertToFloatList(executionLogMap.get("deviceValues"));
         report.setInstrumentResponses(instrumentResponse);
 
-        String calibrationResult = (boolean) executionLogMap.getOrDefault("isPass", false) ? "合格": "不合格";
+        String calibrationResult = QualityControlExecutionLogHelper.readBoolean(executionLogMap, "isPass") ? "合格": "不合格";
         report.setCalibrationResult(calibrationResult);
 
         return report;
@@ -772,7 +876,7 @@ class GenPrecisionReport extends ReportGenerator{
         report.setReportName(device.getName() + report.getReportName());
         // 从质控记录的日志ExecutionLog中解析质控报表数据
         String executionLog = record.getExecutionLog();
-        Map<String, Object> executionLogMap = JsonUtils.parseMap(executionLog, String.class, Object.class);
+        Map<String, Object> executionLogMap = QualityControlExecutionLogHelper.metricsForReport(executionLog);
         Float precision = convertToFloat(executionLogMap.get("precision"));  // 精密度 相对标准偏差
         Float mean = convertToFloat(executionLogMap.get("mean"));  // 平均值
         Float standardDeviation = convertToFloat(executionLogMap.get("standardDeviation"));  // 标准偏差
@@ -782,7 +886,7 @@ class GenPrecisionReport extends ReportGenerator{
         report.setInstrumentResponses(instrumentResponse);
         report.setRelativeStandardDeviation(precision);
 
-        String calibrationResult = (boolean) executionLogMap.getOrDefault("isPass", false) ? "合格": "不合格";
+        String calibrationResult = QualityControlExecutionLogHelper.readBoolean(executionLogMap, "isPass") ? "合格": "不合格";
         report.setCalibrationResult(calibrationResult);
 
         return report;
@@ -846,6 +950,7 @@ class GenAccuracyReport extends ReportGenerator {
         this.core = core;
         report = new AccuracyReport();
         report = parseRecordToReport(record);
+        report.setComponent(ReportTypeEnum.ACCURACY.getComponent());
 
         Map<String, Object> reportData = constructReportContent();
         report.setReportData(reportData);
@@ -876,7 +981,7 @@ class GenAccuracyReport extends ReportGenerator {
         report.setReportName(device.getName() + report.getReportName());
         // 从质控记录的日志ExecutionLog中解析质控报表数据
         String executionLog = record.getExecutionLog();
-        Map<String, Object> executionLogMap = JsonUtils.parseMap(executionLog, String.class, Object.class);
+        Map<String, Object> executionLogMap = QualityControlExecutionLogHelper.metricsForReport(executionLog);
         report.setFormula("Y = aX + b");  // 公式
         report.setA(executionLogMap.get("slope") + "");
         report.setB(executionLogMap.get("intercept") + "");
@@ -888,7 +993,7 @@ class GenAccuracyReport extends ReportGenerator {
         List<Float> instrumentResponse = convertToFloatList(executionLogMap.get("deviceValues"));
         report.setInstrumentResponses(instrumentResponse);
 
-        String calibrationResult = (boolean) executionLogMap.getOrDefault("isPass", false) ? "合格": "不合格";
+        String calibrationResult = QualityControlExecutionLogHelper.readBoolean(executionLogMap, "isPass") ? "合格": "不合格";
         report.setCalibrationResult(calibrationResult);
 
         return report;
@@ -967,6 +1072,7 @@ class GenConversionReport extends ReportGenerator {
         this.core = core;
         report = new ConversionReport();
         report = parseRecordToReport(record);
+        report.setComponent(ReportTypeEnum.CONVERSION.getComponent());
 
         Map<String, Object> reportData = constructReportContent();
         report.setReportData(reportData);
@@ -1004,7 +1110,7 @@ class GenConversionReport extends ReportGenerator {
         
         // 从质控记录的日志ExecutionLog中解析质控报表数据
         String executionLog = record.getExecutionLog();
-        Map<String, Object> executionLogMap = JsonUtils.parseMap(executionLog, String.class, Object.class);
+        Map<String, Object> executionLogMap = QualityControlExecutionLogHelper.metricsForReport(executionLog);
         
         // 使用NO2进行转换效率测试
         report.setOrigNo2Datas(convertToFloatList(executionLogMap.get("remNo2Datas")));
@@ -1022,7 +1128,7 @@ class GenConversionReport extends ReportGenerator {
         report.setOrigNoxAvg(convertToFloat(executionLogMap.get("origNoxAvg")));
         report.setNoEfficiency(executionLogMap.get("efficiency") + "");
 
-        String calibrationResult = (boolean) executionLogMap.getOrDefault("isPass", false) ? "合格": "不合格";
+        String calibrationResult = QualityControlExecutionLogHelper.readBoolean(executionLogMap, "isPass") ? "合格": "不合格";
         report.setCalibrationResult(calibrationResult);
 
         return report;
@@ -1111,6 +1217,7 @@ class GenTransferAndTraceReport extends ReportGenerator {
         this.core = core;
         report = new TransferAndTraceReport();
         report = parseRecordToReport(record);
+        report.setComponent(ReportTypeEnum.CALIBRATION.getComponent());
 
         Map<String, Object> reportData = constructReportContent();
         report.setReportData(reportData);
@@ -1174,8 +1281,6 @@ class GenAuditSpanReport extends ReportGenerator {
 
     private EcatCore core;
 
-    private IRealdataService realdataService;
-
     @Getter
     private AuditSpanReport report;
 
@@ -1198,61 +1303,6 @@ class GenAuditSpanReport extends ReportGenerator {
         report.setReportData(reportData);
         String reportContent = JsonUtils.toJsonString(reportData);
         report.setReportContent(reportContent);
-    }
-
-    /**
-     * 获取关键参数
-     * 查询实时数据表，获取某段时间内的数据
-     * @example
-     * <pre>
-     *  keyParameters.add(new HashMap<String, Object>() {{
-     *      put("tName", "Flow");
-     *      put("tValue", "1.2L/min");
-     *      put("tRange", "0~100L/min");
-     *      put("tRemark", "处理记录111");
-     *  }});
-     *  keyParameters.add(new HashMap<String, Object>() {{
-     *      put("tName", "GasPressure");
-     *      put("tValue", "50.0psi");
-     *      put("tRange", "-50~50.0psi");
-     *      put("tRemark", "处理记录222");
-     *  }});
-     * @param beginPickTime 开始时间
-     * @param  endPickTime 结束时间
-     */
-    private List< Map<String, Object> > queryKeyParameters(Date beginPickTime, Date endPickTime, String param, String deviceId) {
-        // xxx监测仪 | esa-co | esa-no2 | esa-o3 | esa-so2 |
-        List<String> types = new ArrayList<>();
-        types.add("Flow");  // 流量
-        types.add("SampleP");  // 采样压力
-        types.add("GasPressure");  // 气体压力
-        types.add("GasT");  // 气体温度
-        types.add("InternalTemp");  // 内部温度
-        types.add(param + "_concentration");  // XX浓度
-
-        Map<String, Object> queryParams = new HashMap<>();
-        queryParams.put("beginPickTime", beginPickTime);
-        queryParams.put("endPickTime", endPickTime);
-        queryParams.put("pids", types);
-        queryParams.put("sid", deviceId);
-
-        // 实时数据获取关键参数，每种参数取一条
-        if (mry == null) {
-            mry = (EcatCoreRuoyiIntegration) core.getIntegrationRegistry().getIntegration("integration-ecat-core-ruoyi");
-        }
-        realdataService = mry.getSpringBean(IRealdataService.class);
-        List< Map<String, Object> > keyDatas = realdataService.selectDistinctTypeData(queryParams);
-
-        List< Map<String, Object> > keyParameters = new ArrayList<>();
-        for (Map<String, Object> keyData : keyDatas) {
-            keyParameters.add(new HashMap<String, Object>() {{
-                put("tName", keyData.getOrDefault("pn", ""));
-                put("tValue", keyData.getOrDefault("value", "")+ " " +keyData.getOrDefault("unit_name", ""));
-                put("tRange", keyData.getOrDefault("range", ""));
-                put("tRemark", keyData.getOrDefault("remark", ""));
-            }});
-        }
-        return keyParameters;
     }
 
     /**
@@ -1309,8 +1359,16 @@ class GenAuditSpanReport extends ReportGenerator {
         }
         report.setReportNote(reportNote);   // 备注 默认是质控记录结果评价
 
-        // 关键参数
-        List< Map<String, Object> > keyParameters = queryKeyParameters(records_0.getStartTime(), records_0.getEndTime(), param, device.getId());
+        // 关键参数：优先 execution_log 根级快照；否则按读数相位时间窗（qcPhaseTimelines）回退查询
+        List<Map<String, Object>> keyParameters = new ArrayList<>();
+        appendKeySnapshotRows(keyParameters, records_0);
+        if (keyParameters.isEmpty()) {
+            Date[] readWin = QualityControlExecutionLogHelper.resolveReadPhaseWindowForKeyParameters(records_0.getExecutionLog());
+            Date kpStart = readWin != null ? readWin[0] : records_0.getStartTime();
+            Date kpEnd = readWin != null ? readWin[1]
+                    : (records_0.getEndTime() != null ? records_0.getEndTime() : records_0.getStartTime());
+            keyParameters = queryKeyParameters(kpStart, kpEnd, param, device.getId());
+        }
         report.setKeyParameters(keyParameters);
 
         return report;

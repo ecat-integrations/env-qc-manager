@@ -1,4 +1,4 @@
-package com.ecat.integration.EnvQualityControlManagerIntegration.tasks;
+package com.ecat.integration.EnvQualityControlManagerIntegration.util;
 
 import lombok.Getter;
 
@@ -6,9 +6,7 @@ import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * 报告类型枚举
- */
+/** 报告类型 */
 public enum ReportTypeEnum {
     ZERO_SPAN("1", "zero_span", "零点和跨度检查", "ReportD2"),
     MULTI("2", "multi", "多点检查", "ReportD3"),
@@ -34,7 +32,6 @@ public enum ReportTypeEnum {
         this.component = component;
     }
 
-    // 获取所有参数
     public static Set<String> getAllReportTypeSet() {
         return Arrays.stream(values()).map(ReportTypeEnum::name).collect(Collectors.toSet());
     }

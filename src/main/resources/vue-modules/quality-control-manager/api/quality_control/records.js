@@ -17,6 +17,14 @@ export function getRecords(id) {
   })
 }
 
+// 质控结果预览（与报表生成同源）
+export function getReportPreview(id) {
+  return request({
+    url: '/quality_control/records/' + id + '/report_preview',
+    method: 'get'
+  })
+}
+
 // 新增质控记录
 export function addRecords(data) {
   return request({

@@ -8,7 +8,7 @@ import com.ecat.core.Integration.IIntegrationTaskManagement;
 import com.ecat.core.Integration.IntegrationBase;
 import com.ecat.core.Task.TaskExecutor;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
-import com.ecat.integration.EnvDeviceCalibrationIntegration.ExecutorBase;
+import com.ecat.integration.EnvCalibrationComposerIntegration.AbstractCalibrationFlow;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.EnvQualityControlCustomTask;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.EnvQualityControlGenReportTask;
@@ -20,7 +20,7 @@ public class EnvQualityControlManagerIntegration extends IntegrationBase  implem
 
     private TaskExecutor taskExecutor;
 
-    public Map<Long, ExecutorBase> executorMap = new HashMap<>();;
+    public Map<Long, AbstractCalibrationFlow> executorMap = new HashMap<>();
     @Override
     public void onInit() {
         System.out.println("EnvQualityControlManagerIntegration initialized");

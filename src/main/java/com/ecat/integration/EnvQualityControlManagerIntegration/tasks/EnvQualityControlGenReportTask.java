@@ -5,6 +5,9 @@ import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
 import com.ecat.core.Task.Task;
 import com.ecat.core.Utils.DynamicConfig.*;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlReport;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ReportTypeEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.TaskTypeEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlReportService;
 import com.ruoyi.common.utils.DateUtils;
 import lombok.Getter;
@@ -26,7 +29,7 @@ import java.util.stream.Collectors;
  * 及<a href="#">监测仪器<a/>自动校准条件定期或及时地对仪器进行校准、性能审核，从而生成报表
  * </>
  * @author caohongbo
- * @version 1.0
+ * @version 2.0
  * @description
  */
 @Component

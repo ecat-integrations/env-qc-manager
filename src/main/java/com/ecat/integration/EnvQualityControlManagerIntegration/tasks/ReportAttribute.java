@@ -1,7 +1,7 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.tasks;
 
-import com.ecat.integration.EnvDeviceCalibrationIntegration.AuditCheckResultItem;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlReport;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ReportTypeEnum;
 import lombok.Data;
 
 import java.util.*;

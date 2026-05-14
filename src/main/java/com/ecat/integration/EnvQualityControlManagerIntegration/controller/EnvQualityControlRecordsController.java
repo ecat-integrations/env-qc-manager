@@ -3,6 +3,7 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.controller;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import javax.servlet.http.HttpServletResponse;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,8 +19,11 @@ import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
+import com.ecat.core.EcatCore;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
+import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ReportGenerator;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ExecutionStatusEnum;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
 
@@ -35,6 +39,9 @@ public class EnvQualityControlRecordsController extends BaseController
 {
     @Autowired
     private IEnvQualityControlRecordsService envQualityControlRecordsService;
+
+    @Autowired
+    private EcatCore core;
 
     /**
      * 查询质控记录列表
@@ -69,6 +76,29 @@ public class EnvQualityControlRecordsController extends BaseController
     public AjaxResult getInfo(@PathVariable("id") Long id)
     {
         return success(envQualityControlRecordsService.selectEnvQualityControlRecordsById(id));
+    }
+
+    /**
+     * 单条成功质控记录的「质控结果」预览数据（与定时任务报表生成器同源 {@link ReportGenerator#buildSingleRecordPreviewPayload}）。
+     */
+    @PreAuthorize("@ss.hasPermi('quality_control:records:query')")
+    @GetMapping(value = "/{id}/report_preview")
+    public AjaxResult reportPreview(@PathVariable("id") Long id)
+    {
+        EnvQualityControlRecords r = envQualityControlRecordsService.selectEnvQualityControlRecordsById(id);
+        if (r == null) {
+            return error("记录不存在");
+        }
+        if (!Objects.equals(r.getExecutionStatus(), ExecutionStatusEnum.SUCCESS.getCode())) {
+            return error("仅成功结束的记录可查看质控结果");
+        }
+        try {
+            return success(ReportGenerator.buildSingleRecordPreviewPayload(core, r));
+        } catch (IllegalArgumentException e) {
+            return error(e.getMessage());
+        } catch (Exception e) {
+            return error("生成质控结果预览失败：" + e.getMessage());
+        }
     }
 
     /**

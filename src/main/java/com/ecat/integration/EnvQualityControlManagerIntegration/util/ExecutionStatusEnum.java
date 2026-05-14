@@ -1,20 +1,14 @@
-package com.ecat.integration.EnvQualityControlManagerIntegration.tasks;
+package com.ecat.integration.EnvQualityControlManagerIntegration.util;
 
 import lombok.Getter;
 
-/**
- * ExecutionStatusEnum
- *
- * @author caohongbo
- * @description
- */ // 执行状态枚举
+/** 质控记录执行状态 */
 public enum ExecutionStatusEnum {
     WAITING(0L, "等待中"),
     RUNNING(1L, "执行中"),
     SUCCESS(2L, "成功"),
     FAILED(3L, "失败"),
     STOPING(4L, "中止中");
-
 
     @Getter
     private final Long code;

@@ -6,7 +6,6 @@ import com.ecat.core.Device.DeviceRegistry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
-import com.ecat.integration.EnvDataManagerIntegration.service.IRealdataService;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlReport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
@@ -47,9 +46,6 @@ class ReportGeneratorTest {
     @Mock
     private IEnvQualityControlRecordsService mockQualityControlRecordsService;
 
-    @Mock
-    private IRealdataService mockRealdataService;
-
     private ReportGenerator reportGenerator;
 
     private Date startTime;
@@ -69,7 +65,6 @@ class ReportGeneratorTest {
         lenient().when(mockEcatCore.getIntegrationRegistry()).thenReturn(mockRegistry);
         lenient().when(mockRegistry.getIntegration("integration-ecat-core-ruoyi")).thenReturn(mockMry);
         lenient().when(mockMry.getSpringBean(IEnvQualityControlRecordsService.class)).thenReturn(mockQualityControlRecordsService);
-        lenient().when(mockMry.getSpringBean(IRealdataService.class)).thenReturn(mockRealdataService);
         lenient().when(mockEcatCore.getDeviceRegistry()).thenReturn(mockDeviceRegistry);
 
         // 创建 ReportGenerator 实例

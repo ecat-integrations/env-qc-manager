@@ -1,4 +1,4 @@
-package com.ecat.integration.EnvQualityControlManagerIntegration.tasks;
+package com.ecat.integration.EnvQualityControlManagerIntegration.util;
 
 import lombok.Getter;
 
@@ -6,12 +6,7 @@ import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * QualityControlTypeEnum
- *
- * @author caohongbo
- * @description
- */ // 质控类型枚举
+/** 质控类型 */
 public enum QualityControlTypeEnum {
     ZERO_CHECK("0", "zero_check", "air.monitor.calibration.zero_check", "零点校准"),
     SPAN_CHECK("1", "span_check", "air.monitor.calibration.span_check", "跨度校准"),
@@ -37,7 +32,6 @@ public enum QualityControlTypeEnum {
         this.displayName = displayName;
     }
 
-    // 返回所有质控类型的name Set
     public static Set<String> getAllQualityControlTypeNameSet() {
         return Arrays.stream(values()).map(QualityControlTypeEnum::getName).collect(Collectors.toSet());
     }

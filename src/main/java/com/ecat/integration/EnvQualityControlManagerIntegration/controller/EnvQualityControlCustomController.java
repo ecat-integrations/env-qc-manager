@@ -1,9 +1,7 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.controller;
 
-import com.ecat.core.Device.DeviceRegistry;
 import com.ecat.core.EcatCore;
-import com.ecat.integration.EnvDeviceCalibrationIntegration.AuditCheckExecuteParam;
-import com.ecat.integration.EnvDeviceCalibrationIntegration.EnvDeviceCalibrationIntegration;
+import com.ecat.integration.EnvCalibrationComposerIntegration.EnvCalibrationComposerIntegration;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlCustomService;
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.domain.AjaxResult;
@@ -13,7 +11,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
-import java.util.concurrent.ExecutorService;
 
 // 实际业务接口
 /**
@@ -32,11 +29,6 @@ public class EnvQualityControlCustomController {
 
     @Autowired
     private IEnvQualityControlCustomService envQualityControlCustomService;
-
-    private AuditCheckExecuteParam params;
-    private EnvDeviceCalibrationIntegration integration;
-    private DeviceRegistry deviceRegistry;
-    private ExecutorService executor;
 
     /**
      * 立即执行自定义质控任务
@@ -68,8 +60,8 @@ public class EnvQualityControlCustomController {
     @Log(title = "质控管理", businessType = BusinessType.OTHER)
     @GetMapping("/is_executor_free")
     public AjaxResult isCalibTaskRunning() {
-        EnvDeviceCalibrationIntegration integration = (EnvDeviceCalibrationIntegration) core.getIntegrationRegistry().getIntegration("integration-env-device-calibration");
-        boolean isRunning = integration.isRunning();
+        EnvCalibrationComposerIntegration integration = (EnvCalibrationComposerIntegration) core.getIntegrationRegistry().getIntegration("integration-env-calibration-composer");
+        boolean isRunning = Boolean.TRUE.equals(integration.isRunning());
         if (isRunning) {
             return AjaxResult.warn("有执行中的任务正在执行");
         } else {

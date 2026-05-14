@@ -3,7 +3,7 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.service.impl;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlReport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.EnvQualityControlReportMapper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlReportService;
-import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.JsonUtils;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.JsonUtils;
 import com.ruoyi.common.utils.DateUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;

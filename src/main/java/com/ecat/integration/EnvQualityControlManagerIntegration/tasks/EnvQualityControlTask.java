@@ -5,19 +5,22 @@ import com.ecat.core.EcatCore;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
 import com.ecat.core.Task.Task;
 import com.ecat.core.Utils.DynamicConfig.*;
-import com.ecat.integration.EnvDeviceCalibrationIntegration.*;
+import com.ecat.integration.EnvCalibrationComposerIntegration.*;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
 import com.ruoyi.common.utils.DateUtils;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.Getter;
+import com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ExecutionStatusEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDeviceReportSupport;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionLogHelper;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.TaskTypeEnum;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.math.BigDecimal;
 import java.util.*;
-import java.util.stream.Collectors;
+import java.util.concurrent.CompletableFuture;
 
 public class EnvQualityControlTask extends Task {
     private DeviceRegistry deviceRegistry;
@@ -29,9 +32,9 @@ public class EnvQualityControlTask extends Task {
 
     public static final Map<String, String> parameterMap = new HashMap<>();
 
-    private Map<Long, ExecutorBase> executorMap;
+    private Map<Long, AbstractCalibrationFlow> executorMap;
 
-    public EnvQualityControlTask(Map<Long, ExecutorBase> executorMap){
+    public EnvQualityControlTask(Map<Long, AbstractCalibrationFlow> executorMap){
         this.executorMap = executorMap;
     }
     @Override
@@ -71,135 +74,166 @@ public class EnvQualityControlTask extends Task {
      * @param params 入参
      * @param result 执行结果
      * @param envQualityControlTypeCode 质控类型code
+     * @param qcRecordId 小于 0 时不写入关键参数快照（失败路径等）；否则在任务完成时刻抓取当前分析仪关键参数（编排器后续写入 {@link QualityControlExecutionLogHelper#QC_PHASE_TIMELINES_KEY} 时，报告侧优先按读数相位时间窗回退）。
      * @return 记录质控最终入库的参数+结果
      */
-    protected String constructResult(Map<String, Object> params, ExecutorResultBase result, String envQualityControlTypeCode) {
+    protected String constructResult(EcatCore core, Map<String, Object> params, ExecutorResultBase result,
+                                       String envQualityControlTypeCode, long qcRecordId) {
 
-        // deal result
-        Map<String, Object> resultContent = new HashMap<>();
-        resultContent.put("params", params);
-        // TODO: 将结果添加到{"result": ...}中, 将执行状态等添加到{"statusMap": ...}中
+        Map<String, Object> serializableParams = new LinkedHashMap<>();
+        if (params != null) {
+            for (Map.Entry<String, Object> e : params.entrySet()) {
+                Object v = e.getValue();
+                if (QualityControlExecutionLogHelper.QC_PHASE_TIMELINES_KEY.equals(e.getKey()) && v instanceof List) {
+                    serializableParams.put(e.getKey(), new ArrayList<>((List<?>) v));
+                    continue;
+                }
+                if (v == null || v instanceof String || v instanceof Number || v instanceof Boolean) {
+                    serializableParams.put(e.getKey(), v);
+                }
+            }
+        }
+
+        Map<String, Object> metrics = new LinkedHashMap<>();
+
         if (envQualityControlTypeCode.equals(QualityControlTypeEnum.ZERO_CHECK.getCode())) {
             CheckResult checkResult = (CheckResult) result;
-            float resultValue = checkResult.getResult();  // 漂移量 nmol/mol
+            float resultValue = checkResult.getResult();
             float stdValue = checkResult.getStdValue();
             float deviceValue = checkResult.getDeviceValue();
             float checkPassLimit = checkResult.getCheckPassLimit();
             float checkCalibLimit = checkResult.getCheckCalibLimit();
-            resultContent.put("resultValue", resultValue);
-            resultContent.put("stdValue", stdValue);
-            resultContent.put("deviceValue", deviceValue);
-            resultContent.put("checkPassLimit", checkPassLimit);
-            resultContent.put("checkCalibLimit", checkCalibLimit);
-            resultContent.put("isPass", result.isPass());
-            // 保留两位小数
-            // double resultValue = ((CheckResult) result).getResult();
-            // BigDecimal bdResultValue = new BigDecimal(resultValue);
-            // resultValue = bdResultValue.setScale(2, BigDecimal.ROUND_HALF_UP).doubleValue();
+            metrics.put("resultValue", resultValue);
+            metrics.put("stdValue", stdValue);
+            metrics.put("deviceValue", deviceValue);
+            metrics.put("checkPassLimit", checkPassLimit);
+            metrics.put("checkCalibLimit", checkCalibLimit);
+            metrics.put("isPass", result.isPass());
 
         } else if (envQualityControlTypeCode.equals(QualityControlTypeEnum.SPAN_CHECK.getCode())) {
             CheckResult checkResult = (CheckResult) result;
-            float resultValue = checkResult.getResult();  // 漂移量 %
+            float resultValue = checkResult.getResult();
             float stdValue = checkResult.getStdValue();
             float deviceValue = checkResult.getDeviceValue();
             float checkPassLimit = checkResult.getCheckPassLimit();
             float checkCalibLimit = checkResult.getCheckCalibLimit();
-            resultContent.put("resultValue", resultValue);
-            resultContent.put("stdValue", stdValue);
-            resultContent.put("deviceValue", deviceValue);
-            resultContent.put("checkPassLimit", checkPassLimit);
-            resultContent.put("checkCalibLimit", checkCalibLimit);
-            resultContent.put("isPass", result.isPass());
+            metrics.put("resultValue", resultValue);
+            metrics.put("stdValue", stdValue);
+            metrics.put("deviceValue", deviceValue);
+            metrics.put("checkPassLimit", checkPassLimit);
+            metrics.put("checkCalibLimit", checkCalibLimit);
+            metrics.put("isPass", result.isPass());
 
         } else if (envQualityControlTypeCode.equals(QualityControlTypeEnum.MULTI_CHECK.getCode())) {
             MultiResult multiResult = (MultiResult) result;
-            float slope = multiResult.getSlope(); // 斜率
-            float intercept = multiResult.getIntercept(); // 截距
-            float correlation = multiResult.getCorrelation(); // 相关系数
-            List<Float> deviceValues = multiResult.getDeviceValues(); // 检查值列表
-            List<Float> stdValues = multiResult.getStdValues(); // 标准值列表
+            float slope = multiResult.getSlope();
+            float intercept = multiResult.getIntercept();
+            float correlation = multiResult.getCorrelation();
+            List<Float> deviceValues = multiResult.getDeviceValues();
+            List<Float> stdValues = multiResult.getStdValues();
             float check_r_min = multiResult.getCheck_r_min();
             float check_a_max = multiResult.getCheck_a_max();
             float check_a_min = multiResult.getCheck_a_min();
             float check_b_scope = multiResult.getCheck_b_scope();
-            resultContent.put("slope", slope);
-            resultContent.put("intercept", intercept);
-            resultContent.put("correlation", correlation);
-            resultContent.put("deviceValues", deviceValues);
-            resultContent.put("stdValues", stdValues);
-            resultContent.put("check_r_min", check_r_min);
-            resultContent.put("check_a_max", check_a_max);
-            resultContent.put("check_a_min", check_a_min);
-            resultContent.put("check_b_scope", check_b_scope);
-            resultContent.put("isPass", result.isPass());
+            metrics.put("slope", slope);
+            metrics.put("intercept", intercept);
+            metrics.put("correlation", correlation);
+            metrics.put("deviceValues", deviceValues);
+            metrics.put("stdValues", stdValues);
+            metrics.put("check_r_min", check_r_min);
+            metrics.put("check_a_max", check_a_max);
+            metrics.put("check_a_min", check_a_min);
+            metrics.put("check_b_scope", check_b_scope);
+            metrics.put("isPass", result.isPass());
 
         } else if (envQualityControlTypeCode.equals(QualityControlTypeEnum.PRECISION_CHECK.getCode())) {
             PrecisionResult precisionResult = (PrecisionResult) result;
-            float precision = precisionResult.getPrecision(); // 精密度, 相对标准偏差
-            float mean = precisionResult.getMean(); // 平均值
-            float standardDeviation = precisionResult.getStandardDeviation(); // 标准偏差
-            float checkRsd20Max = precisionResult.getCheckRsd20Max(); // 20%满量程的相对标准偏差最大值
-            float deviceStdGas = precisionResult.getDeviceStdGas(); // 通入设备的标气浓度，nmol/mol or ppb
-            List<Float> deviceValues = precisionResult.getDeviceValues(); // 响应值列表
-            resultContent.put("precision", precision);
-            resultContent.put("mean", mean);
-            resultContent.put("standardDeviation", standardDeviation);
-            resultContent.put("deviceStdGas", deviceStdGas);
-            resultContent.put("checkRsd20Max", checkRsd20Max);
-            resultContent.put("deviceValues", deviceValues);
-            resultContent.put("isPass", result.isPass());
+            float precision = precisionResult.getPrecision();
+            float mean = precisionResult.getMean();
+            float standardDeviation = precisionResult.getStandardDeviation();
+            float checkRsd20Max = precisionResult.getCheckRsd20Max();
+            float deviceStdGas = precisionResult.getDeviceStdGas();
+            List<Float> deviceValues = precisionResult.getDeviceValues();
+            metrics.put("precision", precision);
+            metrics.put("mean", mean);
+            metrics.put("standardDeviation", standardDeviation);
+            metrics.put("deviceStdGas", deviceStdGas);
+            metrics.put("devicesStdGas", deviceStdGas);
+            metrics.put("checkRsd20Max", checkRsd20Max);
+            metrics.put("deviceValues", deviceValues);
+            metrics.put("isPass", result.isPass());
 
         } else if (envQualityControlTypeCode.equals(QualityControlTypeEnum.ACCURACY_CHECK.getCode())) {
             AccuracyResult accuracyResult = (AccuracyResult) result;
-            float slope = accuracyResult.getSlope(); // 斜率
-            float intercept = accuracyResult.getIntercept(); // 截距
-            float correlation = accuracyResult.getCorrelation(); // 相关系数
-            List<Float> deviceValues = accuracyResult.getDeviceValues(); // 检查值列表
-            List<Float> stdValues = accuracyResult.getStdValues(); // 标准值列表
+            float slope = accuracyResult.getSlope();
+            float intercept = accuracyResult.getIntercept();
+            float correlation = accuracyResult.getCorrelation();
+            List<Float> deviceValues = accuracyResult.getDeviceValues();
+            List<Float> stdValues = accuracyResult.getStdValues();
             float check_r_min = accuracyResult.getCheck_r_min();
             float check_a_max = accuracyResult.getCheck_a_max();
             float check_a_min = accuracyResult.getCheck_a_min();
             float check_b_scope = accuracyResult.getCheck_b_scope();
-            resultContent.put("slope", slope);
-            resultContent.put("intercept", intercept);
-            resultContent.put("correlation", correlation);
-            resultContent.put("deviceValues", deviceValues);
-            resultContent.put("stdValues", stdValues);
-            resultContent.put("check_r_min", check_r_min);
-            resultContent.put("check_a_max", check_a_max);
-            resultContent.put("check_a_min", check_a_min);
-            resultContent.put("check_b_scope", check_b_scope);
-            resultContent.put("isPass", result.isPass());
+            metrics.put("slope", slope);
+            metrics.put("intercept", intercept);
+            metrics.put("correlation", correlation);
+            metrics.put("deviceValues", deviceValues);
+            metrics.put("stdValues", stdValues);
+            metrics.put("check_r_min", check_r_min);
+            metrics.put("check_a_max", check_a_max);
+            metrics.put("check_a_min", check_a_min);
+            metrics.put("check_b_scope", check_b_scope);
+            metrics.put("relativeError", accuracyResult.getRelativeError());
+            metrics.put("isPass", result.isPass());
 
         } else if (envQualityControlTypeCode.equals(QualityControlTypeEnum.CONVERSION_CHECK.getCode())) {
             ConversionResult conversionResult = (ConversionResult) result;
-            float efficiency = conversionResult.getEfficiency(); // 转换效率(%)
-            List<Float> origNoDatas = conversionResult.getOrigNoDatas(); // 原始NO数据
-            List<Float> origNoxDatas = conversionResult.getOrigNoxDatas(); // 原始NOx数据
-            List<Float> remNoDatas = conversionResult.getRemNoDatas(); // 滴定NO数据
-            List<Float> remNoxDatas = conversionResult.getRemNoxDatas(); // 滴定NOx数据
-            Float origNoAvg = conversionResult.getOrigNoAvg(); // 原始NO平均值
-            Float origNoxAvg = conversionResult.getOrigNoxAvg(); // 原始NOx平均值
-            Float remNoAvg = conversionResult.getRemNoAvg(); // 滴定NO平均值
-            Float remNoxAvg = conversionResult.getRemNoxAvg(); // 滴定NOx平均值
-            resultContent.put("efficiency", efficiency);
-            resultContent.put("origNoDatas", origNoDatas);
-            resultContent.put("origNoxDatas", origNoxDatas);
-            resultContent.put("origNoAvg", origNoAvg);
-            resultContent.put("origNoxAvg", origNoxAvg);
-            resultContent.put("remNoDatas", remNoDatas);
-            resultContent.put("remNoAvg", remNoAvg);
-            resultContent.put("remNoxDatas", remNoxDatas);
-            resultContent.put("remNoxAvg", remNoxAvg);
-            resultContent.put("result", result);
-            resultContent.put("isPass", result.isPass());
+            float efficiency = conversionResult.getEfficiency();
+            List<Float> origNoDatas = conversionResult.getOrigNoDatas();
+            List<Float> origNoxDatas = conversionResult.getOrigNoxDatas();
+            List<Float> remNoDatas = conversionResult.getRemNoDatas();
+            List<Float> remNoxDatas = conversionResult.getRemNoxDatas();
+            Float origNoAvg = conversionResult.getOrigNoAvg();
+            Float origNoxAvg = conversionResult.getOrigNoxAvg();
+            Float remNoAvg = conversionResult.getRemNoAvg();
+            Float remNoxAvg = conversionResult.getRemNoxAvg();
+            metrics.put("efficiency", efficiency);
+            metrics.put("origNoDatas", origNoDatas);
+            metrics.put("origNoxDatas", origNoxDatas);
+            metrics.put("origNoAvg", origNoAvg);
+            metrics.put("origNoxAvg", origNoxAvg);
+            metrics.put("remNoDatas", remNoDatas);
+            metrics.put("remNoAvg", remNoAvg);
+            metrics.put("remNoxDatas", remNoxDatas);
+            metrics.put("remNoxAvg", remNoxAvg);
+            metrics.put("isPass", result.isPass());
 
         } else {
             throw new UnsupportedOperationException("暂不支持该类型质控");
         }
-        // 将resultContent转为JSON字符串，以便于存储到数据库的text字段中
-        String resultContentJson = JsonUtils.toJsonString(resultContent);
-        return resultContentJson;
+
+        List<Map<String, Object>> keySnapshot;
+        if (qcRecordId < 0) {
+            keySnapshot = Collections.emptyList();
+        } else {
+            String paramStr = params != null ? (String) params.get("parameter") : null;
+            String gasName = paramStr != null ? ParameterEnum.valueOf(paramStr).name() : null;
+            keySnapshot = buildKeyParametersSnapshotAtComplete(core, gasName);
+        }
+        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, metrics, result, keySnapshot);
+    }
+
+    private List<Map<String, Object>> buildKeyParametersSnapshotAtComplete(EcatCore core, String gasParameterName) {
+        if (core == null || gasParameterName == null || gasParameterName.isEmpty()) {
+            return Collections.emptyList();
+        }
+        try {
+            List<Map<String, Object>> rows = LogicDeviceReportSupport.buildAnalyzerKeyParameters(core, gasParameterName);
+            return rows != null ? rows : Collections.emptyList();
+        } catch (Exception e) {
+            log.debug("keyParametersSnapshot skipped: {}", e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     @Override
@@ -239,11 +273,11 @@ public class EnvQualityControlTask extends Task {
                 throw new RuntimeException("insert records failed.");
             }
 
-            // envDeviceCalibrationIntegration instantiation
-            EnvDeviceCalibrationIntegration integration = (EnvDeviceCalibrationIntegration) core.getIntegrationRegistry().getIntegration("integration-env-device-calibration");
+            // env-calibration-composer：LogicDevice 编排校准，替代 env-device-calibration
+            EnvCalibrationComposerIntegration integration = (EnvCalibrationComposerIntegration) core.getIntegrationRegistry().getIntegration("integration-env-calibration-composer");
 
             // Check if any calibration task is running
-            if (integration.isRunning()) {
+            if (Boolean.TRUE.equals(integration.isRunning())) {
                 log.error("Calibration task exit: Other calibration task is currently running.");
                 String message = "校准任务退出 已有执行中的校准任务";
                 envQualityControlRecords.setEndTime(DateUtils.getNowDate());
@@ -265,9 +299,33 @@ public class EnvQualityControlTask extends Task {
 
             // Execute a specific calibration task
             String executerClass = QualityControlTypeEnum.valueOf(qualityControlType.toUpperCase()).getClassName();
-            ExecutorBase executor = integration.getExecutor(ExecutorType.getEnum(executerClass));
+            ExecutorType execType = ExecutorType.getEnum(executerClass);
+            String gasForComposer = LogicDeviceBindingIds.composerGasKeyFromParameterName(parameter);
+
+            Number flowRateNum = (Number) parameters.get("targetFlowLpm");
+            String qcCode = QualityControlTypeEnum.valueOf(qualityControlType.toUpperCase()).getCode();
+            boolean zeroOrSpan = QualityControlTypeEnum.ZERO_CHECK.getCode().equals(qcCode)
+                    || QualityControlTypeEnum.SPAN_CHECK.getCode().equals(qcCode);
+
+            CompletableFuture<ExecutorResultBase> calibrationFuture;
+            if (zeroOrSpan) {
+                Map<String, Object> flowParams = new HashMap<>();
+                if (flowRateNum != null) {
+                    flowParams.put("flowRateLpm", flowRateNum.floatValue());
+                }
+                float spanPpb;
+                if (QualityControlTypeEnum.ZERO_CHECK.getCode().equals(qcCode)) {
+                    spanPpb = 0f;
+                } else {
+                    spanPpb = "CO".equalsIgnoreCase(parameter) ? 40000f : 400f;
+                }
+                flowParams.put("spanConcentrationPpb", spanPpb);
+                calibrationFuture = integration.execute(execType, gasForComposer, flowParams);
+            } else {
+                calibrationFuture = integration.execute(execType, gasForComposer);
+            }
+            AbstractCalibrationFlow executor = integration.getRunningExecutor();
             executorMap.put(envQualityControlRecords.getId(), executor);
-            // Has available executor or not for this calibration task
             if (executor == null) {
                 log.error("Calibration task failed: No calibration task executor found.");
                 String message = "校准任务未执行 " + "没有可用的执行器";
@@ -278,9 +336,7 @@ public class EnvQualityControlTask extends Task {
                 envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
                 throw new RuntimeException(message);
             }
-            // Result of calibration task, support type:[ SO2, NOx, O3, CO ]
-            parameter = parameter.equals("NO2")? "NOx": parameter;
-            executor.execute(parameter).thenAccept(result -> {
+            calibrationFuture.thenAccept(result -> {
                 /**
                  * 获取执行结果
                  * 以单点为例：
@@ -299,7 +355,7 @@ public class EnvQualityControlTask extends Task {
                     throw new RuntimeException(result.getErrorMessage());
                 }
 
-                String resultContentJson = constructResult(parameters, result, envQualityControlRecords.getQualityControlType());
+                String resultContentJson = constructResult(core, parameters, result, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
 
                 // Is pass or not about the calibration
                 if (result.isPass()) {

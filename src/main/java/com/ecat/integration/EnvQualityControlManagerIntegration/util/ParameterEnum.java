@@ -1,4 +1,4 @@
-package com.ecat.integration.EnvQualityControlManagerIntegration.tasks;
+package com.ecat.integration.EnvQualityControlManagerIntegration.util;
 
 import lombok.Getter;
 
@@ -6,12 +6,7 @@ import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * ParameterEnum
- *
- * @author caohongbo
- * @description
- */ // 参数枚举
+/** 质控参数（与分析仪逻辑入口对应） */
 public enum ParameterEnum {
     SO2("1", "SO2"),
     NO2("2", "NO2"),
@@ -30,12 +25,10 @@ public enum ParameterEnum {
         this.name = name;
     }
 
-    // 根据code 返回name
     public static String getNameByCode(String code) {
         return Arrays.stream(values()).filter(item -> item.getCode().equals(code)).findFirst().map(ParameterEnum::getName).orElse(null);
     }
 
-    // 返回所有参数的name Set
     public static Set<String> getAllParameterNameSet() {
         return Arrays.stream(values()).map(ParameterEnum::getName).collect(Collectors.toSet());
     }

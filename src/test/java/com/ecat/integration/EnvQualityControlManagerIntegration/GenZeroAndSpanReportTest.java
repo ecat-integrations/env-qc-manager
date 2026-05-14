@@ -6,7 +6,6 @@ import com.ecat.core.Device.DeviceRegistry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
-import com.ecat.integration.EnvDataManagerIntegration.service.IRealdataService;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlReport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
@@ -47,9 +46,6 @@ class GenZeroAndSpanReportTest {
     @Mock
     private IEnvQualityControlRecordsService mockQualityControlRecordsService;
 
-    @Mock
-    private IRealdataService mockRealdataService;
-
     private ReportGenerator reportGenerator;
 
     private Date startTime;
@@ -69,7 +65,6 @@ class GenZeroAndSpanReportTest {
         lenient().when(mockEcatCore.getIntegrationRegistry()).thenReturn(mockRegistry);
         lenient().when(mockRegistry.getIntegration("integration-ecat-core-ruoyi")).thenReturn(mockMry);
         lenient().when(mockMry.getSpringBean(IEnvQualityControlRecordsService.class)).thenReturn(mockQualityControlRecordsService);
-        lenient().when(mockMry.getSpringBean(IRealdataService.class)).thenReturn(mockRealdataService);
         lenient().when(mockEcatCore.getDeviceRegistry()).thenReturn(mockDeviceRegistry);
 
         // 创建 ReportGenerator 实例
@@ -93,10 +88,6 @@ class GenZeroAndSpanReportTest {
         // DeviceBase calibDevice = createMockCalibDevice();
         when(mockDeviceRegistry.getDeviceByID("esa-so2")).thenReturn(so2Device);
         // when(mockDeviceRegistry.getDeviceByID("sms-calib")).thenReturn(calibDevice);
-
-        // 模拟关键参数数据
-        when(mockRealdataService.selectDistinctTypeData(any(Map.class)))
-                .thenReturn(createMockKeyParametersData());
 
         // 执行测试
         List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
@@ -137,10 +128,6 @@ class GenZeroAndSpanReportTest {
 
         // 模拟所有气体设备和校准系统
         setupMockDevices();
-
-        // 模拟关键参数数据
-        when(mockRealdataService.selectDistinctTypeData(any(Map.class)))
-                .thenReturn(createMockKeyParametersData());
 
         // 执行测试
         List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
@@ -286,42 +273,6 @@ class GenZeroAndSpanReportTest {
         lenient().when(device.getAttrs()).thenReturn(attrs);
         
         return device;
-    }
-
-    /**
-     * 创建模拟的关键参数数据
-     */
-    private List<Map<String, Object>> createMockKeyParametersData() {
-        List<Map<String, Object>> keyData = new ArrayList<>();
-        
-        // 流量
-        Map<String, Object> flow = new HashMap<>();
-        flow.put("pn", "Flow");
-        flow.put("value", 1.2);
-        flow.put("unit_name", "L/min");
-        flow.put("range", "0~5L/min");
-        flow.put("remark", "正常");
-        keyData.add(flow);
-        
-        // 采样压力
-        Map<String, Object> sampleP = new HashMap<>();
-        sampleP.put("pn", "SampleP");
-        sampleP.put("value", 101.3);
-        sampleP.put("unit_name", "kPa");
-        sampleP.put("range", "95~105kPa");
-        sampleP.put("remark", "正常");
-        keyData.add(sampleP);
-        
-        // 气体温度
-        Map<String, Object> gasT = new HashMap<>();
-        gasT.put("pn", "GasT");
-        gasT.put("value", 25.5);
-        gasT.put("unit_name", "°C");
-        gasT.put("range", "20~30°C");
-        gasT.put("remark", "正常");
-        keyData.add(gasT);
-        
-        return keyData;
     }
 
     /**

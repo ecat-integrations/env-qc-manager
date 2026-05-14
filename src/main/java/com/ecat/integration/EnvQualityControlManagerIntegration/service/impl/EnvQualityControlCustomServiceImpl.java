@@ -1,15 +1,9 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.service.impl;
 
-import com.ecat.core.Device.DeviceBase;
-import com.ecat.core.Device.DeviceRegistry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Integration.IIntegrationTaskManagement;
 import com.ecat.core.Task.Task;
-import com.ecat.integration.EnvDeviceCalibrationIntegration.AuditCheckExecuteParam;
-import com.ecat.integration.EnvDeviceCalibrationIntegration.EnvDeviceCalibrationIntegration;
-import com.ecat.integration.EnvQualityControlManagerIntegration.EnvQualityControlManagerIntegration;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlCustomService;
-import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.EnvQualityControlCustomTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +11,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
 
 /**
  * EnvQualityControlCustomServiceImpl
@@ -33,12 +26,6 @@ public class EnvQualityControlCustomServiceImpl implements IEnvQualityControlCus
     @Autowired
     private EcatCore core;
     protected final Logger log = LoggerFactory.getLogger(this.getClass());
-    private AuditCheckExecuteParam params;
-    private EnvDeviceCalibrationIntegration integration;
-    private DeviceRegistry deviceRegistry;
-    private ExecutorService executor;
-    private Map<String, Object> configMap;
-
 
     /**
      * 立即更换滤膜

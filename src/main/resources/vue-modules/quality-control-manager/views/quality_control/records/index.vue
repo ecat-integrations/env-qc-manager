@@ -125,9 +125,27 @@
         </template>
       </el-table-column>
       <el-table-column label="结果评价" align="center" prop="resultEvaluation" />
-      <el-table-column label="操作" align="center" class-name="small-padding fixed-width">
+      <el-table-column label="操作" align="center" min-width="168" class-name="small-padding fixed-width">
         <template #default="scope">
-          <el-button v-if="scope.row.executionStatus !== 2 && scope.row.executionStatus !== 3 && scope.row.executionStatus !== 4" link type="danger" icon="CircleCloseFilled" @click="handleStop(scope.row)">中止质控</el-button>
+          <el-button
+            v-if="scope.row.executionStatus == 2"
+            type="primary"
+            link
+            size="small"
+            v-hasPermi="['quality_control:records:query']"
+            @click.stop="handleQcResultPreview(scope.row)"
+          >质控结果</el-button>
+          <el-button
+            v-if="scope.row.executionStatus !== 2 && scope.row.executionStatus !== 3 && scope.row.executionStatus !== 4"
+            type="danger"
+            size="small"
+            plain
+            class="stop-qc-btn"
+            @click.stop="handleStop(scope.row)"
+          >
+            <el-icon class="stop-qc-btn__icon"><CircleCloseFilled /></el-icon>
+            <span>中止质控</span>
+          </el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -145,17 +163,17 @@
       <div class="execution-log-dialog-content">
         <div style="background: #f0f9ff; padding: 8px; margin-bottom: 15px; border-radius: 4px; font-size: 12px; color: #666;">
           <strong>数据信息:</strong> 共 {{ Object.keys(parsedExecutionLog).length }} 个字段 |
-          <strong>任务参数:</strong> {{ parsedExecutionLog.params ? '有' : '无' }} |
+          <strong>任务参数:</strong> {{ Object.keys(displayExecutionParams).length ? '有' : '无' }} |
           <strong>执行结果:</strong> {{ parsedExecutionLog.result ? (Array.isArray(parsedExecutionLog.result) ? parsedExecutionLog.result.length + '条记录' : '有') : '无' }}
         </div>
 
 
 
-        <div v-if="parsedExecutionLog.params" class="params-section">
+        <div v-if="Object.keys(displayExecutionParams).length" class="params-section">
           <h5>任务参数</h5>
-          <el-table :data="[parsedExecutionLog.params]" border stripe size="small" class="params-table">
+          <el-table :data="[displayExecutionParams]" border stripe size="small" class="params-table">
             <el-table-column
-              v-for="(value, key) in parsedExecutionLog.params"
+              v-for="(value, key) in displayExecutionParams"
               :key="key"
               :prop="key"
               :label="getParamDisplayName(key)"
@@ -203,7 +221,7 @@
         </div>
 
         <!-- 如果没有params和result，直接显示所有数据 -->
-        <div v-if="!parsedExecutionLog.params && !parsedExecutionLog.result && Object.keys(parsedExecutionLog).length > 0" class="all-data-section">
+        <div v-if="!Object.keys(displayExecutionParams).length && !parsedExecutionLog.result && Object.keys(parsedExecutionLog).length > 0" class="all-data-section">
           <h5>执行记录数据</h5>
           <div class="data-grid">
             <div v-for="(value, key) in parsedExecutionLog" :key="key" class="data-item">
@@ -217,7 +235,7 @@
           <p>暂无详细记录数据</p>
         </div>
 
-        <div  class="phase-section">
+        <div class="params-section phase-section">
           <h5>执行阶段</h5>
           <!-- 使用Element Plus时间线组件替代表格 -->
           <el-timeline class="custom-timeline">
@@ -275,6 +293,24 @@
             </el-timeline-item>
           </el-timeline>
         </div>
+      </div>
+    </el-dialog>
+
+    <el-dialog
+      v-model="qcResultDialogVisible"
+      title="质控结果"
+      width="75%"
+      append-to-body
+      destroy-on-close
+      class="qc-result-dialog"
+      @closed="onQcResultDialogClosed"
+    >
+      <div v-loading="qcResultLoading" class="qc-result-dialog-body">
+        <component
+          v-if="qcResultComponent"
+          :is="qcResultComponent"
+          :report-data="qcResultData"
+        />
       </div>
     </el-dialog>
 
@@ -445,8 +481,29 @@
 
 
 
-.params-section, .result-section, .all-data-section {
+.params-section, .result-section, .all-data-section, .phase-section {
   margin-bottom: 16px;
+}
+
+.stop-qc-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.stop-qc-btn__icon {
+  margin-right: 4px;
+  font-size: 14px;
+}
+
+.qc-result-dialog-body {
+  min-height: 200px;
+}
+
+.phase-section .custom-timeline {
+  margin-top: 4px;
 }
 
 /* 时间线样式 */
@@ -535,7 +592,7 @@
   font-weight: 600;
 }
 
-.params-section h5, .result-section h5 {
+.params-section h5, .result-section h5, .phase-section h5 {
   margin-bottom: 12px;
   color: #303133;
   font-size: 16px;
@@ -557,10 +614,17 @@
 </style>
 
 <script setup name="Records">
-import { listRecords, getRecords, delRecords, addRecords, updateRecords, stopRecords } from "@/api/quality_control/records";
-import { Document, VideoPlay, CircleCheck, CircleClose, Stopwatch } from '@element-plus/icons-vue';
-import { onMounted, nextTick, watch, ref } from 'vue';
+import { listRecords, getRecords, delRecords, addRecords, updateRecords, stopRecords, getReportPreview } from "@/api/quality_control/records";
+import { Document, VideoPlay, CircleCheck, CircleClose, CircleCloseFilled, Stopwatch } from '@element-plus/icons-vue';
+import { getCurrentInstance, onMounted, nextTick, watch, ref, computed, reactive, toRefs } from 'vue';
 import { ElTimeline, ElTimelineItem } from 'element-plus';
+import ReportD1 from '../report/ReportD1AuditSpanCheck.vue';
+import ReportD2 from '../report/ReportD2ZeroSpanCheck.vue';
+import ReportD3 from '../report/ReportD3MultiCheck.vue';
+import ReportD4 from '../report/ReportD4PrecisionCheck.vue';
+import ReportD5 from '../report/ReportD5AccuracyCheck.vue';
+import ReportD6 from '../report/ReportD6ConversionCheck.vue';
+import ReportD7 from '../report/ReportD7TransferAndTrackCheck.vue';
 
 const { proxy } = getCurrentInstance();
 const { quality_control_param, quality_control_task_type, quality_control_execution_status, quality_control_type } = proxy.useDict('quality_control_param', 'quality_control_task_type', 'quality_control_execution_status', 'quality_control_type');
@@ -583,7 +647,14 @@ const hoveredRow = ref(null);
 const parsedExecutionLog = ref({});
 const executionLogDialogVisible = ref(false);
 const phaseList = ref([]);
-// 参数名中文映射
+const qcResultDialogVisible = ref(false);
+const qcResultLoading = ref(false);
+const qcResultComponent = ref(null);
+const qcResultData = ref({});
+/** 详情弹窗内用于浓度显示换算：存库 calculatedValue 为 ppm，非 CO 时按 ppb 展示（×1000） */
+const executionDetailGasSymbol = ref('');
+
+// 参数名中文映射（须在 displayExecutionParams 之前定义）
 const paramDisplayNames = {
   taskType: '任务类型',
   qualityControlType: '质控类型',
@@ -593,7 +664,6 @@ const paramDisplayNames = {
   calculatedValue: '计算值',
   standardValue: '标准值',
   monitoringData: '监测数据',
-  // 新增字段映射
   stdGasInPortName: '标气入口名称',
   taskDescription: '任务描述',
   gas: '气体类型',
@@ -601,8 +671,34 @@ const paramDisplayNames = {
   genGasConc: '生成气体浓度',
   taskName: '任务名称',
   genGasTime: '生成气体时间(秒)',
-  readDataCount: '读取数据次数'
+  readDataCount: '读取数据次数',
+  targetFlowLpm: '目标流量 (L/min)',
+  flowRateLpm: '目标流量 (L/min)',
+  targetFlow: '目标流量 (L/min)'
 };
+
+/** 执行记录详情中不展示的 params 键（调度元信息，避免干扰业务参数阅读） */
+const EXECUTION_DETAIL_HIDDEN_PARAM_KEYS = new Set([
+  'taskType',
+  'taskDescription',
+  'triggerType',
+  'taskName'
+]);
+
+const displayExecutionParams = computed(() => {
+  const p = parsedExecutionLog.value?.params;
+  if (!p || typeof p !== 'object') {
+    return {};
+  }
+  const out = {};
+  for (const [k, v] of Object.entries(p)) {
+    if (EXECUTION_DETAIL_HIDDEN_PARAM_KEYS.has(k)) {
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
+});
 
 // 触发类型字典映射
 const triggerTypeDict = [
@@ -680,7 +776,10 @@ const resultDisplayNames = {
   taskName: '任务名称',
   triggerType: '触发类型',
   genGasTime: '生成气体时间(秒)',
-  readDataCount: '读取数据次数'
+  readDataCount: '读取数据次数',
+  isException: '是否异常',
+  resultMessage: '结果说明',
+  errorMessage: '错误信息'
 };
 
 const data = reactive({
@@ -736,9 +835,95 @@ function parseExecutionLog(executionLog) {
   }
 }
 
+function resolveQcResultReportComponent(componentName) {
+  switch (componentName) {
+    case 'ReportD1':
+      return ReportD1;
+    case 'ReportD2':
+      return ReportD2;
+    case 'ReportD3':
+      return ReportD3;
+    case 'ReportD4':
+      return ReportD4;
+    case 'ReportD5':
+      return ReportD5;
+    case 'ReportD6':
+      return ReportD6;
+    case 'ReportD7':
+      return ReportD7;
+    default:
+      return null;
+  }
+}
+
+function onQcResultDialogClosed() {
+  qcResultComponent.value = null;
+  qcResultData.value = {};
+  qcResultLoading.value = false;
+}
+
+function handleQcResultPreview(row) {
+  qcResultDialogVisible.value = true;
+  qcResultLoading.value = true;
+  qcResultComponent.value = null;
+  qcResultData.value = {};
+  getReportPreview(row.id).then((response) => {
+    qcResultLoading.value = false;
+    if (response.code !== 200) {
+      proxy.$modal.msgError(response.msg || '加载失败');
+      return;
+    }
+    const payload = response.data || {};
+    const comp = resolveQcResultReportComponent(payload.component);
+    if (!comp) {
+      proxy.$modal.msgError('不支持的报表组件: ' + (payload.component || '(空)'));
+      return;
+    }
+    qcResultComponent.value = comp;
+    qcResultData.value = payload.reportData || {};
+  }).catch(() => {
+    qcResultLoading.value = false;
+    proxy.$modal.msgError('加载质控结果失败');
+  });
+}
+
+function looksLikeLogicAttrId(key) {
+  if (key == null || typeof key !== 'string') {
+    return false;
+  }
+  if (paramDisplayNames[key]) {
+    return false;
+  }
+  return key.includes('_') && key.length > 10;
+}
+
+function inferAttrLabelFromId(key) {
+  const lower = String(key).toLowerCase();
+  if (lower.includes('flow') || /_flow$/.test(lower) || /^flow/.test(lower) || lower.includes('流')) {
+    return '流量';
+  }
+  if (lower.includes('pressure') || lower.includes('press') || lower.includes('压')) {
+    return '压力';
+  }
+  if ((lower.includes('temp') && !lower.includes('attempt')) || lower.includes('温')) {
+    return '温度';
+  }
+  if (lower.includes('humid') || lower.includes('湿')) {
+    return '湿度';
+  }
+  return '';
+}
+
 // 获取参数显示名称
 function getParamDisplayName(key) {
-  return paramDisplayNames[key] || key;
+  if (paramDisplayNames[key]) {
+    return paramDisplayNames[key];
+  }
+  const inferred = inferAttrLabelFromId(key);
+  if (inferred) {
+    return looksLikeLogicAttrId(key) ? `${inferred}（逻辑属性）` : inferred;
+  }
+  return key;
 }
 
 // 获取结果显示名称
@@ -769,6 +954,49 @@ function getDictLabel(dictArray, value) {
   return item ? item.label : value;
 }
 
+/**
+ * 从行数据与执行日志 params 推断气体符号（用于 calculatedValue：存 ppm，非 CO 展示为 ppb）。
+ */
+function resolveExecutionDetailGasSymbol(row, parsed) {
+  const params = parsed && typeof parsed === 'object' ? parsed.params : null;
+  const raw = params?.gas ?? params?.parameter ?? row?.parameter;
+  if (raw == null || raw === '') {
+    return '';
+  }
+  const s = String(raw).trim();
+  if (/^[A-Za-z][A-Za-z0-9]*$/i.test(s) && !/^\d+$/.test(s)) {
+    return s.toUpperCase();
+  }
+  const first = s.split(',')[0].trim();
+  const label = getDictLabel(quality_control_param.value, first);
+  return String(label)
+    .trim()
+    .toUpperCase()
+    .replace(/O₂/g, 'O2')
+    .replace(/O2/g, 'O2');
+}
+
+/**
+ * 计算值在库中按 ppm 存储：CO 仍显示 ppm，其余气体显示为 ppb（×1000）。
+ */
+function formatCalculatedValueFromStoredPpm(value) {
+  if (value === null || value === undefined) {
+    return '无';
+  }
+  const n = typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, ''));
+  if (Number.isNaN(n)) {
+    return String(value);
+  }
+  const gas = executionDetailGasSymbol.value;
+  if (gas === 'CO') {
+    const t = Number.isInteger(n) ? String(n) : String(Number(n.toFixed(6)).valueOf());
+    return `${t} ppm`;
+  }
+  const ppb = n * 1000;
+  const t = Number.isInteger(ppb) ? String(ppb) : ppb.toFixed(2).replace(/\.?0+$/, '');
+  return `${t} ppb`;
+}
+
 // 格式化参数值
 function formatParamValue(value, key) {
   if (value === null || value === undefined) return '无';
@@ -777,20 +1005,32 @@ function formatParamValue(value, key) {
     return value ? '是' : '否';
   }
   if (typeof value === 'number') {
-    // 如果是整数，不显示小数位
+    if (key === 'calculatedValue') {
+      return formatCalculatedValueFromStoredPpm(value);
+    }
+    if (key === 'targetFlowLpm' || key === 'flowRateLpm' || key === 'targetFlow') {
+      return `${Number.isInteger(value) ? value : value.toFixed(2)} L/min`;
+    }
     return Number.isInteger(value) ? value.toString() : value.toFixed(2);
   }
 
-  // 根据字段名使用字典数据转换
   const strValue = String(value);
 
   switch (key) {
+    case 'calculatedValue':
+      return formatCalculatedValueFromStoredPpm(strValue);
     case 'taskType':
       return getDictLabel(taskTypeDict, strValue);
     case 'qualityControlType':
       return getDictLabel(qualityControlTypeDict, strValue);
     case 'triggerType':
       return getDictLabel(triggerTypeDict, strValue);
+    case 'parameter':
+      return getDictLabel(quality_control_param.value, strValue);
+    case 'targetFlowLpm':
+    case 'flowRateLpm':
+    case 'targetFlow':
+      return `${strValue} L/min`;
     default:
       return strValue;
   }
@@ -809,6 +1049,9 @@ function formatResultValue(value, key) {
     return value ? '是' : '否';
   }
   if (typeof value === 'number') {
+    if (key === 'calculatedValue') {
+      return formatCalculatedValueFromStoredPpm(value);
+    }
     // 如果是整数，不显示小数位
     return Number.isInteger(value) ? value.toString() : value.toFixed(2);
   }
@@ -817,6 +1060,8 @@ function formatResultValue(value, key) {
   const strValue = String(value);
 
   switch (key) {
+    case 'calculatedValue':
+      return formatCalculatedValueFromStoredPpm(strValue);
     case 'taskType':
       return getDictLabel(taskTypeDict, strValue);
     case 'qualityControlType':
@@ -849,12 +1094,11 @@ function getExecutionLogStatusClass(executionStatus) {
 
 // 显示执行记录详情
 function showExecutionLogDetail(row) {
-  console.log(row)
   hoveredRow.value = row;
-  parsedExecutionLog.value = parseExecutionLog(row.executionLog);
-  // 确保phaseList是数组，如果是null或undefined则设置为空数组
+  const parsed = parseExecutionLog(row.executionLog);
+  parsedExecutionLog.value = parsed;
+  executionDetailGasSymbol.value = resolveExecutionDetailGasSymbol(row, parsed);
   phaseList.value = row.phaseList || [];
-  // 确保字典数据加载完成后再显示对话框
   nextTick(() => {
     executionLogDialogVisible.value = true;
   });

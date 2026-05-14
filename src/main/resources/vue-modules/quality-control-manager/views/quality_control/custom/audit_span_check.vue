@@ -395,11 +395,10 @@ const resetForm = () => {
 
 // 开始检查
 const startCheck = async () => {
-  // 声明加载实例变量
   let loadingInstance;
   try {
-    // 显示加载状态
-    const loadingInstance = ElLoading.service({
+    // 须与外层共用同一变量，否则 finally 拿不到实例，reject（如业务码 500）时遮罩无法关闭
+    loadingInstance = ElLoading.service({
       lock: true,
       text: '正在提交质控检查请求...',
       spinner: 'el-icon-loading',
@@ -413,9 +412,6 @@ const startCheck = async () => {
     // formData.genGasConc // 始终以ppm为单位传递
     // 调用实际的API接口（注意：这里传递的是ppm单位的值）
     const response = await executeAuditSpanCheck(formData);
-
-    // 关闭加载状态
-    loadingInstance.close();
 
     console.log('API响应:', response);
     if (response.code === 200) {

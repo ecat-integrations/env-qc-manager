@@ -1,8 +1,14 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.controller;
 
-import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterMappingResolver;
 import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.Device.DeviceRegistry;
+import com.ecat.core.EcatCore;
+import com.ecat.core.LogicDevice.LogicDevice;
+import com.ecat.core.LogicDevice.LogicDeviceRegistry;
+import com.ecat.core.LogicState.ILogicAttribute;
+import com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds.EntryId;
+import com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds.GasKey;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDeviceReportSupport;
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.page.TableDataInfo;
@@ -10,76 +16,84 @@ import com.ruoyi.common.enums.BusinessType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import com.ecat.core.EcatCore;
+
 import java.util.*;
 
 /**
- * 钢气瓶设置
- * 
+ * 钢瓶标气浓度：读写在站点校准仪 / 标准气逻辑设备上由 {@link LogicDevice#getAttrDefs()} 解析出的浓度属性。
+ *
  * @date 2025-05-26
  */
 @RestController
 @RequestMapping("/quality_control/gas_setting")
-public class GasSettingController extends BaseController
-{
+public class GasSettingController extends BaseController {
+
+    private static final List<String> GAS_LABELS = Arrays.asList("SO2", "NO", "CO", "O3");
+
     @Autowired
     private EcatCore core;
-
-    private final ParameterMappingResolver parameterMappingResolver = ParameterMappingResolver.getInstance();
 
     /**
      * 查询钢气瓶设置列表
      */
     @PreAuthorize("@ss.hasPermi('quality_control:records:list')")
     @GetMapping("/list")
-    public TableDataInfo list(@RequestParam(value = "deviceId", required = false) String deviceId)
-    {
-
+    public TableDataInfo list(@RequestParam(value = "deviceId", required = false) String deviceId) {
+        LogicDeviceRegistry ldr = core.getLogicDeviceRegistry();
         DeviceRegistry deviceRegistry = core.getDeviceRegistry();
-        List<ParameterMappingResolver.DeviceAttributeMapping> mappings =
-                parameterMappingResolver.getParameterMappings("std_gas_concentration",
-                        devId -> core.getDeviceRegistry().getDeviceByID(devId));
-        Set<String> allowedGases = new HashSet<>(Arrays.asList("SO2", "NO", "CO"));
+
+        LogicDevice calibrator = (LogicDevice) ldr.getDeviceByID(EntryId.Station.CALIBRATOR);
 
         List<Map<String, Object>> settingsList = new ArrayList<>();
-        for (ParameterMappingResolver.DeviceAttributeMapping mapping : mappings) {
-            if (!mapping.getGases().isEmpty()) {
-                boolean match = mapping.getGases().stream().anyMatch(allowedGases::contains);
-                if (!match) {
-                    continue;
-                }
-            } else if (deviceId == null) {
+        for (String gasLabel : GAS_LABELS) {
+            String attrId = LogicDeviceReportSupport.resolveCalibratorCylinderAttrId(core, gasLabel);
+            LogicDevice targetLd;
+            if (attrId != null) {
+                targetLd = calibrator;
+            } else {
+                targetLd = (LogicDevice) ldr.getDeviceByID(EntryId.Station.standardGas(GasKey.O3));
+                attrId = LogicDeviceReportSupport.resolveStdGasConcentrationAttrId(targetLd);
+            }
+
+            if (targetLd == null || attrId == null) {
                 continue;
             }
 
-            String targetDeviceId = mapping.getDeviceId();
-            if (deviceId != null && targetDeviceId != null && !deviceId.equals(targetDeviceId)) {
-                continue;
-            }
-            if (targetDeviceId == null) {
-                targetDeviceId = deviceId;
-            }
-
-            if (targetDeviceId == null) {
+            String physId = LogicDeviceReportSupport.getFirstMappedPhysicalDeviceId(targetLd);
+            if (deviceId != null && !deviceId.equals(targetLd.getId())
+                    && (physId == null || !deviceId.equals(physId))) {
                 continue;
             }
 
-            DeviceBase device = targetDeviceId != null ? deviceRegistry.getDeviceByID(targetDeviceId) : null;
+            ILogicAttribute<?> attr = targetLd.getAttrMap() != null
+                    ? targetLd.getAttrMap().get(attrId)
+                    : null;
+
             Map<String, Object> setting = new HashMap<>();
-            setting.put("id", mapping.getAttributeId());
-            setting.put("deviceId", targetDeviceId);
-            setting.put("gases", new ArrayList<>(mapping.getGases()));
-            setting.put("name", buildSettingName(mapping));
+            setting.put("id", attrId);
+            setting.put("deviceId", physId != null ? physId : targetLd.getId());
+            setting.put("logicDeviceId", targetLd.getId());
+            setting.put("gases", Collections.singletonList(gasLabel));
+            setting.put("name", gasLabel + "标气浓度");
 
-            if (device != null && device.getAttrs() != null && device.getAttrs().get(mapping.getAttributeId()) != null) {
+            DeviceBase physical = physId != null ? deviceRegistry.getDeviceByID(physId) : null;
+            if (attr != null) {
                 try {
-                    setting.put("concentration", device.getAttrs().get(mapping.getAttributeId()).getDisplayValue());
+                    setting.put("concentration", attr.getDisplayValue());
+                    setting.put("unit", attr.getDisplayUnitStr());
                 } catch (Exception e) {
                     setting.put("concentration", "设备读取异常");
+                    setting.put("unit", "");
                 }
+            } else if (physical != null && physical.getAttrs() != null
+                    && physical.getAttrs().get(attrId) != null) {
                 try {
-                    setting.put("unit", device.getAttrs().get(mapping.getAttributeId()).getDisplayUnitStr());
+                    setting.put("concentration",
+                            physical.getAttrs().get(attrId).getDisplayValue());
+                    setting.put("unit",
+                            physical.getAttrs().get(attrId).getDisplayUnitStr());
                 } catch (Exception e) {
+                    setting.put("concentration", "设备读取异常");
                     setting.put("unit", "");
                 }
             } else {
@@ -89,10 +103,9 @@ public class GasSettingController extends BaseController
             settingsList.add(setting);
         }
 
-        startPage(); // 启用分页
+        startPage();
         return getDataTable(settingsList);
     }
-
 
     /**
      * 设置钢瓶气浓度
@@ -100,73 +113,86 @@ public class GasSettingController extends BaseController
     @PreAuthorize("@ss.hasPermi('quality_control:records:add')")
     @Log(title = "设置钢瓶气浓度", businessType = BusinessType.UPDATE)
     @PostMapping
-    public Map<String,Object> add(@RequestBody Map<String,Object> data)
-    {
-        DeviceRegistry deviceRegistry = core.getDeviceRegistry();
-        Map<String,Object> result = new HashMap<>();
-        result.put("code",200);
-        result.put("msg","设置成功");
+    public Map<String, Object> add(@RequestBody Map<String, Object> data) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("msg", "设置成功");
+
         String id = data.get("id").toString();
         String value = data.get("value").toString();
         String requestDeviceId = data.get("deviceId") != null ? data.get("deviceId").toString() : null;
-        Set<String> allowedGases = new HashSet<>(Arrays.asList("SO2", "NO", "CO"));
 
-        List<ParameterMappingResolver.DeviceAttributeMapping> activeMappings =
-                parameterMappingResolver.getParameterMappings("std_gas_concentration",
-                        devId -> core.getDeviceRegistry().getDeviceByID(devId));
+        LogicDeviceRegistry ldr = core.getLogicDeviceRegistry();
 
-        Optional<ParameterMappingResolver.DeviceAttributeMapping> mappingOpt = activeMappings
-                .stream()
-                .filter(mapping -> mapping.getAttributeId().equals(id)
-                        && (mapping.getGases().isEmpty() || mapping.getGases().stream().anyMatch(allowedGases::contains))
-                        && (requestDeviceId == null || (mapping.getDeviceId() != null && mapping.getDeviceId().equals(requestDeviceId))))
-                .findFirst();
+        LogicDevice calibrator = (LogicDevice) ldr.getDeviceByID(EntryId.Station.CALIBRATOR);
 
-        if (!mappingOpt.isPresent() && requestDeviceId == null) {
-            mappingOpt = activeMappings
-                    .stream()
-                    .filter(mapping -> mapping.getAttributeId().equals(id)
-                            && (mapping.getGases().isEmpty() || mapping.getGases().stream().anyMatch(allowedGases::contains)))
-                    .findFirst();
+        LogicDevice target;
+        if (calibrator != null && LogicDeviceReportSupport.attributeDefinedOn(calibrator, id)) {
+            target = resolveCalibrator(ldr, requestDeviceId);
+        } else {
+            target = resolveStandardGasCylinder(ldr, requestDeviceId);
         }
 
-        if (!mappingOpt.isPresent()) {
-            result.put("code",400);
-            result.put("msg","未找到标气浓度设置");
+        if (target == null) {
+            result.put("code", 400);
+            result.put("msg", "未找到对应逻辑设备");
+            return result;
         }
-        else {
-            ParameterMappingResolver.DeviceAttributeMapping mapping = mappingOpt.get();
-            String targetDeviceId = mapping.getDeviceId() != null ? mapping.getDeviceId() : requestDeviceId;
 
-            if (targetDeviceId == null) {
-                result.put("code",400);
-                result.put("msg","缺少设备ID");
-                return result;
-            }
+        ILogicAttribute<?> attr = target.getAttrMap() != null
+                ? target.getAttrMap().get(id)
+                : null;
+        if (attr == null) {
+            result.put("code", 400);
+            result.put("msg", "逻辑设备上无该属性: " + id);
+            return result;
+        }
 
-            DeviceBase device = deviceRegistry.getDeviceByID(targetDeviceId);
-            if (device == null || device.getAttrs() == null || device.getAttrs().get(id) == null) {
-                result.put("code",400);
-                result.put("msg","设备或属性不存在");
-                return result;
-            }
-
-            try {
-                device.getAttrs().get(id).setDisplayValue(value);
-            } catch (Exception e) {
-                result.put("code",500);
-                result.put("msg","设置标气浓度失败");
-            }
+        try {
+            attr.setDisplayValue(value).join();
+        } catch (Exception e) {
+            result.put("code", 500);
+            result.put("msg", "设置标气浓度失败");
         }
         return result;
     }
 
-    private String buildSettingName(ParameterMappingResolver.DeviceAttributeMapping mapping) {
-        if (!mapping.getGases().isEmpty()) {
-            String gas = mapping.getGases().iterator().next();
-            return gas + "标气浓度";
+    private LogicDevice resolveCalibrator(LogicDeviceRegistry ldr, String requestDeviceId) {
+        LogicDevice calibrator = (LogicDevice) ldr.getDeviceByID(EntryId.Station.CALIBRATOR);
+        if (calibrator == null) {
+            return null;
         }
-        return mapping.getAttributeId();
+        if (requestDeviceId == null) {
+            return calibrator;
+        }
+        if (requestDeviceId.equals(calibrator.getId())) {
+            return calibrator;
+        }
+        String phys = LogicDeviceReportSupport.getFirstMappedPhysicalDeviceId(calibrator);
+        if (requestDeviceId.equals(phys)) {
+            return calibrator;
+        }
+        return null;
     }
 
+    private LogicDevice resolveStandardGasCylinder(LogicDeviceRegistry ldr, String requestDeviceId) {
+        if (requestDeviceId == null) {
+            return null;
+        }
+        LogicDevice direct = (LogicDevice) ldr.getDeviceByID(requestDeviceId);
+        if (direct != null && LogicDeviceReportSupport.resolveStdGasConcentrationAttrId(direct) != null) {
+            return direct;
+        }
+        for (String inst : Arrays.asList(GasKey.SO2, GasKey.NO, GasKey.CO, GasKey.O3, "no2")) {
+            LogicDevice cyl = (LogicDevice) ldr.getDeviceByID(EntryId.Station.standardGas(inst));
+            if (cyl == null) {
+                continue;
+            }
+            String phys = LogicDeviceReportSupport.getFirstMappedPhysicalDeviceId(cyl);
+            if (requestDeviceId.equals(cyl.getId()) || requestDeviceId.equals(phys)) {
+                return cyl;
+            }
+        }
+        return null;
+    }
 }

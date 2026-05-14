@@ -3,10 +3,10 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.service.impl;
 import java.util.*;
 
 import com.ecat.core.EcatCore;
-import com.ecat.integration.EnvDeviceCalibrationIntegration.ExecutorBase;
-import com.ecat.integration.EnvDeviceCalibrationIntegration.PhaseInfo;
+import com.ecat.integration.EnvCalibrationComposerIntegration.AbstractCalibrationFlow;
+import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseInfo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.EnvQualityControlManagerIntegration;
-import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ExecutionStatusEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ExecutionStatusEnum;
 import com.ruoyi.common.utils.DateUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,21 +57,21 @@ public class EnvQualityControlRecordsServiceImpl implements IEnvQualityControlRe
         List<EnvQualityControlRecords> result =  envQualityControlRecordsMapper.selectEnvQualityControlRecordsList(envQualityControlRecords);
         try {
             EnvQualityControlManagerIntegration integration = (EnvQualityControlManagerIntegration) core.getIntegrationRegistry().getIntegration("integration-env-quality-control-manager");
-            Map<Long, ExecutorBase> executorMap = integration.executorMap;
+            Map<Long, AbstractCalibrationFlow> executorMap = integration.executorMap;
             // 新增阶段列表信息
             for (EnvQualityControlRecords record : result) {
                 if(executorMap.containsKey(record.getId())){
-                    ExecutorBase executor = executorMap.get(record.getId());
+                    AbstractCalibrationFlow executor = executorMap.get(record.getId());
                     List<PhaseInfo> phaseInfos = executor.getExecutorPhases();
                     PhaseInfo currentPhase = executor.getCurrentPhase();
-                    String currentPhaseId = currentPhase.getId();
+                    String currentPhaseId = currentPhase != null ? currentPhase.getId() : null;
                     List<Map<String,Object>> phaseList = new ArrayList<>();
                     for (PhaseInfo phaseInfo : phaseInfos) {
                         Map<String,Object> phaseMap = new HashMap<>();
                         phaseMap.put("phaseId", phaseInfo.getId());
                         phaseMap.put("phaseName", phaseInfo.getDisplayName());
                         phaseMap.put("phaseTime", phaseInfo.getEstimatedSeconds());
-                        if(phaseInfo.getId().equals(currentPhaseId)){
+                        if (currentPhaseId != null && phaseInfo.getId().equals(currentPhaseId)) {
                             phaseMap.put("currentPhase", true);
                         }
                         phaseList.add(phaseMap);
@@ -165,11 +165,11 @@ public class EnvQualityControlRecordsServiceImpl implements IEnvQualityControlRe
         }
         record.setExecutionStatus(ExecutionStatusEnum.STOPING.getCode());
         EnvQualityControlManagerIntegration integration = (EnvQualityControlManagerIntegration) core.getIntegrationRegistry().getIntegration("integration-env-quality-control-manager");
-        Map<Long, ExecutorBase> executorMap = integration.executorMap;
+        Map<Long, AbstractCalibrationFlow> executorMap = integration.executorMap;
         log.info("stopEnvQualityControlRecords:executorMap={}", executorMap.size());
         log.info("stopEnvQualityControlRecords:id={}", id);
         if(executorMap.containsKey(id)){
-            ExecutorBase executor = executorMap.get(id);
+            AbstractCalibrationFlow executor = executorMap.get(id);
             executor.stop();
             log.info("stopEnvQualityControlRecords:开启终止成功");
         }

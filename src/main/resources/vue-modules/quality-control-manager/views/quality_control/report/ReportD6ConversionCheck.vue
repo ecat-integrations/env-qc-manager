@@ -1,6 +1,9 @@
 <!--分析仪转换效率测试记录表 - 表 D.6-->
 <template>
   <div class="report-d6">
+    <div v-if="info.qc_stamp" class="qc-stamp" :class="'qc-stamp--' + info.qc_stamp">
+      {{ info.qc_stamp === 'pass' ? '合格' : '不合格' }}
+    </div>
     <h2 style="text-align: center;">{{ reportData.title }}</h2>
     <table class="report-table">
       <tbody>
@@ -130,18 +133,25 @@ const props = defineProps({
   }
 });
 
-// 辅助函数：安全获取数组值
+const info = computed(() => props.reportData.instrument_info || {});
+
 const getArrayValue = (arr, index) => {
   if (Array.isArray(arr) && arr.length > index) {
-    return arr[index] !== null && arr[index] !== undefined ? arr[index] : '-';
+    const v = arr[index];
+    return v !== null && v !== undefined ? v : '-';
   }
   return '-';
 };
 
-// 判断是否合格
+/** 与后端 execution_log 中 statusMap/result.isPass 一致，不用中文备注推断。 */
 const isPass = computed(() => {
-  const evaluation = props.reportData.result_evaluation || '';
-  return evaluation.includes('合格') || evaluation.includes('通过') || evaluation.includes('成功');
+  if (props.reportData.is_pass === true) {
+    return true;
+  }
+  if (props.reportData.is_pass === false) {
+    return false;
+  }
+  return info.value.qc_stamp === 'pass';
 });
 </script>
 
@@ -149,6 +159,39 @@ const isPass = computed(() => {
 .report-d6 {
   font-family: "SimSun", "宋体", Arial, sans-serif;
   padding: 20px;
+  position: relative;
+}
+
+.qc-stamp {
+  position: absolute;
+  right: 24px;
+  top: 16px;
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  letter-spacing: 2px;
+  transform: rotate(-12deg);
+  opacity: 0.92;
+  pointer-events: none;
+  border: 4px solid;
+  font-size: 22px;
+  z-index: 2;
+}
+
+.qc-stamp--pass {
+  color: #0a7a32;
+  border-color: rgba(10, 122, 50, 0.55);
+  background: rgba(103, 194, 58, 0.12);
+}
+
+.qc-stamp--fail {
+  color: #c0392b;
+  border-color: rgba(192, 57, 43, 0.55);
+  background: rgba(245, 108, 108, 0.12);
 }
 
 .report-table {
@@ -174,13 +217,11 @@ const isPass = computed(() => {
   text-align: center;
 }
 
-/* 左对齐的单元格 */
 .report-table tr:first-child td,
 .report-table tr:nth-child(2) td {
   text-align: left;
 }
 
-/* 章节标题 */
 .section-header {
   background-color: #e8e8e8;
   font-weight: bold;
@@ -190,20 +231,17 @@ const isPass = computed(() => {
   padding: 10px 5px;
 }
 
-/* O3状态单元格 */
 .o3-status {
   font-weight: bold;
   background-color: #f8f8f8;
 }
 
-/* 结果评价部分 */
 .report-table tr:nth-last-child(3) td,
 .report-table tr:nth-last-child(2) td,
 .report-table tr:last-child td {
   text-align: left;
 }
 
-/* 复选框样式 */
 .report-table label {
   margin-right: 20px;
   cursor: default;
@@ -213,7 +251,6 @@ const isPass = computed(() => {
   margin-right: 5px;
 }
 
-/* 下标样式 */
 sub {
   font-size: 0.8em;
   vertical-align: sub;

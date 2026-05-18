@@ -147,27 +147,27 @@ class GenAccuracyReportTest {
         // 执行测试
         List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
 
-        // 验证标气浓度和仪器响应
+        // 验证标气浓度和仪器响应（报表为带浓度单位的字符串列表）
         EnvQualityControlReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
         // 验证标气浓度（3个点）
         @SuppressWarnings("unchecked")
-        List<Float> gasConcentrations = (List<Float>) reportData.get("gas_concentrations_input");
+        List<String> gasConcentrations = (List<String>) reportData.get("gas_concentrations_input");
         assertNotNull(gasConcentrations);
         assertEquals(3, gasConcentrations.size());
-        assertEquals(50.0f, gasConcentrations.get(0), 0.1);
-        assertEquals(150.0f, gasConcentrations.get(1), 0.1);
-        assertEquals(300.0f, gasConcentrations.get(2), 0.1);
+        assertEquals(50.0f, parseConcCell(gasConcentrations.get(0)), 0.1);
+        assertEquals(150.0f, parseConcCell(gasConcentrations.get(1)), 0.1);
+        assertEquals(300.0f, parseConcCell(gasConcentrations.get(2)), 0.1);
         
         // 验证仪器响应
         @SuppressWarnings("unchecked")
-        List<Float> instrumentResponses = (List<Float>) reportData.get("instrument_responses");
+        List<String> instrumentResponses = (List<String>) reportData.get("instrument_responses");
         assertNotNull(instrumentResponses);
         assertEquals(3, instrumentResponses.size());
-        assertEquals(49.5f, instrumentResponses.get(0), 0.1);
-        assertEquals(148.2f, instrumentResponses.get(1), 0.1);
-        assertEquals(297.8f, instrumentResponses.get(2), 0.1);
+        assertEquals(49.5f, parseConcCell(instrumentResponses.get(0)), 0.1);
+        assertEquals(148.2f, parseConcCell(instrumentResponses.get(1)), 0.1);
+        assertEquals(297.8f, parseConcCell(instrumentResponses.get(2)), 0.1);
     }
 
     @Test
@@ -228,7 +228,7 @@ class GenAccuracyReportTest {
         
         String averageRelativeError = (String) reportData.get("average_relative_error");
         assertNotNull(averageRelativeError);
-        float error = Float.parseFloat(averageRelativeError);
+        float error = parsePercentCell(averageRelativeError);
         assertTrue(error < 5.0f, "平均相对误差应小于5%");
     }
 
@@ -313,6 +313,14 @@ class GenAccuracyReportTest {
     }
 
     // ==================== 辅助方法 ====================
+
+    private static float parseConcCell(String cell) {
+        return Float.parseFloat(cell.replaceAll("(?i)ppb|ppm|\\s", "").trim());
+    }
+
+    private static float parsePercentCell(String cell) {
+        return Float.parseFloat(cell.replace("%", "").trim());
+    }
 
     /**
      * 创建准确度检查记录

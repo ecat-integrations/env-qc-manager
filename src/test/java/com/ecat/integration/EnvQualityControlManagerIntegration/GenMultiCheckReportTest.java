@@ -105,21 +105,21 @@ class GenMultiCheckReportTest {
         assertTrue(reportData.containsKey("instrument_responses"));
         assertTrue(reportData.containsKey("calibration_curve"));
         
-        // 验证标气浓度输入（6个点）
+        // 验证标气浓度输入（6个点，报表为带单位的字符串）
         @SuppressWarnings("unchecked")
-        List<Float> gasConcentrations = (List<Float>) reportData.get("gas_concentrations_input");
+        List<String> gasConcentrations = (List<String>) reportData.get("gas_concentrations_input");
         assertNotNull(gasConcentrations);
         assertEquals(6, gasConcentrations.size());
-        assertEquals(0.0f, gasConcentrations.get(0), 0.01);
-        assertEquals(50.0f, gasConcentrations.get(1), 0.01);
-        assertEquals(100.0f, gasConcentrations.get(2), 0.01);
-        assertEquals(200.0f, gasConcentrations.get(3), 0.01);
-        assertEquals(300.0f, gasConcentrations.get(4), 0.01);
-        assertEquals(400.0f, gasConcentrations.get(5), 0.01);
+        assertEquals(0.0f, parseConcCell(gasConcentrations.get(0)), 0.01);
+        assertEquals(50.0f, parseConcCell(gasConcentrations.get(1)), 0.01);
+        assertEquals(100.0f, parseConcCell(gasConcentrations.get(2)), 0.01);
+        assertEquals(200.0f, parseConcCell(gasConcentrations.get(3)), 0.01);
+        assertEquals(300.0f, parseConcCell(gasConcentrations.get(4)), 0.01);
+        assertEquals(400.0f, parseConcCell(gasConcentrations.get(5)), 0.01);
         
         // 验证仪器响应值
         @SuppressWarnings("unchecked")
-        List<Float> instrumentResponses = (List<Float>) reportData.get("instrument_responses");
+        List<String> instrumentResponses = (List<String>) reportData.get("instrument_responses");
         assertNotNull(instrumentResponses);
         assertEquals(6, instrumentResponses.size());
         
@@ -246,6 +246,10 @@ class GenMultiCheckReportTest {
     }
 
     // ==================== 辅助方法 ====================
+
+    private static float parseConcCell(String cell) {
+        return Float.parseFloat(cell.replaceAll("(?i)ppb|ppm|\\s", "").trim());
+    }
 
     /**
      * 创建多点校准记录

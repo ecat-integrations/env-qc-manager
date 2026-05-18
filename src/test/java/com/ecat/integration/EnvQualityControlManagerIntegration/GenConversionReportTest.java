@@ -140,24 +140,24 @@ class GenConversionReportTest {
         EnvQualityControlReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
-        // 验证NO2读数（第一次、第二次、第三次）
+        // 验证NO2读数（第一次、第二次、第三次）— 报表为 ppb 字符串列表
         @SuppressWarnings("unchecked")
-        List<Float> origNo2Datas = (List<Float>) reportData.get("orig_no2_datas");
+        List<String> origNo2Datas = (List<String>) reportData.get("orig_no2_datas");
         assertNotNull(origNo2Datas);
         assertEquals(3, origNo2Datas.size());
-        assertEquals(398.5f, origNo2Datas.get(0), 0.1);
-        assertEquals(399.2f, origNo2Datas.get(1), 0.1);
-        assertEquals(398.8f, origNo2Datas.get(2), 0.1);
+        assertEquals(398.5f, parseConcCell(origNo2Datas.get(0)), 0.1);
+        assertEquals(399.2f, parseConcCell(origNo2Datas.get(1)), 0.1);
+        assertEquals(398.8f, parseConcCell(origNo2Datas.get(2)), 0.1);
         
         // 验证NO2平均值
-        Float origNo2Avg = (Float) reportData.get("orig_no2_avg");
-        assertNotNull(origNo2Avg);
-        assertEquals(398.83f, origNo2Avg, 0.1);
+        String origNo2AvgStr = (String) reportData.get("orig_no2_avg");
+        assertNotNull(origNo2AvgStr);
+        assertEquals(398.83f, parseConcCell(origNo2AvgStr), 0.1);
         
-        // 验证NO2转换效率
-        Float no2Efficiency = (Float) reportData.get("no2_efficiency");
-        assertNotNull(no2Efficiency);
-        assertEquals(99.7f, no2Efficiency, 0.1);
+        // 验证NO2转换效率（带 %）
+        String no2EfficiencyStr = (String) reportData.get("no2_efficiency");
+        assertNotNull(no2EfficiencyStr);
+        assertEquals(99.7f, parsePercentCell(no2EfficiencyStr), 0.1);
     }
 
     @Test
@@ -187,29 +187,29 @@ class GenConversionReportTest {
         
         // 验证[NO]orig
         @SuppressWarnings("unchecked")
-        List<Float> origNoDatas = (List<Float>) reportData.get("orig_no_datas");
+        List<String> origNoDatas = (List<String>) reportData.get("orig_no_datas");
         assertNotNull(origNoDatas);
         assertEquals(3, origNoDatas.size());
-        assertEquals(395.2f, origNoDatas.get(0), 0.1);
-        assertEquals(396.1f, origNoDatas.get(1), 0.1);
-        assertEquals(395.7f, origNoDatas.get(2), 0.1);
+        assertEquals(395.2f, parseConcCell(origNoDatas.get(0)), 0.1);
+        assertEquals(396.1f, parseConcCell(origNoDatas.get(1)), 0.1);
+        assertEquals(395.7f, parseConcCell(origNoDatas.get(2)), 0.1);
         
-        Float origNoAvg = (Float) reportData.get("orig_no_avg");
-        assertNotNull(origNoAvg);
-        assertEquals(396.0f, origNoAvg, 0.1);
+        String origNoAvgStr = (String) reportData.get("orig_no_avg");
+        assertNotNull(origNoAvgStr);
+        assertEquals(396.0f, parseConcCell(origNoAvgStr), 0.1);
         
         // 验证[NOx]orig
         @SuppressWarnings("unchecked")
-        List<Float> origNoxDatas = (List<Float>) reportData.get("orig_nox_datas");
+        List<String> origNoxDatas = (List<String>) reportData.get("orig_nox_datas");
         assertNotNull(origNoxDatas);
         assertEquals(3, origNoxDatas.size());
-        assertEquals(397.5f, origNoxDatas.get(0), 0.1);
-        assertEquals(398.2f, origNoxDatas.get(1), 0.1);
-        assertEquals(397.8f, origNoxDatas.get(2), 0.1);
+        assertEquals(397.5f, parseConcCell(origNoxDatas.get(0)), 0.1);
+        assertEquals(398.2f, parseConcCell(origNoxDatas.get(1)), 0.1);
+        assertEquals(397.8f, parseConcCell(origNoxDatas.get(2)), 0.1);
         
-        Float origNoxAvg = (Float) reportData.get("orig_nox_avg");
-        assertNotNull(origNoxAvg);
-        assertEquals(397.83f, origNoxAvg, 0.1);
+        String origNoxAvgStr = (String) reportData.get("orig_nox_avg");
+        assertNotNull(origNoxAvgStr);
+        assertEquals(397.83f, parseConcCell(origNoxAvgStr), 0.1);
     }
 
     @Test
@@ -239,29 +239,29 @@ class GenConversionReportTest {
         
         // 验证[NO]rem
         @SuppressWarnings("unchecked")
-        List<Float> remNoDatas = (List<Float>) reportData.get("rem_no_datas");
+        List<String> remNoDatas = (List<String>) reportData.get("rem_no_datas");
         assertNotNull(remNoDatas);
         assertEquals(3, remNoDatas.size());
-        assertEquals(2.5f, remNoDatas.get(0), 0.1);
-        assertEquals(2.8f, remNoDatas.get(1), 0.1);
-        assertEquals(2.6f, remNoDatas.get(2), 0.1);
+        assertEquals(2.5f, parseConcCell(remNoDatas.get(0)), 0.1);
+        assertEquals(2.8f, parseConcCell(remNoDatas.get(1)), 0.1);
+        assertEquals(2.6f, parseConcCell(remNoDatas.get(2)), 0.1);
         
-        Float remNoAvg = (Float) reportData.get("rem_no_avg");
-        assertNotNull(remNoAvg);
-        assertEquals(2.63f, remNoAvg, 0.1);
+        String remNoAvgStr = (String) reportData.get("rem_no_avg");
+        assertNotNull(remNoAvgStr);
+        assertEquals(2.63f, parseConcCell(remNoAvgStr), 0.1);
         
         // 验证[NOx]rem
         @SuppressWarnings("unchecked")
-        List<Float> remNoxDatas = (List<Float>) reportData.get("rem_nox_datas");
+        List<String> remNoxDatas = (List<String>) reportData.get("rem_nox_datas");
         assertNotNull(remNoxDatas);
         assertEquals(3, remNoxDatas.size());
-        assertEquals(398.1f, remNoxDatas.get(0), 0.1);
-        assertEquals(399.0f, remNoxDatas.get(1), 0.1);
-        assertEquals(398.5f, remNoxDatas.get(2), 0.1);
+        assertEquals(398.1f, parseConcCell(remNoxDatas.get(0)), 0.1);
+        assertEquals(399.0f, parseConcCell(remNoxDatas.get(1)), 0.1);
+        assertEquals(398.5f, parseConcCell(remNoxDatas.get(2)), 0.1);
         
-        Float remNoxAvg = (Float) reportData.get("rem_nox_avg");
-        assertNotNull(remNoxAvg);
-        assertEquals(398.53f, remNoxAvg, 0.1);
+        String remNoxAvgStr = (String) reportData.get("rem_nox_avg");
+        assertNotNull(remNoxAvgStr);
+        assertEquals(398.53f, parseConcCell(remNoxAvgStr), 0.1);
     }
 
     @Test
@@ -289,10 +289,10 @@ class GenConversionReportTest {
         EnvQualityControlReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
-        // NO转换效率
+        // NO转换效率（展示带空格百分号）
         String efficiency = (String) reportData.get("efficiency");
         assertNotNull(efficiency);
-        assertEquals("99.35", efficiency);
+        assertEquals("99.35 %", efficiency);
     }
 
     @Test
@@ -361,6 +361,14 @@ class GenConversionReportTest {
     }
 
     // ==================== 辅助方法 ====================
+
+    private static float parseConcCell(String cell) {
+        return Float.parseFloat(cell.replaceAll("(?i)ppb|ppm|\\s", "").trim());
+    }
+
+    private static float parsePercentCell(String cell) {
+        return Float.parseFloat(cell.replace("%", "").trim());
+    }
 
     /**
      * 创建转换效率检查记录

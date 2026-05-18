@@ -44,8 +44,20 @@ public class EnvQualityControlCustomController {
         String genGasConcString = queryParams.get("genGasConc") + "";
         float genGasConc = Float.parseFloat(genGasConcString);
         String stdGasInPortName = (String) queryParams.get("stdGasInPortName");
+        Double targetFlowLpm = null;
+        Object tf = queryParams.get("targetFlowLpm");
+        if (tf instanceof Number) {
+            targetFlowLpm = ((Number) tf).doubleValue();
+        } else if (tf != null) {
+            try {
+                targetFlowLpm = Double.parseDouble(tf.toString().trim());
+            } catch (NumberFormatException ignored) {
+                targetFlowLpm = null;
+            }
+        }
 
-        boolean isSuccess = envQualityControlCustomService.executeCustomAuditCheck(gas, genGasTime, readDataCount, readDataSpan, genGasConc, stdGasInPortName);
+        boolean isSuccess = envQualityControlCustomService.executeCustomAuditCheck(
+                gas, genGasTime, readDataCount, readDataSpan, genGasConc, stdGasInPortName, targetFlowLpm);
         if (isSuccess) {
             return AjaxResult.success("", isSuccess);
         } else {

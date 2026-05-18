@@ -4,7 +4,6 @@ import java.util.*;
 
 import com.ecat.core.EcatCore;
 import com.ecat.integration.EnvCalibrationComposerIntegration.AbstractCalibrationFlow;
-import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseInfo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.EnvQualityControlManagerIntegration;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ExecutionStatusEnum;
 import com.ruoyi.common.utils.DateUtils;
@@ -54,35 +53,7 @@ public class EnvQualityControlRecordsServiceImpl implements IEnvQualityControlRe
     @Override
     public List<EnvQualityControlRecords> selectEnvQualityControlRecordsList(EnvQualityControlRecords envQualityControlRecords)
     {
-        List<EnvQualityControlRecords> result =  envQualityControlRecordsMapper.selectEnvQualityControlRecordsList(envQualityControlRecords);
-        try {
-            EnvQualityControlManagerIntegration integration = (EnvQualityControlManagerIntegration) core.getIntegrationRegistry().getIntegration("integration-env-quality-control-manager");
-            Map<Long, AbstractCalibrationFlow> executorMap = integration.executorMap;
-            // 新增阶段列表信息
-            for (EnvQualityControlRecords record : result) {
-                if(executorMap.containsKey(record.getId())){
-                    AbstractCalibrationFlow executor = executorMap.get(record.getId());
-                    List<PhaseInfo> phaseInfos = executor.getExecutorPhases();
-                    PhaseInfo currentPhase = executor.getCurrentPhase();
-                    String currentPhaseId = currentPhase != null ? currentPhase.getId() : null;
-                    List<Map<String,Object>> phaseList = new ArrayList<>();
-                    for (PhaseInfo phaseInfo : phaseInfos) {
-                        Map<String,Object> phaseMap = new HashMap<>();
-                        phaseMap.put("phaseId", phaseInfo.getId());
-                        phaseMap.put("phaseName", phaseInfo.getDisplayName());
-                        phaseMap.put("phaseTime", phaseInfo.getEstimatedSeconds());
-                        if (currentPhaseId != null && phaseInfo.getId().equals(currentPhaseId)) {
-                            phaseMap.put("currentPhase", true);
-                        }
-                        phaseList.add(phaseMap);
-                    }
-                    record.setPhaseList(phaseList);
-                }
-            }
-        }catch (Exception e){
-            log.error("查询质控阶段信息异常", e);
-        }
-        return result;
+        return envQualityControlRecordsMapper.selectEnvQualityControlRecordsList(envQualityControlRecords);
     }
 
     /**
@@ -173,9 +144,11 @@ public class EnvQualityControlRecordsServiceImpl implements IEnvQualityControlRe
             executor.stop();
             log.info("stopEnvQualityControlRecords:开启终止成功");
         }
-        record.setUpdateTime(new Date());
+        Date now = new Date();
+        record.setUpdateTime(now);
         record.setUpdatedBy(getUsername());
-        envQualityControlRecordsMapper.updateEnvQualityControlRecords(record);
+        envQualityControlRecordsMapper.markStopInProgressClearEndTime(
+                id, record.getExecutionStatus(), now, record.getUpdatedBy());
         result.put("code", 200);
         result.put("msg", "质控记录已中止");
         return result;
@@ -208,5 +181,21 @@ public class EnvQualityControlRecordsServiceImpl implements IEnvQualityControlRe
     @Override
     public int updateRecordsExecutionStatus(int newExecutionStatus, String resultEvaluation, Date beginStartTime, Date endStartTime) {
         return envQualityControlRecordsMapper.updateRecordsExecutionStatus(newExecutionStatus, resultEvaluation, beginStartTime, endStartTime);
+    }
+
+    @Override
+    public Date resolveTerminalEndTime(Long recordId) {
+        Date now = DateUtils.getNowDate();
+        if (recordId == null) {
+            return now;
+        }
+        EnvQualityControlRecords db = envQualityControlRecordsMapper.selectEnvQualityControlRecordsById(recordId);
+        if (db != null && db.getUpdateTime() != null) {
+            Date u = db.getUpdateTime();
+            if (!now.after(u)) {
+                return new Date(u.getTime() + 1000L);
+            }
+        }
+        return now;
     }
 }

@@ -1,6 +1,9 @@
 <!--仪器运行状况检查记录表-->
 <template>
   <div class="report-d2">
+    <div v-if="reportData.instrument_info && reportData.instrument_info.qc_stamp" class="qc-stamp" :class="'qc-stamp--' + reportData.instrument_info.qc_stamp">
+      {{ reportData.instrument_info.qc_stamp === 'pass' ? '合格' : '不合格' }}
+    </div>
     <h2 style="text-align: center;">{{ reportData.title }}</h2>
     <table class="report-table">
       <!-- 表头部分 -->
@@ -20,6 +23,14 @@
       <tr>
         <td>使用满量程</td>
         <td colspan="5">{{ reportData.full_span }}</td>
+      </tr>
+
+      <tr v-if="reportData.qc_phase_timelines && reportData.qc_phase_timelines.length">
+        <td colspan="6" class="qc-phase-title">阶段时间线（来自质控执行记录）</td>
+      </tr>
+      <tr v-for="(ph, idx) in (reportData.qc_phase_timelines || [])" :key="'ph-' + idx">
+        <td colspan="2">{{ phaseRecordTag(ph) }}{{ ph.phaseName }}</td>
+        <td colspan="4">{{ phaseTimeText(ph) }}</td>
       </tr>
 
       <!-- 校准点部分 -->
@@ -54,36 +65,36 @@
         <td colspan="5">{{reportData.span_80_drift_result}}</td>
       </tr>
 
-      <!-- 关键参数部分 -->
+      <!-- 关键参数部分：正常范围占 2 列，便于长文案与后续列排版 -->
       <tr>
-        <th>关键参数列表</th>
-        <th>检查值</th>
-        <th>正常范围</th>
-        <th colspan="3">处理记录</th>
+        <th class="kp-th-name">关键参数列表</th>
+        <th class="kp-th-value">检查值</th>
+        <th colspan="2" class="kp-th-range">正常范围</th>
+        <th colspan="2" class="kp-th-remark">处理记录</th>
       </tr>
       <tr v-for="(param, index) in reportData.key_parameters" :key="index">
-        <td>{{ param.tName }}</td>
-        <td>{{ param.tValue }}</td>
-        <td>{{ param.tRange }}</td>
-        <td colspan="3">{{ param.tRemark }}</td>
+        <td class="kp-cell-name">{{ param.tName }}</td>
+        <td class="kp-cell-value">{{ param.tValue }}</td>
+        <td colspan="2" class="kp-cell-range">{{ param.tRange }}</td>
+        <td colspan="2" class="kp-cell-remark">{{ param.tRemark }}</td>
       </tr>
       <tr>
         <td></td>
         <td></td>
-        <td></td>
-        <td colspan="3"></td>
+        <td colspan="2"></td>
+        <td colspan="2"></td>
       </tr>
 
       <!-- 备注部分 -->
       <tr>
-        <td colspan="6">备注：{{ reportData.remark }}</td>
+        <td colspan="6" class="report-remark-cell">备注：{{ reportRemarkDisplay }}</td>
       </tr>
       <!-- 填表人和复核人部分 -->
       <tr>
         <td>填表人：</td>
-        <td>{{ reportData.filler }}</td>
+        <td colspan="2">{{ reportData.filer }}</td>
         <td>复核人：</td>
-        <td>{{ reportData.reviewer }}</td>
+        <td colspan="2">{{ reportData.reviewer }}</td>
       </tr>
       </tbody>
     </table>
@@ -91,7 +102,8 @@
 </template>
 
 <script setup>
-import {defineProps} from 'vue';
+import { computed, defineProps } from 'vue';
+import { formatReportRemarkDisplay } from './formatReportRemarkDisplay.js';
 
 const props = defineProps({
   reportData: {
@@ -105,6 +117,41 @@ const props = defineProps({
     })
   }
 });
+
+const reportRemarkDisplay = computed(() => formatReportRemarkDisplay(props.reportData && props.reportData.remark));
+
+function phaseRecordTag(ph) {
+  if (!ph || !ph.recordTag) {
+    return '';
+  }
+  return `[${ph.recordTag}] `;
+}
+
+function phaseTimeText(ph) {
+  if (!ph) {
+    return '';
+  }
+  const fmt = (ms) => {
+    if (ms == null) {
+      return '';
+    }
+    const d = new Date(Number(ms));
+    if (Number.isNaN(d.getTime())) {
+      return String(ms);
+    }
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  };
+  const s = fmt(ph.startTimeMillis);
+  const e = fmt(ph.endTimeMillis);
+  if (s && e) {
+    return `${s} ~ ${e}`;
+  }
+  if (s) {
+    return `开始 ${s}`;
+  }
+  return '';
+}
 </script>
 
 <style scoped>
@@ -113,48 +160,103 @@ tr {
 }
 .report-d2 {
   font-family: Arial, sans-serif;
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.report-remark-cell {
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.qc-stamp {
+  position: absolute;
+  right: 18px;
+  top: 10px;
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  letter-spacing: 2px;
+  transform: rotate(-12deg);
+  opacity: 0.92;
+  pointer-events: none;
+  border: 4px solid;
+  font-size: 22px;
+}
+
+.qc-stamp--pass {
+  color: #0a7a32;
+  border-color: rgba(10, 122, 50, 0.55);
+  background: rgba(103, 194, 58, 0.12);
+}
+
+.qc-stamp--fail {
+  color: #c0392b;
+  border-color: rgba(192, 57, 43, 0.55);
+  background: rgba(245, 108, 108, 0.12);
+}
+
+.qc-phase-title {
+  font-weight: 600;
+  background: #f5f7fa;
 }
 
 .report-table {
   width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   margin-top: 10px;
+  border: 2px solid #000;
+}
+
+.report-table .kp-th-name,
+.report-table .kp-cell-name {
+  width: 16%;
+}
+
+.report-table .kp-th-value,
+.report-table .kp-cell-value {
+  width: 14%;
+}
+
+.report-table .kp-th-range,
+.report-table .kp-cell-range {
+  width: 38%;
+  word-break: break-word;
+  white-space: normal;
+  text-align: left;
+}
+
+.report-table .kp-th-remark,
+.report-table .kp-cell-remark {
+  width: 32%;
+  word-break: break-word;
+  white-space: normal;
+  text-align: left;
 }
 
 .report-table th,
 .report-table td {
-  border: 1px solid #ccc;
+  border: 1px solid #000;
   padding: 8px;
-  text-align: center; /* 内容居中 */
+  text-align: center;
 }
 
 .report-table th {
   background-color: #f4f4f4;
 }
 
-/* 调整特定单元格的宽度 */
-.report-table td:first-child,
-.report-table th:first-child {
-  width: 20%;
-}
-
 /* 单元格内容垂直居中 */
 .report-table td, .report-table th {
   vertical-align: middle;
-}
-
-/* 调整边框样式 */
-.report-table {
-  border: 2px solid #000; /* 外边框加粗 */
-}
-.report-table th, .report-table td {
-  border: 1px solid #000; /* 内边框细化 */
-}
-
-/* 设置表格宽度和高度 */
-.report-table {
-  width: 100%; /* 或者指定具体的宽度，如 800px */
-  max-width: 100%;
 }
 
 /* 左对齐 */

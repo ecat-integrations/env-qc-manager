@@ -44,7 +44,7 @@
       </tr>
 
       <tr>
-        <td colspan="6">备注：{{ reportData.remark }}</td>
+        <td colspan="6">备注：{{ remarkDisplay }}</td>
       </tr>
       <tr>
         <td>填表人：{{ reportData.filer }}</td>
@@ -56,7 +56,8 @@
 </template>
 
 <script setup>
-import { defineProps } from 'vue';
+import { defineProps, computed } from 'vue';
+import { formatReportRemarkDisplay } from './formatReportRemarkDisplay.js';
 
 const props = defineProps({
   reportData: {
@@ -64,6 +65,8 @@ const props = defineProps({
     required: true
   }
 });
+
+const remarkDisplay = computed(() => formatReportRemarkDisplay(props.reportData && props.reportData.remark));
 </script>
 
 <style scoped>

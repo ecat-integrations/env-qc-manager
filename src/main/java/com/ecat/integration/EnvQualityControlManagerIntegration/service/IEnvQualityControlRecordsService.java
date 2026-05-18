@@ -96,4 +96,9 @@ public interface IEnvQualityControlRecordsService
     public int deleteEnvQualityControlRecordsById(Long id);
 
     public int updateRecordsExecutionStatus(int newExecutionStatus, String resultEvaluation, Date beginStartTime, Date endStartTime);
+
+    /**
+     * 写入任务结束时间：保证严格晚于库中当前 {@code update_time}（含用户点击「中止质控」触发的更新），避免与开始时间或中止时刻重叠。
+     */
+    Date resolveTerminalEndTime(Long recordId);
 }

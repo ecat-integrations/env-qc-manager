@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 public class EnvQualityControlTask extends Task {
     private DeviceRegistry deviceRegistry;
@@ -283,7 +284,6 @@ public class EnvQualityControlTask extends Task {
                 envQualityControlRecords.setEndTime(DateUtils.getNowDate());
                 envQualityControlRecords.setExecutionLog(message);  // 执行日志
                 envQualityControlRecords.setResultEvaluation(message);  // 结果评价
-                envQualityControlRecords.setEndTime(DateUtils.getNowDate());
                 envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());
                 envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
                 throw new RuntimeException(message);
@@ -292,7 +292,6 @@ public class EnvQualityControlTask extends Task {
                 String message = "校准任务执行中...";
                 envQualityControlRecords.setExecutionLog(message);
                 envQualityControlRecords.setResultEvaluation(message);
-                envQualityControlRecords.setEndTime(DateUtils.getNowDate());
                 envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.RUNNING.getCode());
                 envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
             }
@@ -350,9 +349,19 @@ public class EnvQualityControlTask extends Task {
                  */
                 log.info("Calibration result " + result.toString());
 
-                // Is exception or not during calibration execution
+                // Is exception or not during calibration execution（编排器已在 result 上附带 phaseRecords，须入库，勿先 throw 否则 exceptionally 无法拿到 result）
                 if (result.isException()) {
-                    throw new RuntimeException(result.getErrorMessage());
+                    String resultContentJson = constructResult(core, parameters, result, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
+                    String eval = result.getErrorMessage() != null && !result.getErrorMessage().isEmpty()
+                            ? result.getErrorMessage()
+                            : result.getResultMessage();
+                    envQualityControlRecords.setExecutionLog(resultContentJson);
+                    envQualityControlRecords.setResultEvaluation(eval != null ? eval : "校准过程异常");
+                    envQualityControlRecords.setEndTime(envQualityControlRecordsService.resolveTerminalEndTime(envQualityControlRecords.getId()));
+                    envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());
+                    envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
+                    executorMap.remove(envQualityControlRecords.getId());
+                    return;
                 }
 
                 String resultContentJson = constructResult(core, parameters, result, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
@@ -376,12 +385,61 @@ public class EnvQualityControlTask extends Task {
                     envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
                     // throw new RuntimeException(message);
                 }
-            }).exceptionally(ex -> {
-                log.error("Calibration task executed exception: " + ex.getMessage());
-                String cleanMessage = ex.getMessage().replaceAll("^(java\\.lang\\.[A-Za-z]+: )", "");
-                final String message = "校准任务过程异常 " + cleanMessage;
                 executorMap.remove(envQualityControlRecords.getId());
-//                envQualityControlRecords.setExecutionLog(message);
+            }).exceptionally(ex -> {
+                Throwable cause = ex;
+                if (cause instanceof CompletionException && cause.getCause() != null) {
+                    cause = cause.getCause();
+                }
+                if (cause instanceof ExecutorStoppedException) {
+                    ExecutorResultBase stopResult = ((ExecutorStoppedException) cause).toResult();
+                    AbstractCalibrationFlow flow = executorMap.remove(envQualityControlRecords.getId());
+                    if (flow != null) {
+                        List<PhaseExecutionRecord> recs = new ArrayList<>();
+                        for (PhaseInfo pi : flow.getExecutorPhases()) {
+                            if (pi == null) {
+                                continue;
+                            }
+                            recs.add(new PhaseExecutionRecord(
+                                    pi.getId(),
+                                    pi.getDisplayName(),
+                                    pi.getStartInstant(),
+                                    pi.getEndInstant(),
+                                    pi.getEstimatedSeconds()));
+                        }
+                        stopResult.setPhaseRecords(recs);
+                    }
+                    String resultContentJson = constructResult(core, parameters, stopResult, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
+                    envQualityControlRecords.setExecutionLog(resultContentJson);
+                    envQualityControlRecords.setResultEvaluation(stopResult.getErrorMessage());
+                    envQualityControlRecords.setEndTime(envQualityControlRecordsService.resolveTerminalEndTime(envQualityControlRecords.getId()));
+                    envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());
+                    envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
+                    return null;
+                }
+                log.error("Calibration task executed exception: " + ex.getMessage());
+                String cleanMessage = ex.getMessage() != null ? ex.getMessage().replaceAll("^(java\\.lang\\.[A-Za-z]+: )", "") : "";
+                final String message = "校准任务过程异常 " + cleanMessage;
+                AbstractCalibrationFlow flow = executorMap.remove(envQualityControlRecords.getId());
+                ExecutorResultBase stub = new ExecutorResultBase(false, true);
+                stub.setErrorMessage(cleanMessage);
+                if (flow != null) {
+                    List<PhaseExecutionRecord> recs = new ArrayList<>();
+                    for (PhaseInfo pi : flow.getExecutorPhases()) {
+                        if (pi == null) {
+                            continue;
+                        }
+                        recs.add(new PhaseExecutionRecord(
+                                pi.getId(),
+                                pi.getDisplayName(),
+                                pi.getStartInstant(),
+                                pi.getEndInstant(),
+                                pi.getEstimatedSeconds()));
+                    }
+                    stub.setPhaseRecords(recs);
+                }
+                String resultContentJson = constructResult(core, parameters, stub, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
+                envQualityControlRecords.setExecutionLog(resultContentJson);
                 envQualityControlRecords.setResultEvaluation(message);
                 envQualityControlRecords.setEndTime(DateUtils.getNowDate());
                 envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());

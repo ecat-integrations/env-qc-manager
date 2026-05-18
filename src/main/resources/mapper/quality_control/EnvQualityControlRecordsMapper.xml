@@ -124,6 +124,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where id = #{id}
     </update>
 
+    <update id="markStopInProgressClearEndTime">
+        update env_quality_control_records
+        set execution_status = #{executionStatus},
+            end_time = null,
+            update_time = #{updateTime},
+            updated_by = #{updatedBy}
+        where id = #{id}
+    </update>
+
     <!-- 更新executionStatus为1的记录，将其executionStatus置为传入参数，将resultEvaluation置为传入参数，并可选增加起止时间条件 -->
     <update id="updateRecordsExecutionStatus" parameterType="map">
         UPDATE env_quality_control_records

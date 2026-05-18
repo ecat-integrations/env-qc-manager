@@ -4,6 +4,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import javax.servlet.http.HttpServletResponse;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +26,8 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualit
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ReportGenerator;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ExecutionStatusEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.JsonUtils;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionPhasePayload;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
 
@@ -97,8 +101,62 @@ public class EnvQualityControlRecordsController extends BaseController
         } catch (IllegalArgumentException e) {
             return error(e.getMessage());
         } catch (Exception e) {
-            return error("生成质控结果预览失败：" + e.getMessage());
+            String msg = e.getMessage();
+            if (msg == null || msg.trim().isEmpty()) {
+                msg = e.getClass().getSimpleName();
+            }
+            return error("生成质控结果预览失败：" + msg);
         }
+    }
+
+    /**
+     * 单条质控记录执行阶段视图：运行中合并编排器实时阶段；已结束则使用 execution_log 中持久化的 {@code qcPhaseTimelines}。
+     */
+    @PreAuthorize("@ss.hasPermi('quality_control:records:query')")
+    @GetMapping(value = "/{id}/execution_phases")
+    public AjaxResult executionPhases(@PathVariable("id") Long id)
+    {
+        EnvQualityControlRecords r = envQualityControlRecordsService.selectEnvQualityControlRecordsById(id);
+        if (r == null) {
+            return error("记录不存在");
+        }
+        return success(QualityControlExecutionPhasePayload.build(core, r));
+    }
+
+    /**
+     * 下载与 {@link #reportPreview(Long)} 同源的质控结果 JSON（便于留档或二次处理）。
+     */
+    @PreAuthorize("@ss.hasPermi('quality_control:records:query')")
+    @PostMapping(value = "/{id}/report_export")
+    public void reportExport(@PathVariable("id") Long id, HttpServletResponse response) throws IOException
+    {
+        EnvQualityControlRecords r = envQualityControlRecordsService.selectEnvQualityControlRecordsById(id);
+        if (r == null) {
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            response.setContentType("text/plain;charset=UTF-8");
+            response.getWriter().write("记录不存在");
+            return;
+        }
+        if (!Objects.equals(r.getExecutionStatus(), ExecutionStatusEnum.SUCCESS.getCode())) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            response.setContentType("text/plain;charset=UTF-8");
+            response.getWriter().write("仅成功结束的记录可导出质控结果");
+            return;
+        }
+        Map<String, Object> payload;
+        try {
+            payload = ReportGenerator.buildSingleRecordPreviewPayload(core, r);
+        } catch (Exception e) {
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            response.setContentType("text/plain;charset=UTF-8");
+            response.getWriter().write("导出失败：" + e.getMessage());
+            return;
+        }
+        byte[] bytes = JsonUtils.toJsonString(payload).getBytes(StandardCharsets.UTF_8);
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setContentType("application/json;charset=UTF-8");
+        response.setHeader("Content-Disposition", "attachment; filename=\"qc_report_" + id + ".json\"");
+        response.getOutputStream().write(bytes);
     }
 
     /**

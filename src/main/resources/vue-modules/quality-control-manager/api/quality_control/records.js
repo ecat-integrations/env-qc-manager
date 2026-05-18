@@ -9,6 +9,23 @@ export function listRecords(query) {
   })
 }
 
+// 质控记录执行阶段（运行中实时 + 已结束持久化）
+export function getExecutionPhases(id) {
+  return request({
+    url: '/quality_control/records/' + id + '/execution_phases',
+    method: 'get'
+  })
+}
+
+// 下载质控结果 JSON（与 report_preview 同源）
+export function exportReportJson(id) {
+  return request({
+    url: '/quality_control/records/' + id + '/report_export',
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
 // 查询质控记录详细
 export function getRecords(id) {
   return request({

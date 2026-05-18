@@ -50,36 +50,36 @@
         <td colspan="5">{{reportData.span_drift_result}}</td>
       </tr>
 
-      <!-- 关键参数部分 -->
+      <!-- 关键参数部分：正常范围占 2 列 -->
       <tr>
-        <th>关键参数列表</th>
-        <th>检查值</th>
-        <th>正常范围</th>
-        <th colspan="3">处理记录</th>
+        <th class="kp-th-name">关键参数列表</th>
+        <th class="kp-th-value">检查值</th>
+        <th colspan="2" class="kp-th-range">正常范围</th>
+        <th colspan="2" class="kp-th-remark">处理记录</th>
       </tr>
       <tr v-for="(param, index) in reportData.key_parameters" :key="index">
-        <td>{{ param.tName }}</td>
-        <td>{{ param.tValue }}</td>
-        <td>{{ param.tRange }}</td>
-        <td colspan="3">{{ param.tRemark }}</td>
+        <td class="kp-cell-name">{{ param.tName }}</td>
+        <td class="kp-cell-value">{{ param.tValue }}</td>
+        <td colspan="2" class="kp-cell-range">{{ param.tRange }}</td>
+        <td colspan="2" class="kp-cell-remark">{{ param.tRemark }}</td>
       </tr>
       <tr>
         <td></td>
         <td></td>
-        <td></td>
-        <td colspan="3"></td>
+        <td colspan="2"></td>
+        <td colspan="2"></td>
       </tr>
 
       <!-- 备注部分 -->
       <tr>
-        <td colspan="6">备注：{{ reportData.remark }}</td>
+        <td colspan="6" class="report-remark-cell">备注：{{ reportRemarkDisplay }}</td>
       </tr>
       <!-- 填表人和复核人部分 -->
       <tr>
         <td>填表人：</td>
-        <td>{{ reportData.filler }}</td>
+        <td colspan="2">{{ reportData.filer }}</td>
         <td>复核人：</td>
-        <td>{{ reportData.reviewer }}</td>
+        <td colspan="2">{{ reportData.reviewer }}</td>
       </tr>
       </tbody>
     </table>
@@ -87,7 +87,8 @@
 </template>
 
 <script setup>
-import {defineProps} from 'vue';
+import { computed, defineProps } from 'vue';
+import { formatReportRemarkDisplay } from './formatReportRemarkDisplay.js';
 
 const props = defineProps({
   reportData: {
@@ -101,6 +102,8 @@ const props = defineProps({
     })
   }
 });
+
+const reportRemarkDisplay = computed(() => formatReportRemarkDisplay(props.reportData && props.reportData.remark));
 </script>
 
 <style scoped>
@@ -109,48 +112,66 @@ tr {
 }
 .report-d1 {
   font-family: Arial, sans-serif;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.report-remark-cell {
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .report-table {
   width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   margin-top: 10px;
+  border: 2px solid #000;
+}
+
+.report-table .kp-th-name,
+.report-table .kp-cell-name {
+  width: 16%;
+}
+
+.report-table .kp-th-value,
+.report-table .kp-cell-value {
+  width: 14%;
+}
+
+.report-table .kp-th-range,
+.report-table .kp-cell-range {
+  width: 38%;
+  word-break: break-word;
+  white-space: normal;
+  text-align: left;
+}
+
+.report-table .kp-th-remark,
+.report-table .kp-cell-remark {
+  width: 32%;
+  word-break: break-word;
+  white-space: normal;
+  text-align: left;
 }
 
 .report-table th,
 .report-table td {
-  border: 1px solid #ccc;
+  border: 1px solid #000;
   padding: 8px;
-  text-align: center; /* 内容居中 */
+  text-align: center;
 }
 
 .report-table th {
   background-color: #f4f4f4;
 }
 
-/* 调整特定单元格的宽度 */
-.report-table td:first-child,
-.report-table th:first-child {
-  width: 20%;
-}
-
 /* 单元格内容垂直居中 */
 .report-table td, .report-table th {
   vertical-align: middle;
-}
-
-/* 调整边框样式 */
-.report-table {
-  border: 2px solid #000; /* 外边框加粗 */
-}
-.report-table th, .report-table td {
-  border: 1px solid #000; /* 内边框细化 */
-}
-
-/* 设置表格宽度和高度 */
-.report-table {
-  width: 100%; /* 或者指定具体的宽度，如 800px */
-  max-width: 100%;
 }
 
 /* 左对齐 */

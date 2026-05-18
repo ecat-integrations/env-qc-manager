@@ -39,9 +39,43 @@ public class EnvQualityControlReportServiceImpl implements IEnvQualityControlRep
             report.setComponent((String) reportData.getOrDefault("component", ""));
             report.setReportDisplayType((String) reportData.getOrDefault("report_display_type", ""));
             // 将数据库存储的1,2,3,4转为用于前端显示见名知意的SO2,NO2,O3,CO
-            report.setGasType((String) reportData.getOrDefault("gas_Type", report.getGasType()));
+            report.setGasType((String) reportData.getOrDefault("gas_type", report.getGasType()));
+            ensureQcStampOnZeroSpanReportData(reportData);
         }
         return reports;
+    }
+
+    /**
+     * 旧版入库 JSON 可能缺少 {@code instrument_info.qc_stamp}，列表「查看」与 PDF 截图时补全，规则与报表生成一致。
+     */
+    @SuppressWarnings("unchecked")
+    private static void ensureQcStampOnZeroSpanReportData(Map<String, Object> reportData) {
+        if (reportData == null) {
+            return;
+        }
+        Object iiObj = reportData.get("instrument_info");
+        if (!(iiObj instanceof Map)) {
+            return;
+        }
+        Map<String, Object> ii = (Map<String, Object>) iiObj;
+        if (ii.get("qc_stamp") != null && !String.valueOf(ii.get("qc_stamp")).trim().isEmpty()) {
+            return;
+        }
+        String z = String.valueOf(reportData.getOrDefault("zero_calibration_result", "")).trim();
+        String s = String.valueOf(reportData.getOrDefault("span_calibration_result", "")).trim();
+        boolean hasZero = !z.isEmpty();
+        boolean hasSpan = !s.isEmpty();
+        if (!hasZero && !hasSpan) {
+            return;
+        }
+        boolean pass = true;
+        if (hasZero) {
+            pass &= "合格".equals(z);
+        }
+        if (hasSpan) {
+            pass &= "合格".equals(s);
+        }
+        ii.put("qc_stamp", pass ? "pass" : "fail");
     }
     @Override
     public EnvQualityControlReport getDetailById(Long id) {

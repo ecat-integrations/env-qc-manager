@@ -19,5 +19,5 @@ public interface IEnvQualityControlCustomService {
      * @param genGasConc
      * @return 结果
      */
-    public boolean executeCustomAuditCheck(String gas, int genGasTime, int readDataCount, int readDataSpan, float genGasConc, String stdGasInPortName);
+    public boolean executeCustomAuditCheck(String gas, int genGasTime, int readDataCount, int readDataSpan, float genGasConc, String stdGasInPortName, Double targetFlowLpm);
 }

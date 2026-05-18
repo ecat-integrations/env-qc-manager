@@ -145,21 +145,21 @@ class GenPrecisionReportTest {
         // 执行测试
         List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
 
-        // 验证仪器响应值（连续7次测量）
+        // 验证仪器响应值（连续7次测量，报表侧为带浓度单位的字符串列表）
         EnvQualityControlReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
         @SuppressWarnings("unchecked")
-        List<Float> instrumentResponses = (List<Float>) reportData.get("instrument_responses");
+        List<String> instrumentResponses = (List<String>) reportData.get("instrument_responses");
         assertNotNull(instrumentResponses);
         assertEquals(7, instrumentResponses.size());
-        assertEquals(79.5f, instrumentResponses.get(0), 0.1);
-        assertEquals(80.2f, instrumentResponses.get(1), 0.1);
-        assertEquals(79.8f, instrumentResponses.get(2), 0.1);
-        assertEquals(80.1f, instrumentResponses.get(3), 0.1);
-        assertEquals(79.7f, instrumentResponses.get(4), 0.1);
-        assertEquals(80.0f, instrumentResponses.get(5), 0.1);
-        assertEquals(79.9f, instrumentResponses.get(6), 0.1);
+        assertEquals(79.5f, parseConcCell(instrumentResponses.get(0)), 0.1);
+        assertEquals(80.2f, parseConcCell(instrumentResponses.get(1)), 0.1);
+        assertEquals(79.8f, parseConcCell(instrumentResponses.get(2)), 0.1);
+        assertEquals(80.1f, parseConcCell(instrumentResponses.get(3)), 0.1);
+        assertEquals(79.7f, parseConcCell(instrumentResponses.get(4)), 0.1);
+        assertEquals(80.0f, parseConcCell(instrumentResponses.get(5)), 0.1);
+        assertEquals(79.9f, parseConcCell(instrumentResponses.get(6)), 0.1);
     }
 
     @Test
@@ -179,13 +179,13 @@ class GenPrecisionReportTest {
         // 执行测试
         List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
 
-        // 验证相对标准偏差
+        // 验证相对标准偏差（报表为带 % 的展示字符串）
         EnvQualityControlReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
-        // 相对标准偏差（精密度）
-        Float relativeStandardDeviation = (Float) reportData.get("relative_standard_deviation");
-        assertNotNull(relativeStandardDeviation);
+        Object rsdObj = reportData.get("relative_standard_deviation");
+        assertNotNull(rsdObj);
+        float relativeStandardDeviation = parsePercentCell(String.valueOf(rsdObj));
         assertTrue(relativeStandardDeviation < 2.0f, "相对标准偏差应小于2%");
     }
 
@@ -250,6 +250,14 @@ class GenPrecisionReportTest {
     }
 
     // ==================== 辅助方法 ====================
+
+    private static float parseConcCell(String cell) {
+        return Float.parseFloat(cell.replaceAll("(?i)ppb|ppm|\\s", "").trim());
+    }
+
+    private static float parsePercentCell(String cell) {
+        return Float.parseFloat(cell.replace("%", "").trim());
+    }
 
     /**
      * 创建精密度检查记录

@@ -59,20 +59,124 @@ public final class LogicDeviceReportSupport {
         List<LabeledAttr> specs = collectAnalyzerKeyParameterSpecs(parameterName, analyzer);
         for (LabeledAttr spec : specs) {
             ILogicAttribute<?> attr = analyzer.getAttrMap().get(spec.attrId);
+            LogicAttributeDefine def = findAttrDefine(analyzer, spec.attrId);
             Map<String, Object> row = new HashMap<>();
             row.put("tName", spec.label);
-            row.put("tValue", attr != null ? nullSafe(attr.getDisplayValue()) : "");
-            row.put("tRange", "");
+            String display = attr != null ? nullSafe(attr.getDisplayValue()) : "";
+            display = appendKeyParameterUnitIfMissing(display, def, parameterName);
+            row.put("tValue", display);
+            String ref = AnalyzerOperatingStatusNormalRanges.lookupByParameterName(parameterName, spec.label);
+            row.put("tRange", ref != null && !ref.isEmpty() ? ref : "");
             row.put("tRemark", "");
             rows.add(row);
         }
         return rows;
     }
 
+    private static LogicAttributeDefine findAttrDefine(LogicDevice analyzer, String attrId) {
+        if (analyzer == null || analyzer.getAttrDefs() == null || attrId == null) {
+            return null;
+        }
+        for (LogicAttributeDefine d : analyzer.getAttrDefs()) {
+            if (d != null && attrId.equals(d.getAttrId())) {
+                return d;
+            }
+        }
+        return null;
+    }
+
+    private static String appendKeyParameterUnitIfMissing(String display, LogicAttributeDefine def, String parameterName) {
+        if (display == null || display.trim().isEmpty() || def == null) {
+            return display == null ? "" : display;
+        }
+        String d = display.trim();
+        if (keyParamValueLooksLikeHasUnit(d)) {
+            return d;
+        }
+        AttributeClass ac = def.getAttrClass();
+        if (ac == AttributeClass.FLOW) {
+            return d + " L/min";
+        }
+        if (ac == AttributeClass.PRESSURE) {
+            return d + " hPa";
+        }
+        if (ac == AttributeClass.TEMPERATURE) {
+            return d + " °C";
+        }
+        if (matchesPrimaryGasConcentration(parameterName, ac)) {
+            return d + ("CO".equalsIgnoreCase(nullSafe(parameterName).trim()) ? " ppm" : " ppb");
+        }
+        return d;
+    }
+
+    private static boolean keyParamValueLooksLikeHasUnit(String val) {
+        String v = val.toLowerCase(Locale.ROOT);
+        return v.endsWith("ppm")
+                || v.endsWith("ppb")
+                || v.endsWith("%")
+                || v.contains("l/min")
+                || v.contains("m³/h")
+                || v.contains("m3/h")
+                || v.endsWith("hpa")
+                || v.endsWith("kpa")
+                || v.endsWith(" pa")
+                || v.endsWith("°c")
+                || v.endsWith("℃");
+    }
+
     /**
      * 钢瓶标气浓度：优先读校准仪逻辑设备上 {@code *_cylinder_concentration}（由 {@link #resolveCalibratorCylinderAttrId} 从定义解析）；
      * O₃ 无钢瓶段时回退标准气逻辑设备上「标气浓度」数值属性（由 {@link #resolveStdGasConcentrationAttrId} 从定义解析）。
      */
+    /**
+     * 从 {@link EntryId.Station#standardGas(String)} 逻辑设备上按属性展示名启发式读取「标气来源」「标气编号」。
+     * <p>匹配规则（不区分大小写）：展示名包含「来源」→来源；包含「编号」或「钢瓶」→编号。
+     * 在多个标准气实例上依次尝试，返回首个非空值。</p>
+     *
+     * @return [0]=来源,[1]=编号；未读到则为空串
+     */
+    public static String[] tryReadStandardGasSourceAndNo(EcatCore core, String gasLabel) {
+        String[] out = new String[] { "", "" };
+        if (core == null || gasLabel == null) {
+            return out;
+        }
+        LogicDeviceRegistry reg = core.getLogicDeviceRegistry();
+        if (reg == null) {
+            return out;
+        }
+        for (String instance : cylinderInstancesForLabel(gasLabel)) {
+            LogicDevice cyl = (LogicDevice) reg.getDeviceByID(EntryId.Station.standardGas(instance));
+            if (cyl == null || cyl.getAttrDefs() == null) {
+                continue;
+            }
+            for (LogicAttributeDefine def : cyl.getAttrDefs()) {
+                if (def == null || !def.isDisplayable()) {
+                    continue;
+                }
+                String dn = def.getDisplayName();
+                if (dn == null || dn.trim().isEmpty()) {
+                    continue;
+                }
+                String low = dn.toLowerCase(Locale.ROOT);
+                ILogicAttribute<?> attr = cyl.getAttrMap() != null ? cyl.getAttrMap().get(def.getAttrId()) : null;
+                String val = attr != null ? nullSafe(attr.getDisplayValue()) : "";
+                if (val.isEmpty()) {
+                    continue;
+                }
+                if (out[0].isEmpty() && (low.contains("来源") || low.contains("source"))) {
+                    out[0] = val.trim();
+                }
+                if (out[1].isEmpty() && (low.contains("编号") || low.contains("no.") || low.contains("钢瓶"))) {
+                    out[1] = val.trim();
+                }
+            }
+            if (!out[0].isEmpty() || !out[1].isEmpty()) {
+                break;
+            }
+        }
+        return out;
+    }
+
     public static String readStandardGasCylinderConcentration(EcatCore core, String gasLabel) {
         if (core == null) {
             return "";

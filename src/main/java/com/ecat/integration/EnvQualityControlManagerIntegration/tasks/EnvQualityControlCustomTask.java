@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 
 /**
@@ -68,7 +69,7 @@ public class EnvQualityControlCustomTask extends Task {
         Set<String> validTaskTypeValues = TaskTypeEnum.getAllTaskTypeCodes();
         Set<String> validParameterValues = ParameterEnum.getAllParameterNameSet();
         Set<String> validQualityControlTypeValues = QualityControlTypeEnum.getAllQualityControlTypeNameSet();
-        Set<String> validStdGasInPortNameValues = new HashSet<>(Arrays.asList("跨度检查", "测量"));
+        Set<String> validStdGasInPortNameValues = new HashSet<>(Arrays.asList("跨度口", "采样口", "跨度检查", "测量"));
 
         ConfigDefinition configDefinition = new ConfigDefinition();
         ConfigItemBuilder builder = new ConfigItemBuilder()
@@ -80,7 +81,8 @@ public class EnvQualityControlCustomTask extends Task {
                 .add(new ConfigItem<>("readDataCount", Integer.class, true, null ))
                 .add(new ConfigItem<>("readDataSpan", Integer.class, true, null ))
                 .add(new ConfigItem<>("genGasConc", Float.class, true, null ))
-                .add(new ConfigItem<>("stdGasInPortName", String.class, false, null, new StringEnumValidator(validStdGasInPortNameValues)));
+                .add(new ConfigItem<>("stdGasInPortName", String.class, false, null, new StringEnumValidator(validStdGasInPortNameValues)))
+                .add(new ConfigItem<>("targetFlowLpm", Double.class, false, 4.0d));
 
         configDefinition.define(builder);
         return configDefinition;
@@ -163,10 +165,14 @@ public class EnvQualityControlCustomTask extends Task {
         int readDataCount = (int) parameters.get("readDataCount");
         int readDataSpan = (int) parameters.get("readDataSpan");
         float genGasConc = (float) parameters.get("genGasConc");
-        String stdGasInPortName = (String) parameters.get("stdGasInPortName");
+        String stdGasInPortName = normalizeStdGasInPort((String) parameters.get("stdGasInPortName"));
+        parameters.put("stdGasInPortName", stdGasInPortName);
         Number flowRateNum = (Number) parameters.get("flowRateLpm");
         if (flowRateNum == null) {
             flowRateNum = (Number) parameters.get("targetFlowLpm");
+        }
+        if (flowRateNum == null) {
+            flowRateNum = 4.0d;
         }
 
         // （提前）组装质控记录数据
@@ -267,9 +273,19 @@ public class EnvQualityControlCustomTask extends Task {
              */
             log.info("Calibration result " + result.toString());
 
-            // Is exception or not during calibration execution
+            // Is exception or not during calibration execution（须先入库 phaseRecords，勿先 throw）
             if (result.isException()) {
-                throw new RuntimeException(result.getErrorMessage());
+                String resultContentJson = constructResult(core, parameters, result, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
+                String eval = result.getErrorMessage() != null && !result.getErrorMessage().isEmpty()
+                        ? result.getErrorMessage()
+                        : result.getResultMessage();
+                envQualityControlRecords.setExecutionLog(resultContentJson);
+                envQualityControlRecords.setResultEvaluation(eval != null ? eval : "校准过程异常");
+                envQualityControlRecords.setEndTime(envQualityControlRecordsService.resolveTerminalEndTime(envQualityControlRecords.getId()));
+                envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());
+                envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
+                executorMap.remove(envQualityControlRecords.getId());
+                return;
             }
 
             String resultContentJson = constructResult(core, parameters, result, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
@@ -293,11 +309,60 @@ public class EnvQualityControlCustomTask extends Task {
                 envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
                 // throw new RuntimeException(message);
             }
+            executorMap.remove(envQualityControlRecords.getId());
         }).exceptionally(ex -> {
+            Throwable cause = ex;
+            if (cause instanceof CompletionException && cause.getCause() != null) {
+                cause = cause.getCause();
+            }
+            if (cause instanceof ExecutorStoppedException) {
+                ExecutorResultBase stopResult = ((ExecutorStoppedException) cause).toResult();
+                AbstractCalibrationFlow flow = executorMap.remove(envQualityControlRecords.getId());
+                if (flow != null) {
+                    List<PhaseExecutionRecord> recs = new ArrayList<>();
+                    for (PhaseInfo pi : flow.getExecutorPhases()) {
+                        if (pi == null) {
+                            continue;
+                        }
+                        recs.add(new PhaseExecutionRecord(
+                                pi.getId(),
+                                pi.getDisplayName(),
+                                pi.getStartInstant(),
+                                pi.getEndInstant(),
+                                pi.getEstimatedSeconds()));
+                    }
+                    stopResult.setPhaseRecords(recs);
+                }
+                String resultContentJson = constructResult(core, parameters, stopResult, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
+                envQualityControlRecords.setExecutionLog(resultContentJson);
+                envQualityControlRecords.setResultEvaluation(stopResult.getErrorMessage());
+                envQualityControlRecords.setEndTime(envQualityControlRecordsService.resolveTerminalEndTime(envQualityControlRecords.getId()));
+                envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());
+                envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
+                return null;
+            }
             log.error("Calibration task executed exception: " + ex.getMessage());
-            String cleanMessage = ex.getMessage().replaceAll("^(java\\.lang\\.[A-Za-z]+: )", "");
+            String cleanMessage = ex.getMessage() != null ? ex.getMessage().replaceAll("^(java\\.lang\\.[A-Za-z]+: )", "") : "";
             final String message = "校准任务过程异常 " + cleanMessage;
-            String resultContentJson = constructResult(core, parameters, null, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
+            AbstractCalibrationFlow flow = executorMap.remove(envQualityControlRecords.getId());
+            ExecutorResultBase stub = new ExecutorResultBase(false, true);
+            stub.setErrorMessage(cleanMessage);
+            if (flow != null) {
+                List<PhaseExecutionRecord> recs = new ArrayList<>();
+                for (PhaseInfo pi : flow.getExecutorPhases()) {
+                    if (pi == null) {
+                        continue;
+                    }
+                    recs.add(new PhaseExecutionRecord(
+                            pi.getId(),
+                            pi.getDisplayName(),
+                            pi.getStartInstant(),
+                            pi.getEndInstant(),
+                            pi.getEstimatedSeconds()));
+                }
+                stub.setPhaseRecords(recs);
+            }
+            String resultContentJson = constructResult(core, parameters, stub, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
             envQualityControlRecords.setExecutionLog(resultContentJson);
             envQualityControlRecords.setResultEvaluation(message);
             envQualityControlRecords.setEndTime(DateUtils.getNowDate());
@@ -311,5 +376,20 @@ public class EnvQualityControlCustomTask extends Task {
         throw new RuntimeException(e);
     }
 
+    }
+
+    /** 统一标气入口展示与入库：默认跨度口；兼容历史「跨度检查/测量」调度入参。 */
+    private static String normalizeStdGasInPort(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return "跨度口";
+        }
+        String s = raw.trim();
+        if ("跨度检查".equals(s)) {
+            return "跨度口";
+        }
+        if ("测量".equals(s)) {
+            return "采样口";
+        }
+        return s;
     }
 }

@@ -95,6 +95,22 @@
             </div>
           </el-form-item>
 
+          <!-- 目标流量 -->
+          <el-form-item label="目标流量(L/min)" prop="targetFlowLpm">
+            <div class="tw:flex tw:items-center">
+              <el-input-number
+                v-model="formData.targetFlowLpm"
+                :min="0.1"
+                :max="20"
+                :step="0.1"
+                :precision="2"
+                size="large"
+                class="tw:w-full"
+              />
+              <span class="tw:ml-2 tw:text-gray-500">L/min</span>
+            </div>
+          </el-form-item>
+
           <!-- 气体浓度 -->
           <el-form-item label="气体浓度(ppm)" prop="genGasConc">
             <div class="tw:flex tw:items-center">
@@ -112,7 +128,7 @@
             </div>
           </el-form-item>
 
-          <!-- 标气入口选择 -->
+          <!-- 标气入口：跨度口 / 采样口 -->
           <el-form-item label="标气入口" prop="stdGasInPortName">
             <el-radio-group v-model="formData.stdGasInPortName">
               <el-tooltip
@@ -245,6 +261,19 @@
               </p>
             </div>
           </div>
+
+          <!-- 目标流量 -->
+          <div class="tw:w-full sm:tw:w-1/2 md:tw:w-1/5 tw:px-3 tw:mb-4">
+            <div class="tw:p-3 tw:bg-gray-50 tw:rounded-lg tw:h-full">
+              <p class="tw:text-sm tw:text-gray-500">目标流量</p>
+              <p class="tw:text-lg tw:font-medium tw:text-gray-800">
+                {{ formData.targetFlowLpm }} L/min
+                <el-icon class="tw:text-cyan-500 tw:ml-2">
+                  <Odometer />
+                </el-icon>
+              </p>
+            </div>
+          </div>
         </div>
 
         <div class="tw:p-4 tw:mt-4 tw:bg-blue-50 tw:rounded-lg">
@@ -272,11 +301,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue';
+import { ref, reactive, onMounted } from 'vue';
 import { ElMessage, ElLoading} from 'element-plus';
 import {
   Setting, Edit, Check, Refresh, Document, Timer,
-  QuartzWatch, DataAnalysis, InfoFilled, VideoPlay
+  QuartzWatch, DataAnalysis, InfoFilled, VideoPlay, Odometer
 } from '@element-plus/icons-vue';
 import {executeAuditSpanCheck} from "@/api/quality_control/audit_span_check";
 
@@ -286,7 +315,11 @@ const formData = reactive({
   genGasTime: 600,
   readDataCount: 10,
   readDataSpan: 5,
-  genGasConc: 0.2
+  genGasConc: 0.2,
+  /** 与后端 execution_log.params.targetFlowLpm 一致，默认 4 L/min */
+  targetFlowLpm: 4,
+  /** 默认跨度口（与调度任务历史「跨度检查」同义，入库前由后端规范为「跨度口」） */
+  stdGasInPortName: '跨度口'
 });
 
 // 表单引用
@@ -294,8 +327,8 @@ const formRef = ref(null);
 
 // 标气入口选项
 const stdGasInPortOptions = [
-  { label: '跨度检查', value: '跨度检查' },
-  { label: '测量', value: '测量' }
+  { label: '跨度口', value: '跨度口', tooltip: '标气经跨度气路通入（原「跨度检查」）' },
+  { label: '采样口', value: '采样口', tooltip: '标气经采样气路通入（原「测量」）' }
 ];
 
 // 气体选项
@@ -323,7 +356,14 @@ const rules = reactive({
   ],
   genGasConc: [
     { required: true, message: '请输入气体浓度', trigger: 'blur' },
-    { type: 'number', min: 0, message: '气体浓度不能小于 0', trigger: 'change' }
+    { type: 'number', min: 0, max: 0.5, message: '气体浓度超出允许范围', trigger: 'change' }
+  ],
+  targetFlowLpm: [
+    { required: true, message: '请输入目标流量', trigger: 'blur' },
+    { type: 'number', min: 0.1, max: 20, message: '目标流量范围为 0.1～20 L/min', trigger: 'change' }
+  ],
+  stdGasInPortName: [
+    { required: true, message: '请选择标气入口', trigger: 'change' }
   ]
 });
 

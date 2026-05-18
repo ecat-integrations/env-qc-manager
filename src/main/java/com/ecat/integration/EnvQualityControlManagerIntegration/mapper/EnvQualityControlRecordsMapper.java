@@ -62,6 +62,14 @@ public interface EnvQualityControlRecordsMapper
     public int updateEnvQualityControlRecords(EnvQualityControlRecords envQualityControlRecords);
 
     /**
+     * 用户发起中止：置执行状态并清空 end_time（真实结束时间在设备恢复完成后写入）。
+     */
+    int markStopInProgressClearEndTime(@Param("id") Long id,
+                                       @Param("executionStatus") Long executionStatus,
+                                       @Param("updateTime") Date updateTime,
+                                       @Param("updatedBy") String updatedBy);
+
+    /**
      * 删除质控记录
      * 
      * @param id 质控记录主键

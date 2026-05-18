@@ -39,7 +39,7 @@ public class EnvQualityControlCustomServiceImpl implements IEnvQualityControlCus
      * @return 结果
      */
     @Override
-    public boolean executeCustomAuditCheck(String gas, int genGasTime, int readDataCount, int readDataSpan, float genGasConc, String stdGasInPortName) {
+    public boolean executeCustomAuditCheck(String gas, int genGasTime, int readDataCount, int readDataSpan, float genGasConc, String stdGasInPortName, Double targetFlowLpm) {
 
         Map<String,  Object> parameters = new HashMap<>();
         parameters.put("triggerType", "1");  // 触发类型
@@ -50,19 +50,24 @@ public class EnvQualityControlCustomServiceImpl implements IEnvQualityControlCus
         parameters.put("readDataSpan", readDataSpan);  // 读取间隔数据
         parameters.put("readDataCount", readDataCount);  // 读取数据次数
         parameters.put("genGasConc", genGasConc);  // 数据浓度
+        if (stdGasInPortName == null || stdGasInPortName.trim().isEmpty()) {
+            stdGasInPortName = "跨度口";
+        }
         parameters.put("stdGasInPortName", stdGasInPortName);  // 标气入口
+        double flow = targetFlowLpm != null && !targetFlowLpm.isNaN() ? targetFlowLpm : 4.0;
+        parameters.put("targetFlowLpm", flow);
 
         // 调用原版的执行任务的代码
         try {
-            log.info("executeCustomAuditCheck, gas: {}, genGasTime: {}, readDataCount: {}, readDataSpan: {}, genGasConc: {}, stdGasInPortName: {}", gas, genGasTime, readDataCount, readDataSpan, genGasConc, stdGasInPortName);
+            log.info("executeCustomAuditCheck, gas: {}, genGasTime: {}, readDataCount: {}, readDataSpan: {}, genGasConc: {}, stdGasInPortName: {}, targetFlowLpm: {}", gas, genGasTime, readDataCount, readDataSpan, genGasConc, stdGasInPortName, flow);
             IIntegrationTaskManagement envQualityControlCustomTask = (IIntegrationTaskManagement) core.getIntegrationRegistry()
                     .getIntegration("integration-env-quality-control-manager");
             Task wantedTask = envQualityControlCustomTask.getTaskExecutor().getTask("EnvQualityControlCustomTask");
             wantedTask.execute(parameters);
-            log.info("executeCustomAuditCheck, gas: {}, genGasTime: {}, readDataCount: {}, readDataSpan: {}, genGasConc: {}, stdGasInPortName: {}, execute success", gas, genGasTime, readDataCount, readDataSpan, genGasConc, stdGasInPortName);
+            log.info("executeCustomAuditCheck, gas: {}, genGasTime: {}, readDataCount: {}, readDataSpan: {}, genGasConc: {}, stdGasInPortName: {}, targetFlowLpm: {}, execute success", gas, genGasTime, readDataCount, readDataSpan, genGasConc, stdGasInPortName, flow);
             return true;
         } catch (RuntimeException e) {
-            log.error("executeCustomAuditCheck, gas: {}, genGasTime: {}, readDataCount: {}, readDataSpan: {}, genGasConc: {}, stdGasInPortName: {}, execute failed, error: {}", gas, genGasTime, readDataCount, readDataSpan, genGasConc, stdGasInPortName, e.getMessage());
+            log.error("executeCustomAuditCheck, gas: {}, genGasTime: {}, readDataCount: {}, readDataSpan: {}, genGasConc: {}, stdGasInPortName: {}, targetFlowLpm: {}, execute failed, error: {}", gas, genGasTime, readDataCount, readDataSpan, genGasConc, stdGasInPortName, flow, e.getMessage());
             return false;
         }
     }

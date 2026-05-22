@@ -131,6 +131,28 @@ public class EnvQualityControlCustomTask extends Task {
         return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, resultContentList, result, keySnap);
     }
 
+    /**
+     * 编排在校准 flow 异步启动之前即失败（例如 ComposerContext 中设备未配置）
+     */
+    private RuntimeException persistAndWrapCalibrationLaunchFailure(
+            EcatCore core,
+            Map<String, Object> parameters,
+            EnvQualityControlRecords envQualityControlRecords,
+            Throwable ex) {
+        log.error("Calibration task failed before async execution: {}", ex.getMessage(), ex);
+        String cleanMessage = ex.getMessage() != null ? ex.getMessage().replaceAll("^(java\\.lang\\.[A-Za-z]+: )", "") : "";
+        final String message = "校准任务过程异常 " + cleanMessage;
+        ExecutorResultBase stub = new ExecutorResultBase(false, true);
+        stub.setErrorMessage(cleanMessage);
+        String resultContentJson = constructResult(core, parameters, stub, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
+        envQualityControlRecords.setExecutionLog(resultContentJson);
+        envQualityControlRecords.setResultEvaluation(message);
+        envQualityControlRecords.setEndTime(DateUtils.getNowDate());
+        envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());
+        envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
+        return new RuntimeException(message, ex);
+    }
+
     private List<Map<String, Object>> buildKeyParametersSnapshotAtComplete(EcatCore core, String gasParameterName) {
         if (core == null || gasParameterName == null || gasParameterName.isEmpty()) {
             return Collections.emptyList();
@@ -232,15 +254,17 @@ public class EnvQualityControlCustomTask extends Task {
         flowParams.put("stableTimeSeconds", genGasTime);
         flowParams.put("sampleCount", readDataCount);
         flowParams.put("sampleIntervalSeconds", readDataSpan);
-        // 前端与旧版约定浓度单位为 ppm，ComposerContext 使用 ppb
         flowParams.put("spanConcentrationPpb", genGasConc * 1000.0f);
         if (flowRateNum != null) {
             flowParams.put("flowRateLpm", flowRateNum.floatValue());
         }
 
-        // 通过编排器 execute(type, gas, params) 启动，登记 runningFlow；自定义通气/采样/浓度覆盖参数
-        CompletableFuture<ExecutorResultBase> calibrationFuture =
-            integration.execute(execType, gasForComposer, flowParams);
+        CompletableFuture<ExecutorResultBase> calibrationFuture;
+        try {
+            calibrationFuture = integration.execute(execType, gasForComposer, flowParams);
+        } catch (Exception launchEx) {
+            throw persistAndWrapCalibrationLaunchFailure(core, parameters, envQualityControlRecords, launchEx);
+        }
 
         AbstractCalibrationFlow executor = integration.getRunningExecutor();
         executorMap.put(envQualityControlRecords.getId(), executor);

@@ -81,19 +81,7 @@ public class EnvQualityControlTask extends Task {
     protected String constructResult(EcatCore core, Map<String, Object> params, ExecutorResultBase result,
                                        String envQualityControlTypeCode, long qcRecordId) {
 
-        Map<String, Object> serializableParams = new LinkedHashMap<>();
-        if (params != null) {
-            for (Map.Entry<String, Object> e : params.entrySet()) {
-                Object v = e.getValue();
-                if (QualityControlExecutionLogHelper.QC_PHASE_TIMELINES_KEY.equals(e.getKey()) && v instanceof List) {
-                    serializableParams.put(e.getKey(), new ArrayList<>((List<?>) v));
-                    continue;
-                }
-                if (v == null || v instanceof String || v instanceof Number || v instanceof Boolean) {
-                    serializableParams.put(e.getKey(), v);
-                }
-            }
-        }
+        Map<String, Object> serializableParams = serializableTaskParamsForLog(params);
 
         Map<String, Object> metrics = new LinkedHashMap<>();
 
@@ -224,6 +212,41 @@ public class EnvQualityControlTask extends Task {
         return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, metrics, result, keySnapshot);
     }
 
+    private static Map<String, Object> serializableTaskParamsForLog(Map<String, Object> params) {
+        Map<String, Object> serializableParams = new LinkedHashMap<>();
+        if (params == null) {
+            return serializableParams;
+        }
+        for (Map.Entry<String, Object> e : params.entrySet()) {
+            Object v = e.getValue();
+            if (QualityControlExecutionLogHelper.QC_PHASE_TIMELINES_KEY.equals(e.getKey()) && v instanceof List) {
+                serializableParams.put(e.getKey(), new ArrayList<>((List<?>) v));
+                continue;
+            }
+            if (v == null || v instanceof String || v instanceof Number || v instanceof Boolean) {
+                serializableParams.put(e.getKey(), v);
+            }
+        }
+        return serializableParams;
+    }
+
+    private static boolean isBareExecutorResultOutcome(ExecutorResultBase result) {
+        return result != null && result.getClass() == ExecutorResultBase.class;
+    }
+
+    private String executionLogJsonForStubResult(EcatCore core, Map<String, Object> params, ExecutorResultBase stub, long qcRecordId) {
+        Map<String, Object> serializableParams = serializableTaskParamsForLog(params);
+        List<Map<String, Object>> keySnapshot;
+        if (qcRecordId < 0) {
+            keySnapshot = Collections.emptyList();
+        } else {
+            String paramStr = params != null ? (String) params.get("parameter") : null;
+            String gasName = paramStr != null ? ParameterEnum.valueOf(paramStr).name() : null;
+            keySnapshot = buildKeyParametersSnapshotAtComplete(core, gasName);
+        }
+        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, Collections.emptyMap(), stub, keySnapshot);
+    }
+
     private List<Map<String, Object>> buildKeyParametersSnapshotAtComplete(EcatCore core, String gasParameterName) {
         if (core == null || gasParameterName == null || gasParameterName.isEmpty()) {
             return Collections.emptyList();
@@ -235,6 +258,28 @@ public class EnvQualityControlTask extends Task {
             log.debug("keyParametersSnapshot skipped: {}", e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * 编排在校准 flow 异步启动之前即失败（例如 ComposerContext 中校准仪/分析仪未配置）
+     */
+    private RuntimeException persistAndWrapCalibrationLaunchFailure(
+            EcatCore core,
+            Map<String, Object> parameters,
+            EnvQualityControlRecords envQualityControlRecords,
+            Throwable ex) {
+        log.error("Calibration task failed before async execution: {}", ex.getMessage(), ex);
+        String cleanMessage = ex.getMessage() != null ? ex.getMessage().replaceAll("^(java\\.lang\\.[A-Za-z]+: )", "") : "";
+        final String message = "校准任务过程异常 " + cleanMessage;
+        ExecutorResultBase stub = new ExecutorResultBase(false, true);
+        stub.setErrorMessage(cleanMessage);
+        String resultContentJson = executionLogJsonForStubResult(core, parameters, stub, envQualityControlRecords.getId());
+        envQualityControlRecords.setExecutionLog(resultContentJson);
+        envQualityControlRecords.setResultEvaluation(message);
+        envQualityControlRecords.setEndTime(DateUtils.getNowDate());
+        envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());
+        envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
+        return new RuntimeException(message, ex);
     }
 
     @Override
@@ -307,21 +352,25 @@ public class EnvQualityControlTask extends Task {
                     || QualityControlTypeEnum.SPAN_CHECK.getCode().equals(qcCode);
 
             CompletableFuture<ExecutorResultBase> calibrationFuture;
-            if (zeroOrSpan) {
-                Map<String, Object> flowParams = new HashMap<>();
-                if (flowRateNum != null) {
-                    flowParams.put("flowRateLpm", flowRateNum.floatValue());
-                }
-                float spanPpb;
-                if (QualityControlTypeEnum.ZERO_CHECK.getCode().equals(qcCode)) {
-                    spanPpb = 0f;
+            try {
+                if (zeroOrSpan) {
+                    Map<String, Object> flowParams = new HashMap<>();
+                    if (flowRateNum != null) {
+                        flowParams.put("flowRateLpm", flowRateNum.floatValue());
+                    }
+                    float spanPpb;
+                    if (QualityControlTypeEnum.ZERO_CHECK.getCode().equals(qcCode)) {
+                        spanPpb = 0f;
+                    } else {
+                        spanPpb = "CO".equalsIgnoreCase(parameter) ? 40000f : 400f;
+                    }
+                    flowParams.put("spanConcentrationPpb", spanPpb);
+                    calibrationFuture = integration.execute(execType, gasForComposer, flowParams);
                 } else {
-                    spanPpb = "CO".equalsIgnoreCase(parameter) ? 40000f : 400f;
+                    calibrationFuture = integration.execute(execType, gasForComposer);
                 }
-                flowParams.put("spanConcentrationPpb", spanPpb);
-                calibrationFuture = integration.execute(execType, gasForComposer, flowParams);
-            } else {
-                calibrationFuture = integration.execute(execType, gasForComposer);
+            } catch (Exception launchEx) {
+                throw persistAndWrapCalibrationLaunchFailure(core, parameters, envQualityControlRecords, launchEx);
             }
             AbstractCalibrationFlow executor = integration.getRunningExecutor();
             executorMap.put(envQualityControlRecords.getId(), executor);
@@ -351,7 +400,9 @@ public class EnvQualityControlTask extends Task {
 
                 // Is exception or not during calibration execution（编排器已在 result 上附带 phaseRecords，须入库，勿先 throw 否则 exceptionally 无法拿到 result）
                 if (result.isException()) {
-                    String resultContentJson = constructResult(core, parameters, result, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
+                    String resultContentJson = isBareExecutorResultOutcome(result)
+                            ? executionLogJsonForStubResult(core, parameters, result, envQualityControlRecords.getId())
+                            : constructResult(core, parameters, result, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
                     String eval = result.getErrorMessage() != null && !result.getErrorMessage().isEmpty()
                             ? result.getErrorMessage()
                             : result.getResultMessage();
@@ -409,7 +460,8 @@ public class EnvQualityControlTask extends Task {
                         }
                         stopResult.setPhaseRecords(recs);
                     }
-                    String resultContentJson = constructResult(core, parameters, stopResult, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
+                    // toResult() 为裸 ExecutorResultBase，constructResult 对零点/跨度会 (CheckResult) 强转失败
+                    String resultContentJson = executionLogJsonForStubResult(core, parameters, stopResult, envQualityControlRecords.getId());
                     envQualityControlRecords.setExecutionLog(resultContentJson);
                     envQualityControlRecords.setResultEvaluation(stopResult.getErrorMessage());
                     envQualityControlRecords.setEndTime(envQualityControlRecordsService.resolveTerminalEndTime(envQualityControlRecords.getId()));
@@ -438,7 +490,7 @@ public class EnvQualityControlTask extends Task {
                     }
                     stub.setPhaseRecords(recs);
                 }
-                String resultContentJson = constructResult(core, parameters, stub, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
+                String resultContentJson = executionLogJsonForStubResult(core, parameters, stub, envQualityControlRecords.getId());
                 envQualityControlRecords.setExecutionLog(resultContentJson);
                 envQualityControlRecords.setResultEvaluation(message);
                 envQualityControlRecords.setEndTime(DateUtils.getNowDate());

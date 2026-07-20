@@ -4,7 +4,6 @@ import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.Device.DeviceRegistry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.LogicDevice.LogicDevice;
-import com.ecat.core.LogicDevice.LogicDeviceRegistry;
 import com.ecat.core.LogicState.ILogicAttribute;
 import com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds.EntryId;
 import com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds.GasKey;
@@ -39,10 +38,9 @@ public class GasSettingController extends BaseController {
     @PreAuthorize("@ss.hasPermi('quality_control:records:list')")
     @GetMapping("/list")
     public TableDataInfo list(@RequestParam(value = "deviceId", required = false) String deviceId) {
-        LogicDeviceRegistry ldr = core.getLogicDeviceRegistry();
         DeviceRegistry deviceRegistry = core.getDeviceRegistry();
 
-        LogicDevice calibrator = (LogicDevice) ldr.getDeviceByID(EntryId.Station.CALIBRATOR);
+        LogicDevice calibrator = (LogicDevice) LogicDeviceReportSupport.airstationDevice(core,EntryId.Station.CALIBRATOR);
 
         List<Map<String, Object>> settingsList = new ArrayList<>();
         for (String gasLabel : GAS_LABELS) {
@@ -51,7 +49,7 @@ public class GasSettingController extends BaseController {
             if (attrId != null) {
                 targetLd = calibrator;
             } else {
-                targetLd = (LogicDevice) ldr.getDeviceByID(EntryId.Station.standardGas(GasKey.O3));
+                targetLd = (LogicDevice) LogicDeviceReportSupport.airstationDevice(core,EntryId.Station.standardGas(GasKey.O3));
                 attrId = LogicDeviceReportSupport.resolveStdGasConcentrationAttrId(targetLd);
             }
 
@@ -122,15 +120,13 @@ public class GasSettingController extends BaseController {
         String value = data.get("value").toString();
         String requestDeviceId = data.get("deviceId") != null ? data.get("deviceId").toString() : null;
 
-        LogicDeviceRegistry ldr = core.getLogicDeviceRegistry();
-
-        LogicDevice calibrator = (LogicDevice) ldr.getDeviceByID(EntryId.Station.CALIBRATOR);
+        LogicDevice calibrator = (LogicDevice) LogicDeviceReportSupport.airstationDevice(core,EntryId.Station.CALIBRATOR);
 
         LogicDevice target;
         if (calibrator != null && LogicDeviceReportSupport.attributeDefinedOn(calibrator, id)) {
-            target = resolveCalibrator(ldr, requestDeviceId);
+            target = resolveCalibrator(requestDeviceId);
         } else {
-            target = resolveStandardGasCylinder(ldr, requestDeviceId);
+            target = resolveStandardGasCylinder(requestDeviceId);
         }
 
         if (target == null) {
@@ -157,8 +153,8 @@ public class GasSettingController extends BaseController {
         return result;
     }
 
-    private LogicDevice resolveCalibrator(LogicDeviceRegistry ldr, String requestDeviceId) {
-        LogicDevice calibrator = (LogicDevice) ldr.getDeviceByID(EntryId.Station.CALIBRATOR);
+    private LogicDevice resolveCalibrator(String requestDeviceId) {
+        LogicDevice calibrator = (LogicDevice) LogicDeviceReportSupport.airstationDevice(core,EntryId.Station.CALIBRATOR);
         if (calibrator == null) {
             return null;
         }
@@ -175,16 +171,16 @@ public class GasSettingController extends BaseController {
         return null;
     }
 
-    private LogicDevice resolveStandardGasCylinder(LogicDeviceRegistry ldr, String requestDeviceId) {
+    private LogicDevice resolveStandardGasCylinder(String requestDeviceId) {
         if (requestDeviceId == null) {
             return null;
         }
-        LogicDevice direct = (LogicDevice) ldr.getDeviceByID(requestDeviceId);
+        LogicDevice direct = (LogicDevice) LogicDeviceReportSupport.airstationDevice(core,requestDeviceId);
         if (direct != null && LogicDeviceReportSupport.resolveStdGasConcentrationAttrId(direct) != null) {
             return direct;
         }
         for (String inst : Arrays.asList(GasKey.SO2, GasKey.NO, GasKey.CO, GasKey.O3, "no2")) {
-            LogicDevice cyl = (LogicDevice) ldr.getDeviceByID(EntryId.Station.standardGas(inst));
+            LogicDevice cyl = (LogicDevice) LogicDeviceReportSupport.airstationDevice(core,EntryId.Station.standardGas(inst));
             if (cyl == null) {
                 continue;
             }

@@ -281,7 +281,7 @@ public class ReportGenerator {
 
     /**
      * 根据气态参数获取物理 {@link DeviceBase}。
-     * <p>优先从 {@link EcatCore#getLogicDeviceRegistry()} 中标准分析仪逻辑设备的 {@code mappings} 解析
+     * <p>优先从 {@link EcatCore#getDeviceRegistry()} 中标准分析仪逻辑设备的 {@code mappings} 解析
      * {@code device_id}；若无映射则按历史约定降级为 esa-* / sms-qc。</p>
      *
      * @param param 气态参数 (SO2, NO2, CO, O3)

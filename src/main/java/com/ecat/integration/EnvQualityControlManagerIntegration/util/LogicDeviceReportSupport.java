@@ -1,8 +1,8 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.util;
 
 import com.ecat.core.EcatCore;
+import com.ecat.core.Device.DeviceRegistry;
 import com.ecat.core.LogicDevice.LogicDevice;
-import com.ecat.core.LogicDevice.LogicDeviceRegistry;
 import com.ecat.core.LogicState.ILogicAttribute;
 import com.ecat.core.LogicState.LogicAttributeDefine;
 import com.ecat.core.State.AttributeClass;
@@ -11,6 +11,9 @@ import com.ecat.core.State.UnitInfo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds;
 import com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds.EntryId;
 import com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds.GasKey;
+import com.ecat.integration.logicdevice.Const;
+import com.ecat.integration.logicdeviceairstation.AirstationIntegration;
+import com.ecat.integration.logicdeviceairdevice.AirdeviceIntegration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,7 +24,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 质控报表侧：通过 {@link com.ecat.core.EcatCore#getLogicDeviceRegistry()} 读取逻辑设备属性；
+ * 质控报表侧：通过 {@link com.ecat.core.EcatCore#getDeviceRegistry()} 读取逻辑设备属性；
  * 入口 ID 见 {@link com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds}。
  * 关键参数行的属性 ID 来自逻辑设备 {@link LogicDevice#getAttrDefs()} / {@link LogicAttributeDefine#getAttrId()}。
  */
@@ -30,6 +33,38 @@ public final class LogicDeviceReportSupport {
     private static final Logger logger = LoggerFactory.getLogger(LogicDeviceReportSupport.class);
 
     private LogicDeviceReportSupport() {
+    }
+
+    /**
+     * 按 uniqueId 查站房逻辑设备（airstation 域）。coordinate 绑在 AirstationIntegration（per-integration，设计 §4）。
+     *
+     * @param core    EcatCore
+     * @param uniqueId 站房逻辑设备 uniqueId（logicdevice_station.*）
+     * @return 逻辑设备，不存在或集成未加载返回 null
+     */
+    public static LogicDevice airstationDevice(EcatCore core, String uniqueId) {
+        if (core == null || uniqueId == null) {
+            return null;
+        }
+        AirstationIntegration airstation = (AirstationIntegration) core.getIntegrationRegistry()
+            .getIntegration(Const.COORD_AIRSTATION);
+        return airstation == null ? null : (LogicDevice) airstation.getDeviceByUniqueId(uniqueId);
+    }
+
+    /**
+     * 按 uniqueId 查空气逻辑设备（airdevice 域）。coordinate 绑在 AirdeviceIntegration（per-integration，设计 §4）。
+     *
+     * @param core    EcatCore
+     * @param uniqueId 空气逻辑设备 uniqueId（logicdevice.*）
+     * @return 逻辑设备，不存在或集成未加载返回 null
+     */
+    public static LogicDevice airdeviceDevice(EcatCore core, String uniqueId) {
+        if (core == null || uniqueId == null) {
+            return null;
+        }
+        AirdeviceIntegration airdevice = (AirdeviceIntegration) core.getIntegrationRegistry()
+            .getIntegration(Const.COORD_AIRDEVICE);
+        return airdevice == null ? null : (LogicDevice) airdevice.getDeviceByUniqueId(uniqueId);
     }
 
     private static final class LabeledAttr {
@@ -140,12 +175,12 @@ public final class LogicDeviceReportSupport {
         if (core == null || gasLabel == null) {
             return out;
         }
-        LogicDeviceRegistry reg = core.getLogicDeviceRegistry();
+        DeviceRegistry reg = core.getDeviceRegistry();
         if (reg == null) {
             return out;
         }
         for (String instance : cylinderInstancesForLabel(gasLabel)) {
-            LogicDevice cyl = (LogicDevice) reg.getDeviceByID(EntryId.Station.standardGas(instance));
+            LogicDevice cyl = (LogicDevice) airstationDevice(core,EntryId.Station.standardGas(instance));
             if (cyl == null || cyl.getAttrDefs() == null) {
                 continue;
             }
@@ -181,13 +216,13 @@ public final class LogicDeviceReportSupport {
         if (core == null) {
             return "";
         }
-        LogicDeviceRegistry reg = core.getLogicDeviceRegistry();
+        DeviceRegistry reg = core.getDeviceRegistry();
         if (reg == null) {
             return "";
         }
         String calibratorAttr = resolveCalibratorCylinderAttrId(core, gasLabel);
         if (calibratorAttr != null) {
-            LogicDevice calibrator = (LogicDevice) reg.getDeviceByID(EntryId.Station.CALIBRATOR);
+            LogicDevice calibrator = (LogicDevice) airstationDevice(core,EntryId.Station.CALIBRATOR);
             if (calibrator != null && calibrator.getAttrMap() != null) {
                 ILogicAttribute<?> attr = calibrator.getAttrMap().get(calibratorAttr);
                 if (attr != null) {
@@ -198,7 +233,7 @@ public final class LogicDeviceReportSupport {
                 }
             }
         }
-        return readStandardGasCylinderFromStandardGasDevices(reg, gasLabel);
+        return readStandardGasCylinderFromStandardGasDevices(core, gasLabel);
     }
 
     /**
@@ -209,11 +244,11 @@ public final class LogicDeviceReportSupport {
         if (prefix == null) {
             return null;
         }
-        LogicDeviceRegistry reg = core.getLogicDeviceRegistry();
+        DeviceRegistry reg = core.getDeviceRegistry();
         if (reg == null) {
             return null;
         }
-        LogicDevice cal = (LogicDevice) reg.getDeviceByID(EntryId.Station.CALIBRATOR);
+        LogicDevice cal = (LogicDevice) airstationDevice(core,EntryId.Station.CALIBRATOR);
         if (cal == null) {
             return null;
         }
@@ -294,9 +329,9 @@ public final class LogicDeviceReportSupport {
     }
 
     private static String readStandardGasCylinderFromStandardGasDevices(
-            LogicDeviceRegistry reg, String gasLabel) {
+            EcatCore core, String gasLabel) {
         for (String instance : cylinderInstancesForLabel(gasLabel)) {
-            LogicDevice cyl = (LogicDevice) reg.getDeviceByID(EntryId.Station.standardGas(instance));
+            LogicDevice cyl = (LogicDevice) airstationDevice(core,EntryId.Station.standardGas(instance));
             if (cyl == null || cyl.getAttrMap() == null) {
                 continue;
             }
@@ -345,7 +380,7 @@ public final class LogicDeviceReportSupport {
     }
 
     /**
-     * 报表用气态参数名（SO2、NO2、O3、CO）从 {@link EcatCore#getLogicDeviceRegistry()} 取标准分析仪逻辑设备，
+     * 报表用气态参数名（SO2、NO2、O3、CO）从 {@link EcatCore#getDeviceRegistry()} 取标准分析仪逻辑设备，
      * 再读其 {@code data.mappings} 中的物理 {@code device_id}。
      * <p>解析顺序：① 与主浓度通道 {@link AttributeClass} 一致的属性在 mappings 中的 {@code device_id}（多机/多属性时与报表主读数一致）；
      * ② 任意 mapping 条目中首个非空 {@code device_id}（兼容旧配置）。</p>
@@ -359,7 +394,7 @@ public final class LogicDeviceReportSupport {
         LogicDevice ld = resolveGasAnalyzer(core, parameterName);
         if (ld == null) {
             logger.debug(
-                    "报表解析物理 device_id：气体 {} 的逻辑入口 {} 未在 LogicDeviceRegistry 中注册（或注册表不可用）",
+                    "报表解析物理 device_id：气体 {} 的逻辑入口 {} 未在 DeviceRegistry 中注册（或注册表不可用）",
                     parameterName,
                     LogicDeviceBindingIds.analyzerEntryIdForParameterName(parameterName));
             return null;
@@ -428,7 +463,7 @@ public final class LogicDeviceReportSupport {
     }
 
     private static LogicDevice resolveGasAnalyzer(EcatCore core, String parameterName) {
-        LogicDeviceRegistry reg = core.getLogicDeviceRegistry();
+        DeviceRegistry reg = core.getDeviceRegistry();
         if (reg == null) {
             return null;
         }
@@ -437,7 +472,7 @@ public final class LogicDeviceReportSupport {
             logger.warn("未知气体参数名，无法解析分析仪逻辑设备: {}", parameterName);
             return null;
         }
-        return (LogicDevice) reg.getDeviceByID(id);
+        return airdeviceDevice(core,id);
     }
 
     /**

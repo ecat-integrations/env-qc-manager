@@ -14,6 +14,15 @@ dependencies:
   - artifactId: integration-env-device-calibration
     groupId: com.ecat
     version: ^3.0.0
+  - artifactId: integration-logicdevice
+    groupId: com.ecat
+    version: ^3.0.0
+  - artifactId: integration-logicdevice-airstation
+    groupId: com.ecat
+    version: ^3.0.0
+  - artifactId: integration-logicdevice-airdevice
+    groupId: com.ecat
+    version: ^3.0.0
 web-platform:
   ui: true
   api: true

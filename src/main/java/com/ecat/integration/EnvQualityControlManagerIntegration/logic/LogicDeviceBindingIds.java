@@ -3,8 +3,8 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.logic;
 /**
  * 本集成在编译期唯一需要绑定的逻辑设备入口 ID（{@link EntryId}）与气态通道小写键（{@link GasKey}）。
  * <p>
- * 校准仪钢瓶浓度、标准气浓度等属性 ID 由运行时 {@link com.ecat.core.LogicDevice.LogicDevice#getAttrDefs()} 解析，不在此重复定义。
- * 从参数名解析逻辑入口 ID 的映射集中在此；通过 {@link com.ecat.core.EcatCore} 取 {@link com.ecat.core.LogicDevice.LogicDevice}
+ * 校准仪钢瓶浓度、标准气浓度等属性 ID 由运行时 {@link com.ecat.integration.logicdevice.LogicDevice.LogicDevice#getAttrDefs()} 解析，不在此重复定义。
+ * 从参数名解析逻辑入口 ID 的映射集中在此；通过 {@link com.ecat.core.EcatCore} 取 {@link com.ecat.integration.logicdevice.LogicDevice.LogicDevice}
  * 实例见 {@link com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDeviceReportSupport}。
  */
 public final class LogicDeviceBindingIds {

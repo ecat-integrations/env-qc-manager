@@ -2,9 +2,9 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.util;
 
 import com.ecat.core.EcatCore;
 import com.ecat.core.Device.DeviceRegistry;
-import com.ecat.core.LogicDevice.LogicDevice;
-import com.ecat.core.LogicState.ILogicAttribute;
-import com.ecat.core.LogicState.LogicAttributeDefine;
+import com.ecat.integration.logicdevice.LogicDevice.LogicDevice;
+import com.ecat.integration.logicdevice.LogicState.ILogicAttribute;
+import com.ecat.integration.logicdevice.LogicState.LogicAttributeDefine;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.Unit.AirVolumeUnit;
 import com.ecat.core.State.UnitInfo;
@@ -357,7 +357,6 @@ public final class LogicDeviceReportSupport {
     /**
      * 从逻辑设备 mappings 中取出首个物理 device_id（报表与任务侧统一用此解析，不再单独维护一份映射表）。
      */
-    @SuppressWarnings("unchecked")
     public static String getFirstMappedPhysicalDeviceId(LogicDevice ld) {
         if (ld == null || ld.getEntry() == null || ld.getEntry().getData() == null) {
             return null;
@@ -429,7 +428,6 @@ public final class LogicDeviceReportSupport {
     /**
      * 从 mappings 中取与当前报表气体主浓度 {@link AttributeClass} 对应的首个属性上的 {@code device_id}。
      */
-    @SuppressWarnings("unchecked")
     private static String physicalDeviceIdFromPrimaryConcentrationMapping(LogicDevice ld, String parameterName) {
         if (ld == null || ld.getEntry() == null || ld.getEntry().getData() == null) {
             return null;

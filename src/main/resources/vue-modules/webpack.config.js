@@ -32,7 +32,11 @@ const customConfig = {
         options: {
           // 确保Vue文件以UTF-8编码处理
           compilerOptions: {
-            whitespace: 'preserve'
+            whitespace: 'preserve',
+            // vue-loader 默认把模板 <!-- --> 注释编译成 createCommentVNode：注释出现在根元素前会使组件渲染成
+            // Fragment 多根,经宿主 AppMain <transition mode="out-in"> 包裹时间歇挂不上 enter 钩子致 SPA 导航白屏
+            // (bug-record-20260807-184548)。comments:false 让注释不进渲染产物,根恒单一元素,从结构上杜绝该白屏复发。
+            comments: false
           }
         }
       },
@@ -80,22 +84,4 @@ const customConfig = {
   },
 };
 
-module.exports = async () => {
-  const basePath = path.resolve(__dirname);
-  const commonConfig = await getCommonWebpackConfig(basePath);
-  // commonConfig.module.rules[2].use[0]=MiniCssExtractPlugin.loader;
-  // commonConfig.module.rules[2].use[1]={
-  //   loader: 'css-loader',
-  //   options: {
-  //     modules: false, // 禁用CSS模块化（避免类名哈希）
-  //   },
-  // }
-
-  const config = {
-    ...commonConfig,
-    ...customConfig
-  };
-
-  // const config = mergeWithNameOverride(commonConfig, customConfig);
-  return config;
-};
+module.exports = () => getCommonWebpackConfig(path.resolve(__dirname), customConfig);

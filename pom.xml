@@ -8,19 +8,19 @@
     <relativePath />
   </parent>
   <artifactId>integration-env-quality-control-manager</artifactId>
-  <version>3.0.0</version>
+  <version>3.0.1</version>
   <name>integration-env-quality-control-manager</name>
   <dependencies>
     <dependency>
       <groupId>com.ecat</groupId>
       <artifactId>ruoyi-system</artifactId>
-      <version>3.0.0</version>
+      <version>3.0.1</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.ecat</groupId>
       <artifactId>ruoyi-framework</artifactId>
-      <version>3.0.0</version>
+      <version>3.0.1</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
@@ -56,37 +56,37 @@
     <dependency>
       <groupId>com.ecat</groupId>
       <artifactId>integration-env-calibration-composer</artifactId>
-      <version>3.0.0</version>
+      <version>3.0.1</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.ecat</groupId>
       <artifactId>integration-env-data-manager</artifactId>
-      <version>3.0.0</version>
+      <version>3.1.0</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.ecat</groupId>
       <artifactId>ecat-core</artifactId>
-      <version>3.0.0</version>
+      <version>3.1.0</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.ecat</groupId>
       <artifactId>integration-logicdevice</artifactId>
-      <version>3.0.0</version>
+      <version>3.1.0</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.ecat</groupId>
       <artifactId>integration-logicdevice-airstation</artifactId>
-      <version>3.0.0</version>
+      <version>3.1.0</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.ecat</groupId>
       <artifactId>integration-logicdevice-airdevice</artifactId>
-      <version>3.0.0</version>
+      <version>3.1.0</version>
       <scope>provided</scope>
     </dependency>
     <dependency>

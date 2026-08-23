@@ -43,8 +43,8 @@
 | logicdevice-airstation 单测 | **909/909 绿**（计数守卫×3 更新+gas_source 定义断言；一个时机未到的链路测试删除——持久化断点定位后写针对性红测试） |
 | qcm 单测 | **278/278 绿**（270→278：CylinderArchiveSupportTest 7 用例 + writer 溯源用例重写×3 + service 用例重写×4 + 守卫 39 列） |
 | 全 reactor | `mvnd clean install -T 1C` BUILD SUCCESS |
-| 转写链（live） | GasSetting PUT /info 登记 SO2 来源+编号 → **「保存成功」→ GET 读回 = 从 airstation 档案读出的登记值**（方案 A 核心链实证） |
-| E2E | record 33 **14/14 PASS**（成功路径全链）；E2E「登记→执行→冻结」最后一环待环境绿窗（命令锁间歇饿死，与代码无关——record 31 失败留痕完整即证） |
+| 转写链（live） | GasSetting PUT /info 登记 SO2 来源+编号 → **「保存成功」→ GET 读回 = 从 airstation 档案读出的登记值**（方案 A 核心链实证）；**浏览器**：卡片显示档案值（SO2=登记值/NO·CO=如实未配置）、弹窗回显→改编号 GBW-E-240001 保存→卡片+档案读回均更新 ✓ |
+| E2E | record 33 **14/14 PASS**（成功路径全链）；**record 40 闭环全链 PASS**：登记（转写档案）→ 执行 14/14 → 冻结 gas_source=国家标准物质中心/gas_no=GBW-E-060522（=登记值，从设备档案 AttrState 读出） |
 | DB | qcm_record 39 列；qcm_gas_info 已 DROP；冻结列在 record 33 全绿（溯源列 null=档案未写入，语义正确） |
 
 ## 与变更批6 的关系

@@ -6,17 +6,22 @@ import com.ecat.core.Device.DeviceRegistry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlReport;
-import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmRecordService;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ReportGenerator;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.*;
+import java.util.Calendar;
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -44,27 +49,27 @@ class GenMultiCheckReportTest {
     private DeviceRegistry mockDeviceRegistry;
 
     @Mock
-    private IEnvQualityControlRecordsService mockQualityControlRecordsService;
+    private IQcmRecordService mockQualityControlRecordsService;
 
     private ReportGenerator reportGenerator;
 
-    private Date startTime;
-    private Date endTime;
+    private Instant startTime;
+    private Instant endTime;
 
     @BeforeEach
     void setUp() {
         // 设置测试时间范围
         Calendar cal = Calendar.getInstance();
         cal.set(2025, Calendar.JANUARY, 15, 10, 0, 0);
-        startTime = cal.getTime();
+        startTime = cal.toInstant();
         
         cal.set(2025, Calendar.JANUARY, 15, 12, 0, 0);
-        endTime = cal.getTime();
+        endTime = cal.toInstant();
 
         // 模拟 EcatCore
         lenient().when(mockEcatCore.getIntegrationRegistry()).thenReturn(mockRegistry);
         lenient().when(mockRegistry.getIntegration("integration-ecat-core-ruoyi")).thenReturn(mockMry);
-        lenient().when(mockMry.getSpringBean(IEnvQualityControlRecordsService.class)).thenReturn(mockQualityControlRecordsService);
+        lenient().when(mockMry.getSpringBean(IQcmRecordService.class)).thenReturn(mockQualityControlRecordsService);
         lenient().when(mockEcatCore.getDeviceRegistry()).thenReturn(mockDeviceRegistry);
 
         // 创建 ReportGenerator 实例
@@ -74,11 +79,11 @@ class GenMultiCheckReportTest {
     @Test
     void testGenMultiCheckReport_SO2() {
         // 准备测试数据 - SO2多点校准（参数使用 code="1"）
-        EnvQualityControlRecords record = createMultiCheckRecord("1");  // SO2 code
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createMultiCheckRecord("1");  // SO2 code
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟SO2设备
@@ -86,13 +91,13 @@ class GenMultiCheckReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("esa-so2")).thenReturn(so2Device);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证结果
         assertNotNull(reports);
         assertEquals(1, reports.size());
         
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         assertNotNull(report);
         assertEquals("ReportD3", report.getComponent());
         assertNotNull(report.getReportData());
@@ -137,29 +142,29 @@ class GenMultiCheckReportTest {
     @Test
     void testGenMultiCheckReport_MultipleGases() {
         // 准备测试数据 - 多种气体的多点校准（使用 parameter code）
-        List<EnvQualityControlRecords> records = Arrays.asList(
+        List<QcmRecord> records = Arrays.asList(
             createMultiCheckRecord("1"),  // SO2 code
             createMultiCheckRecord("2"),  // NO2 code
             createMultiCheckRecord("3"),  // O3 code
             createMultiCheckRecord("4")   // CO code
         );
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟所有气体设备
         setupMockDevices();
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证结果
         assertNotNull(reports);
         assertEquals(4, reports.size());
         
         // 验证每个报告都有正确的组件
-        for (EnvQualityControlReport report : reports) {
+        for (QcmReport report : reports) {
             assertEquals("ReportD3", report.getComponent());
             assertNotNull(report.getReportData());
         }
@@ -168,12 +173,12 @@ class GenMultiCheckReportTest {
     @Test
     void testGenMultiCheckReport_CalibrationResult_Pass() {
         // 准备测试数据 - 校准合格（SO2 code="1"）
-        EnvQualityControlRecords record = createMultiCheckRecord("1", true);  // SO2 code
-        record.setExecutionStatus(2L); // 成功状态
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createMultiCheckRecord("1", true);  // SO2 code
+        record.setExecutionStatus(2); // 成功状态
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟SO2设备
@@ -181,10 +186,10 @@ class GenMultiCheckReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("esa-so2")).thenReturn(so2Device);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证校准结果
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         String calibrationResult = (String) reportData.get("calibration_result");
         assertEquals("合格", calibrationResult);
@@ -193,12 +198,12 @@ class GenMultiCheckReportTest {
     @Test
     void testGenMultiCheckReport_CalibrationResult_Fail() {
         // 准备测试数据 - 校准不合格（SO2 code="1"）
-        EnvQualityControlRecords record = createMultiCheckRecord("1", false);  // SO2 code
-        record.setExecutionStatus(3L); // 失败状态
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createMultiCheckRecord("1", false);  // SO2 code
+        record.setExecutionStatus(3); // 失败状态
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟SO2设备
@@ -206,10 +211,10 @@ class GenMultiCheckReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("esa-so2")).thenReturn(so2Device);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证校准结果
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         String calibrationResult = (String) reportData.get("calibration_result");
         assertEquals("不合格", calibrationResult);
@@ -218,11 +223,11 @@ class GenMultiCheckReportTest {
     @Test
     void testGenMultiCheckReport_VerifyInstrumentInfo() {
         // 准备测试数据（NO2 code="2"）
-        EnvQualityControlRecords record = createMultiCheckRecord("2");  // NO2 code
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createMultiCheckRecord("2");  // NO2 code
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟NO2设备
@@ -230,10 +235,10 @@ class GenMultiCheckReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("esa-no2")).thenReturn(no2Device);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证仪器信息
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
         @SuppressWarnings("unchecked")
@@ -255,18 +260,18 @@ class GenMultiCheckReportTest {
      * 创建多点校准记录
      * @param parameterCode 参数 code（"1"=SO2, "2"=NO2, "3"=O3, "4"=CO）
      */
-    private EnvQualityControlRecords createMultiCheckRecord(String parameterCode) {
+    private QcmRecord createMultiCheckRecord(String parameterCode) {
         return createMultiCheckRecord(parameterCode, true);
     }
 
-    private EnvQualityControlRecords createMultiCheckRecord(String parameterCode, boolean isPass) {
-        EnvQualityControlRecords record = new EnvQualityControlRecords();
+    private QcmRecord createMultiCheckRecord(String parameterCode, boolean isPass) {
+        QcmRecord record = new QcmRecord();
         record.setId(1L);
         record.setQualityControlType("2");  // MULTI_CHECK code
         record.setParameter(parameterCode);  // 使用参数 code 而不是 name
         record.setStartTime(startTime);
         record.setEndTime(endTime);
-        record.setExecutionStatus(2L); // 成功状态
+        record.setExecutionStatus(2); // 成功状态
         
         // 模拟多点校准的执行日志（6个点）
         String executionLog = "{"
@@ -285,7 +290,7 @@ class GenMultiCheckReportTest {
         record.setExecutionLog(executionLog);
         record.setResultEvaluation("多点校准合格");
         record.setCreatedBy("admin");
-        record.setUpdateBy("admin");
+        record.setUpdatedBy("admin");
         record.setCreateTime(startTime);
         
         return record;

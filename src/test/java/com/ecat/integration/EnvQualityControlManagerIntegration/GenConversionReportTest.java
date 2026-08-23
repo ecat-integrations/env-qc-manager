@@ -6,17 +6,22 @@ import com.ecat.core.Device.DeviceRegistry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlReport;
-import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmRecordService;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ReportGenerator;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.*;
+import java.util.Calendar;
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -44,27 +49,27 @@ class GenConversionReportTest {
     private DeviceRegistry mockDeviceRegistry;
 
     @Mock
-    private IEnvQualityControlRecordsService mockQualityControlRecordsService;
+    private IQcmRecordService mockQualityControlRecordsService;
 
     private ReportGenerator reportGenerator;
 
-    private Date startTime;
-    private Date endTime;
+    private Instant startTime;
+    private Instant endTime;
 
     @BeforeEach
     void setUp() {
         // 设置测试时间范围
         Calendar cal = Calendar.getInstance();
         cal.set(2025, Calendar.JANUARY, 15, 14, 0, 0);
-        startTime = cal.getTime();
+        startTime = cal.toInstant();
         
         cal.set(2025, Calendar.JANUARY, 15, 16, 0, 0);
-        endTime = cal.getTime();
+        endTime = cal.toInstant();
 
         // 模拟 EcatCore
         lenient().when(mockEcatCore.getIntegrationRegistry()).thenReturn(mockRegistry);
         lenient().when(mockRegistry.getIntegration("integration-ecat-core-ruoyi")).thenReturn(mockMry);
-        lenient().when(mockMry.getSpringBean(IEnvQualityControlRecordsService.class)).thenReturn(mockQualityControlRecordsService);
+        lenient().when(mockMry.getSpringBean(IQcmRecordService.class)).thenReturn(mockQualityControlRecordsService);
         lenient().when(mockEcatCore.getDeviceRegistry()).thenReturn(mockDeviceRegistry);
 
         // 创建 ReportGenerator 实例
@@ -74,11 +79,11 @@ class GenConversionReportTest {
     @Test
     void testGenConversionReport_NOx() {
         // 准备测试数据 - NOx转换效率测试
-        EnvQualityControlRecords record = createConversionCheckRecord();
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createConversionCheckRecord();
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟NO2设备
@@ -90,13 +95,13 @@ class GenConversionReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("sms-calib")).thenReturn(calibDevice);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证结果
         assertNotNull(reports);
         assertEquals(1, reports.size());
         
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         assertNotNull(report);
         assertEquals("ReportD6", report.getComponent());
         assertNotNull(report.getReportData());
@@ -118,11 +123,11 @@ class GenConversionReportTest {
     @Test
     void testGenConversionReport_VerifyNO2Data() {
         // 准备测试数据
-        EnvQualityControlRecords record = createConversionCheckRecord();
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createConversionCheckRecord();
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟NO2设备
@@ -134,10 +139,10 @@ class GenConversionReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("sms-calib")).thenReturn(calibDevice);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证NO2测试数据
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
         // 验证NO2读数（第一次、第二次、第三次）— 报表为 ppb 字符串列表
@@ -163,11 +168,11 @@ class GenConversionReportTest {
     @Test
     void testGenConversionReport_VerifyNOData_O3Off() {
         // 准备测试数据
-        EnvQualityControlRecords record = createConversionCheckRecord();
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createConversionCheckRecord();
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟NO2设备
@@ -179,10 +184,10 @@ class GenConversionReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("sms-calib")).thenReturn(calibDevice);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证NO测试数据（O3关）
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
         // 验证[NO]orig
@@ -215,11 +220,11 @@ class GenConversionReportTest {
     @Test
     void testGenConversionReport_VerifyNOData_O3On() {
         // 准备测试数据
-        EnvQualityControlRecords record = createConversionCheckRecord();
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createConversionCheckRecord();
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟NO2设备
@@ -231,10 +236,10 @@ class GenConversionReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("sms-calib")).thenReturn(calibDevice);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证NO测试数据（O3开）
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
         // 验证[NO]rem
@@ -267,11 +272,11 @@ class GenConversionReportTest {
     @Test
     void testGenConversionReport_VerifyEfficiency() {
         // 准备测试数据
-        EnvQualityControlRecords record = createConversionCheckRecord();
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createConversionCheckRecord();
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟NO2设备
@@ -283,10 +288,10 @@ class GenConversionReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("sms-calib")).thenReturn(calibDevice);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证转换效率
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
         // NO转换效率（展示带空格百分号）
@@ -298,11 +303,11 @@ class GenConversionReportTest {
     @Test
     void testGenConversionReport_VerifyInstrumentInfo() {
         // 准备测试数据
-        EnvQualityControlRecords record = createConversionCheckRecord();
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createConversionCheckRecord();
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟NO2设备
@@ -314,10 +319,10 @@ class GenConversionReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("sms-calib")).thenReturn(calibDevice);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证仪器信息
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
         @SuppressWarnings("unchecked")
@@ -332,13 +337,13 @@ class GenConversionReportTest {
     @Test
     void testGenConversionReport_VerifyFillerAndReviewer() {
         // 准备测试数据
-        EnvQualityControlRecords record = createConversionCheckRecord();
+        QcmRecord record = createConversionCheckRecord();
         record.setCreatedBy("张三");
-        record.setUpdateBy("李四");
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        record.setUpdatedBy("李四");
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟NO2设备
@@ -350,10 +355,10 @@ class GenConversionReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("sms-calib")).thenReturn(calibDevice);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证填表人和复核人
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
         assertEquals("张三", reportData.get("filer"));
@@ -373,14 +378,14 @@ class GenConversionReportTest {
     /**
      * 创建转换效率检查记录
      */
-    private EnvQualityControlRecords createConversionCheckRecord() {
-        EnvQualityControlRecords record = new EnvQualityControlRecords();
+    private QcmRecord createConversionCheckRecord() {
+        QcmRecord record = new QcmRecord();
         record.setId(1L);
         record.setQualityControlType("5");  // CONVERSION_CHECK code
         record.setParameter("2");  // NO2 code (使用 code 而不是 name)
         record.setStartTime(startTime);
         record.setEndTime(endTime);
-        record.setExecutionStatus(2L); // 成功状态
+        record.setExecutionStatus(2); // 成功状态
         
         // 模拟转换效率测试的执行日志
         String executionLog = "{"
@@ -405,7 +410,7 @@ class GenConversionReportTest {
         record.setExecutionLog(executionLog);
         record.setResultEvaluation("转换效率测试合格");
         record.setCreatedBy("admin");
-        record.setUpdateBy("admin");
+        record.setUpdatedBy("admin");
         record.setCreateTime(startTime);
         
         return record;

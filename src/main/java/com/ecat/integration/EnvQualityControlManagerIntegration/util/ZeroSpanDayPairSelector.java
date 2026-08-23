@@ -1,11 +1,11 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.util;
 
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Date;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -14,7 +14,7 @@ import static com.ecat.integration.EnvQualityControlManagerIntegration.util.Qual
 import static com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum.ZERO_CHECK;
 
 /**
- * 同一质控参数、同一自然日（按记录 {@link EnvQualityControlRecords#getStartTime()} 在站点时区的日历日）
+ * 同一质控参数、同一自然日（按记录 {@link QcmRecord#getStartTime()} 在站点时区的日历日）
  * 内的零点与跨度记录择优，生成一张「零点和跨度检查」报告所用的一组记录（0～2 条）。
  * <p>
  * 规则要点：
@@ -30,17 +30,17 @@ public final class ZeroSpanDayPairSelector {
     private ZeroSpanDayPairSelector() {
     }
 
-    public static List<EnvQualityControlRecords> select(List<EnvQualityControlRecords> sameParamSameDay) {
+    public static List<QcmRecord> select(List<QcmRecord> sameParamSameDay) {
         if (sameParamSameDay == null || sameParamSameDay.isEmpty()) {
             return Collections.emptyList();
         }
-        List<EnvQualityControlRecords> zeros = sameParamSameDay.stream()
+        List<QcmRecord> zeros = sameParamSameDay.stream()
                 .filter(r -> ZERO_CHECK.getCode().equals(r.getQualityControlType()))
-                .sorted(Comparator.comparing(EnvQualityControlRecords::getStartTime, Comparator.nullsFirst(Comparator.naturalOrder())))
+                .sorted(Comparator.comparing(QcmRecord::getStartTime, Comparator.nullsFirst(Comparator.naturalOrder())))
                 .collect(Collectors.toList());
-        List<EnvQualityControlRecords> spans = sameParamSameDay.stream()
+        List<QcmRecord> spans = sameParamSameDay.stream()
                 .filter(r -> SPAN_CHECK.getCode().equals(r.getQualityControlType()))
-                .sorted(Comparator.comparing(EnvQualityControlRecords::getStartTime, Comparator.nullsFirst(Comparator.naturalOrder())))
+                .sorted(Comparator.comparing(QcmRecord::getStartTime, Comparator.nullsFirst(Comparator.naturalOrder())))
                 .collect(Collectors.toList());
 
         if (zeros.isEmpty() && spans.isEmpty()) {
@@ -54,14 +54,14 @@ public final class ZeroSpanDayPairSelector {
         }
 
         // Tier 1: both pass, any order; tie-break: latest by sum of end times
-        EnvQualityControlRecords t1z = null;
-        EnvQualityControlRecords t1s = null;
+        QcmRecord t1z = null;
+        QcmRecord t1s = null;
         long t1Score = Long.MIN_VALUE;
-        for (EnvQualityControlRecords z : zeros) {
+        for (QcmRecord z : zeros) {
             if (!pass(z)) {
                 continue;
             }
-            for (EnvQualityControlRecords s : spans) {
+            for (QcmRecord s : spans) {
                 if (!pass(s)) {
                     continue;
                 }
@@ -79,14 +79,14 @@ public final class ZeroSpanDayPairSelector {
 
         // Tier 2a: last passing zero, no span on/after its start; pair with latest span strictly before zero.start
         for (int i = zeros.size() - 1; i >= 0; i--) {
-            EnvQualityControlRecords z = zeros.get(i);
+            QcmRecord z = zeros.get(i);
             if (!pass(z)) {
                 continue;
             }
             if (hasSpanOnOrAfter(spans, z.getStartTime())) {
                 continue;
             }
-            Optional<EnvQualityControlRecords> predSpan = latestSpanStrictlyBefore(spans, z.getStartTime());
+            Optional<QcmRecord> predSpan = latestSpanStrictlyBefore(spans, z.getStartTime());
             if (predSpan.isPresent()) {
                 return asOrderedList(z, predSpan.get());
             }
@@ -94,26 +94,26 @@ public final class ZeroSpanDayPairSelector {
 
         // Tier 2b: last passing span, no zero on/after its start; pair with latest zero strictly before span.start
         for (int i = spans.size() - 1; i >= 0; i--) {
-            EnvQualityControlRecords s = spans.get(i);
+            QcmRecord s = spans.get(i);
             if (!pass(s)) {
                 continue;
             }
             if (hasZeroOnOrAfter(zeros, s.getStartTime())) {
                 continue;
             }
-            Optional<EnvQualityControlRecords> predZero = latestZeroStrictlyBefore(zeros, s.getStartTime());
+            Optional<QcmRecord> predZero = latestZeroStrictlyBefore(zeros, s.getStartTime());
             if (predZero.isPresent()) {
                 return asOrderedList(predZero.get(), s);
             }
         }
 
         // Tier 3: best (zero, span) by pass count then time
-        EnvQualityControlRecords bestZ = null;
-        EnvQualityControlRecords bestS = null;
+        QcmRecord bestZ = null;
+        QcmRecord bestS = null;
         int bestPass = -1;
         long bestScore = Long.MIN_VALUE;
-        for (EnvQualityControlRecords z : zeros) {
-            for (EnvQualityControlRecords s : spans) {
+        for (QcmRecord z : zeros) {
+            for (QcmRecord s : spans) {
                 int pc = passCount(z, s);
                 long score = endMillis(z) + endMillis(s);
                 if (pc > bestPass || (pc == bestPass && score > bestScore)) {
@@ -129,76 +129,76 @@ public final class ZeroSpanDayPairSelector {
         }
 
         // Tier 4: only one type (should not reach if both lists non-empty)
-        EnvQualityControlRecords zLast = latest(zeros);
-        EnvQualityControlRecords sLast = latest(spans);
+        QcmRecord zLast = latest(zeros);
+        QcmRecord sLast = latest(spans);
         if (endMillis(zLast) >= endMillis(sLast)) {
             return Collections.singletonList(zLast);
         }
         return Collections.singletonList(sLast);
     }
 
-    private static List<EnvQualityControlRecords> asOrderedList(EnvQualityControlRecords zero, EnvQualityControlRecords span) {
-        List<EnvQualityControlRecords> out = new ArrayList<>(2);
+    private static List<QcmRecord> asOrderedList(QcmRecord zero, QcmRecord span) {
+        List<QcmRecord> out = new ArrayList<>(2);
         out.add(zero);
         out.add(span);
         return out;
     }
 
-    private static EnvQualityControlRecords latest(List<EnvQualityControlRecords> sortedAsc) {
+    private static QcmRecord latest(List<QcmRecord> sortedAsc) {
         return sortedAsc.get(sortedAsc.size() - 1);
     }
 
-    private static boolean pass(EnvQualityControlRecords r) {
+    private static boolean pass(QcmRecord r) {
         return QualityControlExecutionLogHelper.readIsPass(r.getExecutionLog());
     }
 
-    private static int passCount(EnvQualityControlRecords z, EnvQualityControlRecords s) {
+    private static int passCount(QcmRecord z, QcmRecord s) {
         return (pass(z) ? 1 : 0) + (pass(s) ? 1 : 0);
     }
 
-    private static long endMillis(EnvQualityControlRecords r) {
-        Date e = r.getEndTime() != null ? r.getEndTime() : r.getStartTime();
-        return e != null ? e.getTime() : 0L;
+    private static long endMillis(QcmRecord r) {
+        Instant e = r.getEndTime() != null ? r.getEndTime() : r.getStartTime();
+        return e != null ? e.toEpochMilli() : 0L;
     }
 
-    private static boolean hasSpanOnOrAfter(List<EnvQualityControlRecords> spans, Date pivot) {
+    private static boolean hasSpanOnOrAfter(List<QcmRecord> spans, Instant pivot) {
         if (pivot == null) {
             return false;
         }
-        long t = pivot.getTime();
-        for (EnvQualityControlRecords s : spans) {
-            if (s.getStartTime() != null && s.getStartTime().getTime() >= t) {
+        long t = pivot.toEpochMilli();
+        for (QcmRecord s : spans) {
+            if (s.getStartTime() != null && s.getStartTime().toEpochMilli() >= t) {
                 return true;
             }
         }
         return false;
     }
 
-    private static boolean hasZeroOnOrAfter(List<EnvQualityControlRecords> zeros, Date pivot) {
+    private static boolean hasZeroOnOrAfter(List<QcmRecord> zeros, Instant pivot) {
         if (pivot == null) {
             return false;
         }
-        long t = pivot.getTime();
-        for (EnvQualityControlRecords z : zeros) {
-            if (z.getStartTime() != null && z.getStartTime().getTime() >= t) {
+        long t = pivot.toEpochMilli();
+        for (QcmRecord z : zeros) {
+            if (z.getStartTime() != null && z.getStartTime().toEpochMilli() >= t) {
                 return true;
             }
         }
         return false;
     }
 
-    private static Optional<EnvQualityControlRecords> latestSpanStrictlyBefore(List<EnvQualityControlRecords> spans, Date zeroStart) {
+    private static Optional<QcmRecord> latestSpanStrictlyBefore(List<QcmRecord> spans, Instant zeroStart) {
         if (zeroStart == null) {
             return Optional.empty();
         }
-        long t = zeroStart.getTime();
-        EnvQualityControlRecords best = null;
-        for (EnvQualityControlRecords s : spans) {
+        long t = zeroStart.toEpochMilli();
+        QcmRecord best = null;
+        for (QcmRecord s : spans) {
             if (s.getStartTime() == null) {
                 continue;
             }
-            if (s.getStartTime().getTime() < t) {
-                if (best == null || s.getStartTime().after(best.getStartTime())) {
+            if (s.getStartTime().toEpochMilli() < t) {
+                if (best == null || s.getStartTime().isAfter(best.getStartTime())) {
                     best = s;
                 }
             }
@@ -206,18 +206,18 @@ public final class ZeroSpanDayPairSelector {
         return Optional.ofNullable(best);
     }
 
-    private static Optional<EnvQualityControlRecords> latestZeroStrictlyBefore(List<EnvQualityControlRecords> zeros, Date spanStart) {
+    private static Optional<QcmRecord> latestZeroStrictlyBefore(List<QcmRecord> zeros, Instant spanStart) {
         if (spanStart == null) {
             return Optional.empty();
         }
-        long t = spanStart.getTime();
-        EnvQualityControlRecords best = null;
-        for (EnvQualityControlRecords z : zeros) {
+        long t = spanStart.toEpochMilli();
+        QcmRecord best = null;
+        for (QcmRecord z : zeros) {
             if (z.getStartTime() == null) {
                 continue;
             }
-            if (z.getStartTime().getTime() < t) {
-                if (best == null || z.getStartTime().after(best.getStartTime())) {
+            if (z.getStartTime().toEpochMilli() < t) {
+                if (best == null || z.getStartTime().isAfter(best.getStartTime())) {
                     best = z;
                 }
             }

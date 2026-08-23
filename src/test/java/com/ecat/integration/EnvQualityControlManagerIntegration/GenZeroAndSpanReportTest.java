@@ -6,17 +6,22 @@ import com.ecat.core.Device.DeviceRegistry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlReport;
-import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmRecordService;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ReportGenerator;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.*;
+import java.util.Calendar;
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -44,27 +49,27 @@ class GenZeroAndSpanReportTest {
     private DeviceRegistry mockDeviceRegistry;
 
     @Mock
-    private IEnvQualityControlRecordsService mockQualityControlRecordsService;
+    private IQcmRecordService mockQualityControlRecordsService;
 
     private ReportGenerator reportGenerator;
 
-    private Date startTime;
-    private Date endTime;
+    private Instant startTime;
+    private Instant endTime;
 
     @BeforeEach
     void setUp() {
         // 设置测试时间范围
         Calendar cal = Calendar.getInstance();
         cal.set(2025, Calendar.JANUARY, 10, 8, 0, 0);
-        startTime = cal.getTime();
+        startTime = cal.toInstant();
         
         cal.set(2025, Calendar.JANUARY, 10, 10, 0, 0);
-        endTime = cal.getTime();
+        endTime = cal.toInstant();
 
         // 模拟 EcatCore
         lenient().when(mockEcatCore.getIntegrationRegistry()).thenReturn(mockRegistry);
         lenient().when(mockRegistry.getIntegration("integration-ecat-core-ruoyi")).thenReturn(mockMry);
-        lenient().when(mockMry.getSpringBean(IEnvQualityControlRecordsService.class)).thenReturn(mockQualityControlRecordsService);
+        lenient().when(mockMry.getSpringBean(IQcmRecordService.class)).thenReturn(mockQualityControlRecordsService);
         lenient().when(mockEcatCore.getDeviceRegistry()).thenReturn(mockDeviceRegistry);
 
         // 创建 ReportGenerator 实例
@@ -74,13 +79,13 @@ class GenZeroAndSpanReportTest {
     @Test
     void testGenZeroAndSpanReport_SO2() {
         // 准备测试数据 - SO2零跨检查（零点 + 跨度，使用 parameter code="1"）
-        List<EnvQualityControlRecords> records = Arrays.asList(
+        List<QcmRecord> records = Arrays.asList(
             createZeroCheckRecord("1"),  // SO2 code
             createSpanCheckRecord("1")   // SO2 code
         );
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟SO2设备和校准系统
@@ -90,13 +95,13 @@ class GenZeroAndSpanReportTest {
         // when(mockDeviceRegistry.getDeviceByID("sms-calib")).thenReturn(calibDevice);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证结果
         assertNotNull(reports);
         assertEquals(1, reports.size());
         
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         assertNotNull(report);
         assertEquals("ReportD2", report.getComponent());
         assertNotNull(report.getReportData());
@@ -115,29 +120,29 @@ class GenZeroAndSpanReportTest {
     @Test
     void testGenZeroAndSpanReport_MultipleGases() {
         // 准备测试数据 - 多种气体的零跨检查（使用 parameter code）
-        List<EnvQualityControlRecords> records = Arrays.asList(
+        List<QcmRecord> records = Arrays.asList(
             createZeroCheckRecord("1"),  // SO2 code
             createSpanCheckRecord("1"),  // SO2 code
             createZeroCheckRecord("2"),  // NO2 code
             createSpanCheckRecord("2")   // NO2 code
         );
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟所有气体设备和校准系统
         setupMockDevices();
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证结果 - 应生成2个报告（SO2、NO2各一个）
         assertNotNull(reports);
         assertEquals(2, reports.size());
         
         // 验证每个报告都有正确的组件
-        for (EnvQualityControlReport report : reports) {
+        for (QcmReport report : reports) {
             assertEquals("ReportD2", report.getComponent());
             assertNotNull(report.getReportData());
         }
@@ -149,20 +154,20 @@ class GenZeroAndSpanReportTest {
      * 创建零点检查记录
      * @param parameterCode 参数 code（"1"=SO2, "2"=NO2, "3"=O3, "4"=CO）
      */
-    private EnvQualityControlRecords createZeroCheckRecord(String parameterCode) {
-        EnvQualityControlRecords record = new EnvQualityControlRecords();
+    private QcmRecord createZeroCheckRecord(String parameterCode) {
+        QcmRecord record = new QcmRecord();
         record.setId(1L);
         record.setQualityControlType("0");  // ZERO_CHECK code
         record.setParameter(parameterCode);  // 使用参数 code 而不是 name
         
         Calendar cal = Calendar.getInstance();
         cal.set(2025, Calendar.JANUARY, 10, 8, 0, 0);
-        record.setStartTime(cal.getTime());
+        record.setStartTime(cal.toInstant());
         
         cal.set(2025, Calendar.JANUARY, 10, 8, 30, 0);
-        record.setEndTime(cal.getTime());
+        record.setEndTime(cal.toInstant());
         
-        record.setExecutionStatus(2L); // 成功状态
+        record.setExecutionStatus(2); // 成功状态
         
         // 零点检查执行日志
         String executionLog = "{"
@@ -176,7 +181,7 @@ class GenZeroAndSpanReportTest {
         record.setExecutionLog(executionLog);
         record.setResultEvaluation("零点检查合格");
         record.setCreatedBy("admin");
-        record.setUpdateBy("admin");
+        record.setUpdatedBy("admin");
         record.setCreateTime(record.getStartTime());
         
         return record;
@@ -186,20 +191,20 @@ class GenZeroAndSpanReportTest {
      * 创建跨度检查记录
      * @param parameterCode 参数 code（"1"=SO2, "2"=NO2, "3"=O3, "4"=CO）
      */
-    private EnvQualityControlRecords createSpanCheckRecord(String parameterCode) {
-        EnvQualityControlRecords record = new EnvQualityControlRecords();
+    private QcmRecord createSpanCheckRecord(String parameterCode) {
+        QcmRecord record = new QcmRecord();
         record.setId(2L);
         record.setQualityControlType("1");  // SPAN_CHECK code
         record.setParameter(parameterCode);  // 使用参数 code 而不是 name
         
         Calendar cal = Calendar.getInstance();
         cal.set(2025, Calendar.JANUARY, 10, 9, 0, 0);
-        record.setStartTime(cal.getTime());
+        record.setStartTime(cal.toInstant());
         
         cal.set(2025, Calendar.JANUARY, 10, 9, 30, 0);
-        record.setEndTime(cal.getTime());
+        record.setEndTime(cal.toInstant());
         
-        record.setExecutionStatus(2L); // 成功状态
+        record.setExecutionStatus(2); // 成功状态
         
         // 跨度检查执行日志
         String executionLog = "{"
@@ -213,7 +218,7 @@ class GenZeroAndSpanReportTest {
         record.setExecutionLog(executionLog);
         record.setResultEvaluation("跨度检查合格");
         record.setCreatedBy("admin");
-        record.setUpdateBy("admin");
+        record.setUpdatedBy("admin");
         record.setCreateTime(record.getStartTime());
         
         return record;

@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmPlanMapper">
+
+    <!-- timestamptz 列经 OffsetDateTime 中转的 Instant 局部 TypeHandler（非全局注册） -->
+    <resultMap type="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan" id="QcmPlanResult">
+        <result property="id"    column="id"    />
+        <result property="planName"    column="plan_name"    />
+        <result property="qcType"    column="qc_type"    />
+        <result property="instruments"    column="instruments"    />
+        <result property="scheduleType"    column="schedule_type"    />
+        <result property="scheduleConfig"    column="schedule_config"    />
+        <result property="concentrationPpb"    column="concentration_ppb"    />
+        <result property="flowRateLpm"    column="flow_rate_lpm"    />
+        <result property="durationOverrides"    column="duration_overrides"    />
+        <result property="pointPercents"    column="point_percents"    />
+        <result property="planStartTime"    column="plan_start_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+        <result property="planEndTime"    column="plan_end_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+        <result property="status"    column="status"    />
+        <result property="nextFireTime"    column="next_fire_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+        <result property="lastFireTime"    column="last_fire_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+        <result property="createdBy"    column="created_by"    />
+        <result property="updatedBy"    column="updated_by"    />
+        <result property="createTime"    column="create_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+        <result property="updateTime"    column="update_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+    </resultMap>
+
+    <sql id="selectQcmPlanVo">
+        select id, plan_name, qc_type, instruments, schedule_type, schedule_config, concentration_ppb,
+               flow_rate_lpm, duration_overrides, point_percents, plan_start_time, plan_end_time,
+               status, next_fire_time, last_fire_time,
+               created_by, updated_by, create_time, update_time
+        from qcm_plan
+    </sql>
+
+    <select id="selectById" parameterType="Long" resultMap="QcmPlanResult">
+        <include refid="selectQcmPlanVo"/>
+        where id = #{id}
+    </select>
+
+    <select id="selectList" parameterType="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan" resultMap="QcmPlanResult">
+        <include refid="selectQcmPlanVo"/>
+        <where>
+            <if test="status != null and status != ''"> and status = #{status}</if>
+            <if test="qcType != null and qcType != ''"> and qc_type = #{qcType}</if>
+            <if test="planName != null and planName != ''"> and plan_name like concat('%', #{planName}, '%')</if>
+        </where>
+        order by create_time desc
+    </select>
+
+    <insert id="insert" parameterType="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan" useGeneratedKeys="true" keyProperty="id">
+        insert into qcm_plan
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="planName != null and planName != ''">plan_name,</if>
+            <if test="qcType != null and qcType != ''">qc_type,</if>
+            <if test="instruments != null and instruments != ''">instruments,</if>
+            <if test="scheduleType != null and scheduleType != ''">schedule_type,</if>
+            <if test="scheduleConfig != null and scheduleConfig != ''">schedule_config,</if>
+            <if test="concentrationPpb != null">concentration_ppb,</if>
+            <if test="flowRateLpm != null">flow_rate_lpm,</if>
+            <if test="durationOverrides != null">duration_overrides,</if>
+            <if test="pointPercents != null">point_percents,</if>
+            <if test="planStartTime != null">plan_start_time,</if>
+            <if test="planEndTime != null">plan_end_time,</if>
+            <if test="status != null and status != ''">status,</if>
+            <if test="nextFireTime != null">next_fire_time,</if>
+            <if test="lastFireTime != null">last_fire_time,</if>
+            <if test="createdBy != null and createdBy != ''">created_by,</if>
+            <if test="updatedBy != null and updatedBy != ''">updated_by,</if>
+            <if test="createTime != null">create_time,</if>
+            <if test="updateTime != null">update_time,</if>
+        </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="planName != null and planName != ''">#{planName},</if>
+            <if test="qcType != null and qcType != ''">#{qcType},</if>
+            <if test="instruments != null and instruments != ''">#{instruments}::jsonb,</if>
+            <if test="scheduleType != null and scheduleType != ''">#{scheduleType},</if>
+            <if test="scheduleConfig != null and scheduleConfig != ''">#{scheduleConfig}::jsonb,</if>
+            <if test="concentrationPpb != null">#{concentrationPpb},</if>
+            <if test="flowRateLpm != null">#{flowRateLpm},</if>
+            <if test="durationOverrides != null">#{durationOverrides}::jsonb,</if>
+            <if test="pointPercents != null">#{pointPercents}::jsonb,</if>
+            <if test="planStartTime != null">#{planStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="planEndTime != null">#{planEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="status != null and status != ''">#{status},</if>
+            <if test="nextFireTime != null">#{nextFireTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="lastFireTime != null">#{lastFireTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="createdBy != null and createdBy != ''">#{createdBy},</if>
+            <if test="updatedBy != null and updatedBy != ''">#{updatedBy},</if>
+            <if test="createTime != null">#{createTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="updateTime != null">#{updateTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+        </trim>
+    </insert>
+
+    <update id="update" parameterType="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan">
+        update qcm_plan
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="planName != null and planName != ''">plan_name = #{planName},</if>
+            <if test="qcType != null and qcType != ''">qc_type = #{qcType},</if>
+            <if test="instruments != null and instruments != ''">instruments = #{instruments}::jsonb,</if>
+            <if test="scheduleType != null and scheduleType != ''">schedule_type = #{scheduleType},</if>
+            <if test="scheduleConfig != null and scheduleConfig != ''">schedule_config = #{scheduleConfig}::jsonb,</if>
+            <if test="concentrationPpb != null">concentration_ppb = #{concentrationPpb},</if>
+            <if test="flowRateLpm != null">flow_rate_lpm = #{flowRateLpm},</if>
+            <if test="durationOverrides != null">duration_overrides = #{durationOverrides}::jsonb,</if>
+            <if test="pointPercents != null">point_percents = #{pointPercents}::jsonb,</if>
+            <if test="planStartTime != null">plan_start_time = #{planStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="planEndTime != null">plan_end_time = #{planEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="nextFireTime != null">next_fire_time = #{nextFireTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="lastFireTime != null">last_fire_time = #{lastFireTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="updatedBy != null and updatedBy != ''">updated_by = #{updatedBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+        </trim>
+        where id = #{id}
+    </update>
+
+    <!-- 编辑保存的全量覆盖（可空列置 NULL；status/id/create 侧不动，状态变更单点在 updateStatus） -->
+    <update id="updateAll" parameterType="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan">
+        update qcm_plan
+        set plan_name = #{planName},
+            qc_type = #{qcType},
+            instruments = #{instruments,jdbcType=OTHER}::jsonb,
+            schedule_type = #{scheduleType},
+            schedule_config = #{scheduleConfig,jdbcType=OTHER}::jsonb,
+            concentration_ppb = #{concentrationPpb,jdbcType=NUMERIC},
+            flow_rate_lpm = #{flowRateLpm,jdbcType=NUMERIC},
+            duration_overrides = #{durationOverrides,jdbcType=OTHER}::jsonb,
+            point_percents = #{pointPercents,jdbcType=OTHER}::jsonb,
+            plan_start_time = #{planStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            plan_end_time = #{planEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            next_fire_time = #{nextFireTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            updated_by = #{updatedBy},
+            update_time = #{updateTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP}
+        where id = #{id}
+    </update>
+
+    <!-- 计划状态机落库（ACTIVE/PAUSED/FINISHED）；status 不随 update() 走，保证状态变更单点 -->
+    <update id="updateStatus">
+        update qcm_plan
+        set status = #{status},
+            updated_by = #{updatedBy},
+            update_time = now()
+        where id = #{id}
+    </update>
+
+    <!-- 调度器触发后维护触发时刻；PAUSED 时 nextFireTime 传 null 置空 -->
+    <update id="updateNextFireTime">
+        update qcm_plan
+        set next_fire_time = #{nextFireTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            last_fire_time = #{lastFireTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            update_time = now()
+        where id = #{id}
+    </update>
+
+    <!-- 编排器触发后只回写 last_fire_time；非 ONCE 计划 next_fire_time 归调度器，不许旁路覆盖 -->
+    <update id="updateLastFireTime">
+        update qcm_plan
+        set last_fire_time = #{lastFireTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            update_time = now()
+        where id = #{id}
+    </update>
+
+    <!-- 调度器 rearm 目标行：ACTIVE 且有下次触发时刻的最早一行；无候选空转零唤醒 -->
+    <select id="selectEarliestActive" resultMap="QcmPlanResult">
+        <include refid="selectQcmPlanVo"/>
+        where status = 'ACTIVE' and next_fire_time is not null
+        order by next_fire_time asc
+        limit 1
+    </select>
+
+    <delete id="deleteById" parameterType="Long">
+        delete from qcm_plan where id = #{id}
+    </delete>
+</mapper>

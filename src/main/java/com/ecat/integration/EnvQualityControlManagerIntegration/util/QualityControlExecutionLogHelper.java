@@ -3,9 +3,13 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.util;
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorResultBase;
 import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseExecutionRecord;
 
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoField;
+import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -28,10 +32,11 @@ public final class QualityControlExecutionLogHelper {
      */
     public static final String QC_PHASE_TIMELINES_KEY = "qcPhaseTimelines";
 
-    private static final String[] TIME_PATTERNS = {
-        "yyyy-MM-dd HH:mm:ss",
-        "yyyy-MM-dd'T'HH:mm:ss",
-        "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"
+    /** 阶段时间串解析（G-STD-7：SimpleDateFormat → DateTimeFormatter）。前两种为无时区本地串，末种带偏移。 */
+    private static final DateTimeFormatter[] TIME_FORMATTERS = {
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"),
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX")
     };
 
     private QualityControlExecutionLogHelper() {
@@ -311,10 +316,15 @@ public final class QualityControlExecutionLogHelper {
         if (s.isEmpty()) {
             return null;
         }
-        for (String p : TIME_PATTERNS) {
+        for (DateTimeFormatter f : TIME_FORMATTERS) {
             try {
-                return new SimpleDateFormat(p).parse(s);
-            } catch (ParseException ignored) {
+                TemporalAccessor ta = f.parse(s);
+                // 带偏移的串直接按偏移归 Instant；本地串按系统默认时区（与旧 SimpleDateFormat 默认时区行为一致）
+                if (ta.isSupported(ChronoField.OFFSET_SECONDS)) {
+                    return Date.from(Instant.from(ta));
+                }
+                return Date.from(LocalDateTime.from(ta).atZone(ZoneId.systemDefault()).toInstant());
+            } catch (DateTimeParseException ignored) {
                 // try next
             }
         }

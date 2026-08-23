@@ -4,7 +4,7 @@ import com.ecat.core.EcatCore;
 import com.ecat.integration.EnvCalibrationComposerIntegration.AbstractCalibrationFlow;
 import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseInfo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.EnvQualityControlManagerIntegration;
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -22,11 +22,11 @@ public final class QualityControlExecutionPhasePayload {
     private QualityControlExecutionPhasePayload() {
     }
 
-    public static Map<String, Object> build(EcatCore core, EnvQualityControlRecords record) {
+    public static Map<String, Object> build(EcatCore core, QcmRecord record) {
         Objects.requireNonNull(record, "record");
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("recordId", record.getId());
-        Long st = record.getExecutionStatus();
+        Integer st = record.getExecutionStatus();
         out.put("executionStatus", st);
 
         AbstractCalibrationFlow live = resolveLiveFlow(core, record.getId());
@@ -95,7 +95,7 @@ public final class QualityControlExecutionPhasePayload {
     }
 
     @SuppressWarnings("unchecked")
-    private static List<Map<String, Object>> phasesFromPersistedTimelines(String executionLog, Long executionStatus) {
+    private static List<Map<String, Object>> phasesFromPersistedTimelines(String executionLog, Integer executionStatus) {
         List<Map<String, Object>> out = new ArrayList<>();
         Map<String, Object> root = QualityControlExecutionLogHelper.parseRootMap(executionLog);
         Object raw = root.get(QualityControlExecutionLogHelper.QC_PHASE_TIMELINES_KEY);

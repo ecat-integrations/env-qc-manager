@@ -90,6 +90,19 @@ public final class LogicDeviceReportSupport {
             logger.warn("无法生成关键参数：分析仪逻辑设备未注册或未就绪 param={}", parameterName);
             return rows;
         }
+        return buildAnalyzerKeyParametersForTest(analyzer, parameterName);
+    }
+
+    /**
+     * 快照行构建核心（包级可见供测试注入 analyzer）。
+     *
+     * <p>主浓度行取值必须带目标单位（SO2/NO2/O3→PPB、CO→PPM，D19 单位规范）——与质控判定
+     * {@code getDisplayValue(PPB)} 同口径。airdevice 逻辑属性 native 单位是 µg/m³（ADM 国标口径
+     * 定案），裸 {@code getDisplayValue()} 会拿到 µg/m³ 数值（400ppb→1047.47），而标签补的是
+     * ppb/ppm，造成报告数值与单位错位（G-BUG-20）。</p>
+     */
+    static List<Map<String, Object>> buildAnalyzerKeyParametersForTest(LogicDevice analyzer, String parameterName) {
+        List<Map<String, Object>> rows = new ArrayList<>();
 
         List<LabeledAttr> specs = collectAnalyzerKeyParameterSpecs(parameterName, analyzer);
         for (LabeledAttr spec : specs) {
@@ -97,7 +110,15 @@ public final class LogicDeviceReportSupport {
             LogicAttributeDefine def = findAttrDefine(analyzer, spec.attrId);
             Map<String, Object> row = new HashMap<>();
             row.put("tName", spec.label);
-            String display = attr != null ? nullSafe(attr.getDisplayValue()) : "";
+            String display;
+            if (attr != null && def != null && matchesPrimaryGasConcentration(parameterName, def.getAttrClass())) {
+                // G-BUG-20：主浓度按目标单位取值（CO→PPM，其余 PPB），与判定同口径；µg/m³ native 值不得直出
+                com.ecat.core.State.UnitInfo targetUnit = "CO".equalsIgnoreCase(nullSafe(parameterName).trim())
+                        ? AirVolumeUnit.PPM : AirVolumeUnit.PPB;
+                display = nullSafe(attr.getDisplayValue(targetUnit));
+            } else {
+                display = attr != null ? nullSafe(attr.getDisplayValue()) : "";
+            }
             display = appendKeyParameterUnitIfMissing(display, def, parameterName);
             row.put("tValue", display);
             String ref = AnalyzerOperatingStatusNormalRanges.lookupByParameterName(parameterName, spec.label);

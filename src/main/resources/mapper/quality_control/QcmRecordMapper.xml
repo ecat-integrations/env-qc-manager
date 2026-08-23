@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordMapper">
+
+    <!-- timestamptz 列经 OffsetDateTime 中转的 Instant 局部 TypeHandler（非全局注册） -->
+    <resultMap type="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord" id="QcmRecordResult">
+        <result property="id"    column="id"    />
+        <result property="batchId"    column="batch_id"    />
+        <result property="planId"    column="plan_id"    />
+        <result property="taskType"    column="task_type"    />
+        <result property="qualityControlType"    column="quality_control_type"    />
+        <result property="parameter"    column="parameter"    />
+        <result property="startTime"    column="start_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+        <result property="endTime"    column="end_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+        <result property="standardValue"    column="standard_value"    />
+        <result property="monitoringData"    column="monitoring_data"    />
+        <result property="calculatedValue"    column="calculated_value"    />
+        <result property="executionStatus"    column="execution_status"    />
+        <result property="executionLog"    column="execution_log"    />
+        <result property="resultEvaluation"    column="result_evaluation"    />
+        <result property="triggerUser"    column="trigger_user"    />
+        <result property="failureReason"    column="failure_reason"    />
+        <result property="recordSnapshot"    column="record_snapshot"    />
+        <result property="checkPassLimit"    column="check_pass_limit"    />
+        <result property="checkCalibLimit"    column="check_calib_limit"    />
+        <result property="isPass"    column="is_pass"    />
+        <result property="slope"    column="slope"    />
+        <result property="intercept"    column="intercept"    />
+        <result property="correlation"    column="correlation"    />
+        <result property="fullScale"    column="full_scale"    />
+        <result property="instrumentName"    column="instrument_name"    />
+        <result property="instrumentNo"    column="instrument_no"    />
+        <result property="gasSource"    column="gas_source"    />
+        <result property="gasNo"    column="gas_no"    />
+        <result property="gasConcentration"    column="gas_concentration"    />
+        <result property="gasConcentrationUnit"    column="gas_concentration_unit"    />
+        <result property="samplingStartTime"    column="sampling_start_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+        <result property="samplingEndTime"    column="sampling_end_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+        <result property="triggerRequestId"    column="trigger_request_id"    />
+        <result property="flowType"    column="flow_type"    />
+        <result property="flowExecutionRef"    column="flow_execution_ref"    />
+        <result property="createdBy"    column="created_by"    />
+        <result property="updatedBy"    column="updated_by"    />
+        <result property="createTime"    column="create_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+        <result property="updateTime"    column="update_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+    </resultMap>
+
+    <sql id="selectQcmRecordVo">
+        select id, batch_id, plan_id, task_type, quality_control_type, parameter, start_time, end_time,
+               standard_value, monitoring_data, calculated_value, execution_status, execution_log,
+               result_evaluation, trigger_user, failure_reason, record_snapshot,
+               check_pass_limit, check_calib_limit, is_pass, slope, intercept, correlation,
+               full_scale, instrument_name, instrument_no, gas_source, gas_no, gas_concentration, gas_concentration_unit,
+               sampling_start_time, sampling_end_time, trigger_request_id, flow_type, flow_execution_ref,
+               created_by, updated_by, create_time, update_time
+        from qcm_record
+    </sql>
+
+    <select id="selectList" parameterType="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord" resultMap="QcmRecordResult">
+        <include refid="selectQcmRecordVo"/>
+        <where>
+            <if test="taskType != null  and taskType != ''"> and task_type = #{taskType}</if>
+            <if test="qualityControlType != null  and qualityControlType != ''"> and quality_control_type = #{qualityControlType}</if>
+            <if test="executionStatus != null "> and execution_status = #{executionStatus}</if>
+            <if test="beginEndTime != null and endEndTime != null"> and end_time between #{beginEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP} and #{endEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP}</if>
+        </where>
+        order by create_time desc
+    </select>
+
+    <!--支持多种参数查询；executionStatus 缺省取 2=执行成功完成的质控记录（沿用旧语义）-->
+    <select id="selectByTypeTime" resultMap="QcmRecordResult">
+        <include refid="selectQcmRecordVo"/>
+        <where>
+            <if test="qualityControlType != null  and qualityControlType != ''"> and quality_control_type = #{qualityControlType}</if>
+            <if test="beginStartTime != null and endStartTime != null"> and end_time between #{beginStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP} and #{endStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP}</if>
+            <choose>
+                <when test="executionStatus != null"> and execution_status = #{executionStatus} </when>
+                <otherwise> and execution_status = 2 </otherwise>
+            </choose>
+        </where>
+        order by create_time desc
+    </select>
+
+    <select id="selectByBatchId" parameterType="String" resultMap="QcmRecordResult">
+        <include refid="selectQcmRecordVo"/>
+        where batch_id = #{batchId}
+        order by id asc
+    </select>
+
+    <select id="selectById" parameterType="Long" resultMap="QcmRecordResult">
+        <include refid="selectQcmRecordVo"/>
+        where id = #{id}
+    </select>
+
+    <!-- SDK 结果过滤查询（§4.1）：时间窗按 start_time 含边界；调用方以 limit=上限+1 探测超限 -->
+    <select id="selectByFilter" resultMap="QcmRecordResult">
+        <include refid="selectQcmRecordVo"/>
+        <where>
+            <if test="begin != null"> and start_time &gt;= #{begin,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP}</if>
+            <if test="end != null"> and start_time &lt;= #{end,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP}</if>
+            <if test="qcType != null and qcType != ''"> and quality_control_type = #{qcType}</if>
+            <if test="instrument != null and instrument != ''"> and parameter = #{instrument}</if>
+            <if test="triggerSource != null and triggerSource != ''"> and task_type = #{triggerSource}</if>
+            <if test="batchId != null and batchId != ''"> and batch_id = #{batchId}</if>
+            <if test="triggerRequestId != null and triggerRequestId != ''"> and trigger_request_id = #{triggerRequestId}</if>
+        </where>
+        order by start_time desc
+        limit #{limit}
+    </select>
+
+    <!-- 中止入口轻量查询（G-PERF-6）：只取存在性/批次定位三列，不加载 execution_log 大字段 -->
+    <select id="selectStopTargetById" parameterType="Long" resultMap="QcmRecordResult">
+        select id, batch_id, execution_status from qcm_record where id = #{id}
+    </select>
+
+    <select id="selectBatchRowIds" parameterType="String" resultType="Long">
+        select id from qcm_record where batch_id = #{batchId} order by id asc
+    </select>
+
+    <insert id="insert" parameterType="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord" useGeneratedKeys="true" keyProperty="id">
+        insert into qcm_record
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="id != null">id,</if>
+            <if test="batchId != null and batchId != ''">batch_id,</if>
+            <if test="planId != null">plan_id,</if>
+            <if test="taskType != null and taskType != ''">task_type,</if>
+            <if test="qualityControlType != null and qualityControlType != ''">quality_control_type,</if>
+            <if test="parameter != null and parameter != ''">parameter,</if>
+            <if test="startTime != null">start_time,</if>
+            <if test="endTime != null">end_time,</if>
+            <if test="standardValue != null">standard_value,</if>
+            <if test="monitoringData != null">monitoring_data,</if>
+            <if test="calculatedValue != null">calculated_value,</if>
+            <if test="executionStatus != null">execution_status,</if>
+            <if test="executionLog != null">execution_log,</if>
+            <if test="resultEvaluation != null">result_evaluation,</if>
+            <if test="triggerUser != null and triggerUser != ''">trigger_user,</if>
+            <if test="failureReason != null">failure_reason,</if>
+            <if test="recordSnapshot != null">record_snapshot,</if>
+            <if test="checkPassLimit != null">check_pass_limit,</if>
+            <if test="checkCalibLimit != null">check_calib_limit,</if>
+            <if test="isPass != null">is_pass,</if>
+            <if test="slope != null">slope,</if>
+            <if test="intercept != null">intercept,</if>
+            <if test="correlation != null">correlation,</if>
+            <if test="fullScale != null">full_scale,</if>
+            <if test="instrumentName != null and instrumentName != ''">instrument_name,</if>
+            <if test="instrumentNo != null and instrumentNo != ''">instrument_no,</if>
+            <if test="gasSource != null and gasSource != ''">gas_source,</if>
+            <if test="gasNo != null and gasNo != ''">gas_no,</if>
+            <if test="gasConcentration != null">gas_concentration,</if>
+            <if test="samplingStartTime != null">sampling_start_time,</if>
+            <if test="samplingEndTime != null">sampling_end_time,</if>
+            <if test="triggerRequestId != null and triggerRequestId != ''">trigger_request_id,</if>
+            <if test="flowType != null and flowType != ''">flow_type,</if>
+            <if test="flowExecutionRef != null and flowExecutionRef != ''">flow_execution_ref,</if>
+            <if test="createdBy != null and createdBy != ''">created_by,</if>
+            <if test="updatedBy != null and updatedBy != ''">updated_by,</if>
+            <if test="createTime != null">create_time,</if>
+            <if test="updateTime != null">update_time,</if>
+         </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="id != null">#{id},</if>
+            <if test="batchId != null and batchId != ''">#{batchId},</if>
+            <if test="planId != null">#{planId},</if>
+            <if test="taskType != null and taskType != ''">#{taskType},</if>
+            <if test="qualityControlType != null and qualityControlType != ''">#{qualityControlType},</if>
+            <if test="parameter != null and parameter != ''">#{parameter},</if>
+            <if test="startTime != null">#{startTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="endTime != null">#{endTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="standardValue != null">#{standardValue},</if>
+            <if test="monitoringData != null">#{monitoringData},</if>
+            <if test="calculatedValue != null">#{calculatedValue},</if>
+            <if test="executionStatus != null">#{executionStatus},</if>
+            <if test="executionLog != null">#{executionLog},</if>
+            <if test="resultEvaluation != null">#{resultEvaluation},</if>
+            <if test="triggerUser != null and triggerUser != ''">#{triggerUser},</if>
+            <if test="failureReason != null">#{failureReason},</if>
+            <if test="recordSnapshot != null">#{recordSnapshot}::jsonb,</if>
+            <if test="checkPassLimit != null">#{checkPassLimit},</if>
+            <if test="checkCalibLimit != null">#{checkCalibLimit},</if>
+            <if test="isPass != null">#{isPass},</if>
+            <if test="slope != null">#{slope},</if>
+            <if test="intercept != null">#{intercept},</if>
+            <if test="correlation != null">#{correlation},</if>
+            <if test="fullScale != null">#{fullScale},</if>
+            <if test="instrumentName != null and instrumentName != ''">#{instrumentName},</if>
+            <if test="instrumentNo != null and instrumentNo != ''">#{instrumentNo},</if>
+            <if test="gasSource != null and gasSource != ''">#{gasSource},</if>
+            <if test="gasNo != null and gasNo != ''">#{gasNo},</if>
+            <if test="gasConcentration != null">#{gasConcentration},</if>
+            <if test="samplingStartTime != null">#{samplingStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="samplingEndTime != null">#{samplingEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="triggerRequestId != null and triggerRequestId != ''">#{triggerRequestId},</if>
+            <if test="flowType != null and flowType != ''">#{flowType},</if>
+            <if test="flowExecutionRef != null and flowExecutionRef != ''">#{flowExecutionRef},</if>
+            <if test="createdBy != null and createdBy != ''">#{createdBy},</if>
+            <if test="updatedBy != null and updatedBy != ''">#{updatedBy},</if>
+            <if test="createTime != null">#{createTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="updateTime != null">#{updateTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+         </trim>
+    </insert>
+
+    <!-- 多仪器零点一次执行 N 行：同 batch_id 一次批量写入 -->
+    <insert id="insertBatch" parameterType="java.util.List" useGeneratedKeys="true" keyProperty="id">
+        insert into qcm_record
+        (batch_id, plan_id, task_type, quality_control_type, parameter, start_time, end_time,
+         standard_value, monitoring_data, calculated_value, execution_status, execution_log,
+         result_evaluation, trigger_user, failure_reason, record_snapshot,
+         trigger_request_id, flow_type, flow_execution_ref,
+         created_by, updated_by, create_time, update_time)
+        values
+        <foreach item="item" collection="records" separator=",">
+            (#{item.batchId}, #{item.planId}, #{item.taskType}, #{item.qualityControlType}, #{item.parameter},
+             #{item.startTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+             #{item.endTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+             #{item.standardValue}, #{item.monitoringData}, #{item.calculatedValue}, #{item.executionStatus},
+             #{item.executionLog}, #{item.resultEvaluation}, #{item.triggerUser}, #{item.failureReason},
+             #{item.recordSnapshot}::jsonb,
+             #{item.triggerRequestId}, #{item.flowType}, #{item.flowExecutionRef},
+             #{item.createdBy}, #{item.updatedBy},
+             #{item.createTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+             #{item.updateTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP})
+        </foreach>
+    </insert>
+
+    <update id="update" parameterType="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord">
+        update qcm_record
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="taskType != null and taskType != ''">task_type = #{taskType},</if>
+            <if test="qualityControlType != null and qualityControlType != ''">quality_control_type = #{qualityControlType},</if>
+            <if test="parameter != null and parameter != ''">parameter = #{parameter},</if>
+            <if test="startTime != null">start_time = #{startTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="endTime != null">end_time = #{endTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="standardValue != null">standard_value = #{standardValue},</if>
+            <if test="monitoringData != null">monitoring_data = #{monitoringData},</if>
+            <if test="calculatedValue != null">calculated_value = #{calculatedValue},</if>
+            <if test="executionStatus != null">execution_status = #{executionStatus},</if>
+            <if test="executionLog != null">execution_log = #{executionLog},</if>
+            <if test="resultEvaluation != null">result_evaluation = #{resultEvaluation},</if>
+            <if test="failureReason != null">failure_reason = #{failureReason},</if>
+            <if test="recordSnapshot != null">record_snapshot = #{recordSnapshot}::jsonb,</if>
+            <if test="checkPassLimit != null">check_pass_limit = #{checkPassLimit},</if>
+            <if test="checkCalibLimit != null">check_calib_limit = #{checkCalibLimit},</if>
+            <if test="isPass != null">is_pass = #{isPass},</if>
+            <if test="slope != null">slope = #{slope},</if>
+            <if test="intercept != null">intercept = #{intercept},</if>
+            <if test="correlation != null">correlation = #{correlation},</if>
+            <if test="fullScale != null">full_scale = #{fullScale},</if>
+            <if test="instrumentName != null and instrumentName != ''">instrument_name = #{instrumentName},</if>
+            <if test="instrumentNo != null and instrumentNo != ''">instrument_no = #{instrumentNo},</if>
+            <if test="gasSource != null and gasSource != ''">gas_source = #{gasSource},</if>
+            <if test="gasNo != null and gasNo != ''">gas_no = #{gasNo},</if>
+            <if test="gasConcentration != null">gas_concentration = #{gasConcentration},</if>
+            <if test="gasConcentrationUnit != null and gasConcentrationUnit != ''">gas_concentration_unit = #{gasConcentrationUnit},</if>
+            <if test="samplingStartTime != null">sampling_start_time = #{samplingStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="samplingEndTime != null">sampling_end_time = #{samplingEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="triggerRequestId != null and triggerRequestId != ''">trigger_request_id = #{triggerRequestId},</if>
+            <if test="flowType != null and flowType != ''">flow_type = #{flowType},</if>
+            <if test="flowExecutionRef != null and flowExecutionRef != ''">flow_execution_ref = #{flowExecutionRef},</if>
+            <if test="planId != null">plan_id = #{planId},</if>
+            <if test="createdBy != null and createdBy != ''">created_by = #{createdBy},</if>
+            <if test="updatedBy != null and updatedBy != ''">updated_by = #{updatedBy},</if>
+            <if test="createTime != null">create_time = #{createTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="updateTime != null">update_time = #{updateTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+        </trim>
+        where id = #{id}
+    </update>
+
+    <!-- §4.0 完成时一次性冻结结果快照：判定标量+快照层+flow 关联列，WHERE id。
+         与通用 update 分离：快照列只在完成时写一次，语义独立可守卫。 -->
+    <update id="updateResultSnapshot" parameterType="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord">
+        update qcm_record
+        set standard_value = #{standardValue},
+            monitoring_data = #{monitoringData},
+            calculated_value = #{calculatedValue},
+            check_pass_limit = #{checkPassLimit},
+            check_calib_limit = #{checkCalibLimit},
+            is_pass = #{isPass},
+            slope = #{slope},
+            intercept = #{intercept},
+            correlation = #{correlation},
+            full_scale = #{fullScale},
+            instrument_name = #{instrumentName},
+            instrument_no = #{instrumentNo},
+            gas_source = #{gasSource},
+            gas_no = #{gasNo},
+            gas_concentration = #{gasConcentration},
+            gas_concentration_unit = #{gasConcentrationUnit},
+            sampling_start_time = #{samplingStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            sampling_end_time = #{samplingEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            flow_type = #{flowType},
+            flow_execution_ref = #{flowExecutionRef},
+            update_time = #{updateTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            updated_by = #{updatedBy}
+        where id = #{id}
+    </update>
+
+    <update id="markStopInProgressClearEndTime">
+        update qcm_record
+        set execution_status = #{executionStatus},
+            end_time = null,
+            update_time = #{updateTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            updated_by = #{updatedBy}
+        where id = #{id}
+    </update>
+
+    <!-- 单行直接收敛终止（G-BUG-2）：无运行执行器时中止不再置 STOPING 挂死 -->
+    <update id="terminateById">
+        update qcm_record
+        set execution_status = #{executionStatus},
+            result_evaluation = #{resultEvaluation},
+            end_time = #{endTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            update_time = #{endTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            updated_by = #{updatedBy}
+        where id = #{id}
+    </update>
+
+    <!-- 批次 set-based 终止（FR-02-20） -->
+    <update id="terminateByBatchId">
+        update qcm_record
+        set execution_status = #{executionStatus},
+            result_evaluation = #{resultEvaluation},
+            end_time = #{endTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            update_time = #{endTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+            updated_by = #{updatedBy}
+        where batch_id = #{batchId}
+    </update>
+
+    <!-- 更新executionStatus为1/4的记录，将其executionStatus置为传入参数，将resultEvaluation置为传入参数，并可选增加创建时间条件 -->
+    <update id="updateRecordsExecutionStatus">
+        UPDATE qcm_record
+        SET execution_status = #{newExecutionStatus},
+            result_evaluation = #{resultEvaluation}
+        WHERE execution_status in (0,1,4)
+        <if test="beginStartTime != null and endStartTime != null">
+            AND create_time BETWEEN #{beginStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP} AND #{endStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP}
+        </if>
+    </update>
+
+    <delete id="deleteById" parameterType="Long">
+        delete from qcm_record where id = #{id}
+    </delete>
+
+    <delete id="deleteByIds" parameterType="String">
+        delete from qcm_record where id in
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+</mapper>

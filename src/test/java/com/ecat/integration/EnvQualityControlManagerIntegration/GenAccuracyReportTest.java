@@ -6,17 +6,22 @@ import com.ecat.core.Device.DeviceRegistry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlReport;
-import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmRecordService;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ReportGenerator;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.*;
+import java.util.Calendar;
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -44,27 +49,27 @@ class GenAccuracyReportTest {
     private DeviceRegistry mockDeviceRegistry;
 
     @Mock
-    private IEnvQualityControlRecordsService mockQualityControlRecordsService;
+    private IQcmRecordService mockQualityControlRecordsService;
 
     private ReportGenerator reportGenerator;
 
-    private Date startTime;
-    private Date endTime;
+    private Instant startTime;
+    private Instant endTime;
 
     @BeforeEach
     void setUp() {
         // 设置测试时间范围
         Calendar cal = Calendar.getInstance();
         cal.set(2025, Calendar.JANUARY, 20, 14, 0, 0);
-        startTime = cal.getTime();
+        startTime = cal.toInstant();
         
         cal.set(2025, Calendar.JANUARY, 20, 16, 0, 0);
-        endTime = cal.getTime();
+        endTime = cal.toInstant();
 
         // 模拟 EcatCore
         lenient().when(mockEcatCore.getIntegrationRegistry()).thenReturn(mockRegistry);
         lenient().when(mockRegistry.getIntegration("integration-ecat-core-ruoyi")).thenReturn(mockMry);
-        lenient().when(mockMry.getSpringBean(IEnvQualityControlRecordsService.class)).thenReturn(mockQualityControlRecordsService);
+        lenient().when(mockMry.getSpringBean(IQcmRecordService.class)).thenReturn(mockQualityControlRecordsService);
         lenient().when(mockEcatCore.getDeviceRegistry()).thenReturn(mockDeviceRegistry);
 
         // 创建 ReportGenerator 实例
@@ -74,11 +79,11 @@ class GenAccuracyReportTest {
     @Test
     void testGenAccuracyReport_SO2() {
         // 准备测试数据 - SO2准确度测试（使用 code="1"）
-        EnvQualityControlRecords record = createAccuracyCheckRecord("1");  // SO2 code
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createAccuracyCheckRecord("1");  // SO2 code
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟SO2设备
@@ -86,13 +91,13 @@ class GenAccuracyReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("esa-so2")).thenReturn(so2Device);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证结果
         assertNotNull(reports);
         assertEquals(1, reports.size());
         
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         assertNotNull(report);
         assertEquals("ReportD5", report.getComponent());
         assertNotNull(report.getReportData());
@@ -110,11 +115,11 @@ class GenAccuracyReportTest {
     @Test
     void testGenAccuracyReport_O3() {
         // 准备测试数据（O3 code="3"）
-        EnvQualityControlRecords record = createAccuracyCheckRecord("3");  // O3 code
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createAccuracyCheckRecord("3");  // O3 code
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟O3设备
@@ -122,7 +127,7 @@ class GenAccuracyReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("esa-o3")).thenReturn(o3Device);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证结果
         assertNotNull(reports);
@@ -133,11 +138,11 @@ class GenAccuracyReportTest {
     @Test
     void testGenAccuracyReport_VerifyGasConcentrationsAndResponses() {
         // 准备测试数据（O3 code="3"）
-        EnvQualityControlRecords record = createAccuracyCheckRecord("3");  // O3 code
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createAccuracyCheckRecord("3");  // O3 code
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟O3设备
@@ -145,10 +150,10 @@ class GenAccuracyReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("esa-o3")).thenReturn(o3Device);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证标气浓度和仪器响应（报表为带浓度单位的字符串列表）
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
         // 验证标气浓度（3个点）
@@ -173,11 +178,11 @@ class GenAccuracyReportTest {
     @Test
     void testGenAccuracyReport_VerifyCalibrationCurve() {
         // 准备测试数据（CO code="4"）
-        EnvQualityControlRecords record = createAccuracyCheckRecord("4");  // CO code
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createAccuracyCheckRecord("4");  // CO code
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟CO设备
@@ -185,10 +190,10 @@ class GenAccuracyReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("esa-co")).thenReturn(coDevice);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证校准曲线参数
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
         @SuppressWarnings("unchecked")
@@ -208,11 +213,11 @@ class GenAccuracyReportTest {
     @Test
     void testGenAccuracyReport_VerifyAverageRelativeError() {
         // 准备测试数据（NO2 code="2"）
-        EnvQualityControlRecords record = createAccuracyCheckRecord("2");  // NO2 code
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createAccuracyCheckRecord("2");  // NO2 code
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟NO2设备
@@ -220,10 +225,10 @@ class GenAccuracyReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("esa-no2")).thenReturn(no2Device);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证平均相对误差
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         
         String averageRelativeError = (String) reportData.get("average_relative_error");
@@ -235,12 +240,12 @@ class GenAccuracyReportTest {
     @Test
     void testGenAccuracyReport_CalibrationResultPass() {
         // 准备测试数据 - 合格（SO2 code="1"）
-        EnvQualityControlRecords record = createAccuracyCheckRecord("1", true);  // SO2 code
-        record.setExecutionStatus(2L); // 成功状态
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createAccuracyCheckRecord("1", true);  // SO2 code
+        record.setExecutionStatus(2); // 成功状态
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟SO2设备
@@ -248,10 +253,10 @@ class GenAccuracyReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("esa-so2")).thenReturn(so2Device);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证校准结果
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         String calibrationResult = (String) reportData.get("calibration_result");
         assertEquals("合格", calibrationResult);
@@ -260,12 +265,12 @@ class GenAccuracyReportTest {
     @Test
     void testGenAccuracyReport_CalibrationResultFail() {
         // 准备测试数据 - 不合格（NO2 code="2"）
-        EnvQualityControlRecords record = createAccuracyCheckRecord("2", false);  // NO2 code
-        record.setExecutionStatus(3L); // 失败状态
-        List<EnvQualityControlRecords> records = Arrays.asList(record);
+        QcmRecord record = createAccuracyCheckRecord("2", false);  // NO2 code
+        record.setExecutionStatus(3); // 失败状态
+        List<QcmRecord> records = Arrays.asList(record);
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟NO2设备
@@ -273,10 +278,10 @@ class GenAccuracyReportTest {
         lenient().when(mockDeviceRegistry.getDeviceByID("esa-no2")).thenReturn(no2Device);
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证校准结果
-        EnvQualityControlReport report = reports.get(0);
+        QcmReport report = reports.get(0);
         Map<String, Object> reportData = report.getReportData();
         String calibrationResult = (String) reportData.get("calibration_result");
         assertEquals("不合格", calibrationResult);
@@ -285,28 +290,28 @@ class GenAccuracyReportTest {
     @Test
     void testGenAccuracyReport_MultipleGases() {
         // 准备测试数据 - 多种气体的准确度测试
-        List<EnvQualityControlRecords> records = Arrays.asList(
+        List<QcmRecord> records = Arrays.asList(
             createAccuracyCheckRecord("1"),  // SO2
             createAccuracyCheckRecord("2"),  // NO2
             createAccuracyCheckRecord("4")   // CO
         );
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(records);
 
         // 模拟所有设备
         setupMockDevices();
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证结果
         assertNotNull(reports);
         assertEquals(3, reports.size());
         
         // 验证每个报告都有正确的组件
-        for (EnvQualityControlReport report : reports) {
+        for (QcmReport report : reports) {
             assertEquals("ReportD5", report.getComponent());
             assertNotNull(report.getReportData());
         }
@@ -326,18 +331,18 @@ class GenAccuracyReportTest {
      * 创建准确度检查记录
      * @param parameterCode 参数 code（"1"=SO2, "2"=NO2, "3"=O3, "4"=CO）
      */
-    private EnvQualityControlRecords createAccuracyCheckRecord(String parameterCode) {
+    private QcmRecord createAccuracyCheckRecord(String parameterCode) {
         return createAccuracyCheckRecord(parameterCode, true);
     }
 
-    private EnvQualityControlRecords createAccuracyCheckRecord(String parameterCode, boolean isPass) {
-        EnvQualityControlRecords record = new EnvQualityControlRecords();
+    private QcmRecord createAccuracyCheckRecord(String parameterCode, boolean isPass) {
+        QcmRecord record = new QcmRecord();
         record.setId(1L);
         record.setQualityControlType("4");  // ACCURACY_CHECK code
         record.setParameter(parameterCode);  // 使用参数 code 而不是 name
         record.setStartTime(startTime);
         record.setEndTime(endTime);
-        record.setExecutionStatus(2L); // 成功状态
+        record.setExecutionStatus(2); // 成功状态
         
         // 模拟准确度测试的执行日志（3个浓度点）
         String executionLog = "{"
@@ -353,7 +358,7 @@ class GenAccuracyReportTest {
         record.setExecutionLog(executionLog);
         record.setResultEvaluation("准确度审核合格");
         record.setCreatedBy("admin");
-        record.setUpdateBy("admin");
+        record.setUpdatedBy("admin");
         record.setCreateTime(startTime);
         
         return record;

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordPhaseMapper">
+
+    <!-- timestamptz 列经 OffsetDateTime 中转的 Instant 局部 TypeHandler（非全局注册） -->
+    <resultMap type="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecordPhase" id="QcmRecordPhaseResult">
+        <result property="id"    column="id"    />
+        <result property="recordId"    column="record_id"    />
+        <result property="seq"    column="seq"    />
+        <result property="phaseCode"    column="phase_code"    />
+        <result property="phaseName"    column="phase_name"    />
+        <result property="estimatedSeconds"    column="estimated_seconds"    />
+        <result property="startTime"    column="start_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+        <result property="endTime"    column="end_time"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
+    </resultMap>
+
+    <!-- 完成时一次性写入快照（§4.0）：阶段时间线全量批量落库 -->
+    <insert id="insertBatch" parameterType="java.util.List">
+        insert into qcm_record_phase
+        (record_id, seq, phase_code, phase_name, estimated_seconds, start_time, end_time)
+        values
+        <foreach item="item" collection="records" separator=",">
+            (#{item.recordId}, #{item.seq}, #{item.phaseCode}, #{item.phaseName}, #{item.estimatedSeconds},
+             #{item.startTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+             #{item.endTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP})
+        </foreach>
+    </insert>
+
+    <select id="selectByRecordId" parameterType="Long" resultMap="QcmRecordPhaseResult">
+        select id, record_id, seq, phase_code, phase_name, estimated_seconds, start_time, end_time
+        from qcm_record_phase
+        where record_id = #{recordId}
+        order by seq asc
+    </select>
+
+    <delete id="deleteByRecordId" parameterType="Long">
+        delete from qcm_record_phase where record_id = #{recordId}
+    </delete>
+</mapper>

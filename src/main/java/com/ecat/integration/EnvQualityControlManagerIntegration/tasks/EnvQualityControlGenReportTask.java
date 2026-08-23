@@ -3,45 +3,53 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.tasks;
 import com.ecat.core.EcatCore;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
 import com.ecat.core.Task.Task;
-import com.ecat.core.Utils.DynamicConfig.*;
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlReport;
+import com.ecat.core.Utils.DynamicConfig.ConfigDefinition;
+import com.ecat.core.Utils.DynamicConfig.ConfigItem;
+import com.ecat.core.Utils.DynamicConfig.ConfigItemBuilder;
+import com.ecat.core.Utils.DynamicConfig.StringEnumValidator;
+import com.ecat.core.Utils.DynamicConfig.StringLengthValidator;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ReportTypeEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.TaskTypeEnum;
-import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlReportService;
-import com.ruoyi.common.utils.DateUtils;
-import lombok.Getter;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmReportService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * EnvQualityControlGenReportTask
  *
- * <p>生成质控仪器运行状况检查/校准记录表格<p/>
-
- * <p>根据<a href="#">HJ818-2018环境空气气态污染物（SO2、NO2、O3、CO）连续自动监测系统运行和质控技术规范</a>和<a href="#">HJ817-2018环境空气颗粒物（PM10 和 PM2.5）连续自动监测系统运行和质控技术规范</a>
- * 及<a href="#">监测仪器<a/>自动校准条件定期或及时地对仪器进行校准、性能审核，从而生成报表
- * </>
+ * <p>生成质控仪器运行状况检查/校准记录表格</p>
+ *
+ * <p>根据 HJ818-2018（环境空气气态污染物 SO2、NO2、O3、CO 连续自动监测系统运行和质控技术规范）、
+ * HJ817-2018（环境空气颗粒物 PM10 和 PM2.5 连续自动监测系统运行和质控技术规范）及监测仪器
+ * 自动校准条件，定期或及时地对仪器进行校准、性能审核，从而生成报表。</p>
+ *
  * @author caohongbo
  * @version 2.0
- * @description
  */
-@Component
 public class EnvQualityControlGenReportTask extends Task {
-    private EcatCore core;
-    private EcatCoreRuoyiIntegration mry;
 
     protected final Logger log = LoggerFactory.getLogger(this.getClass());
 
-    SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    /** 与前端/调度入参一致的时间串格式（Asia/Shanghai 本地时间） */
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private ReportGenerator reportGenerator;
+    /** 调度窗时区。与 QcmRecord.QUERY_WINDOW_ZONE / ReportGenerator.QC_REPORT_ZONE 同值不合并：查询窗、调度窗、报表归日三个域各自独立演进。 */
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
 
     @Override
     public String getTaskName() {
@@ -81,53 +89,52 @@ public class EnvQualityControlGenReportTask extends Task {
         try {
             String beginTimeString = (String) parameters.get("beginTime");
             String endTimeString = (String) parameters.get("endTime");
-            Date beginTime;
-            Date endTime;
+            Instant beginTime;
+            Instant endTime;
             try {
                 // 如果不传入开始结束时间，默认生成前一天的[preZeroTime, todayZeroTime]的报告，否则生成beginTime~endTime时间内的报告
                 if (beginTimeString == null || beginTimeString.isEmpty()) {
-                    endTime = DateUtils.zeroClockOfToday();
-                    beginTime = DateUtils.previousDaysDate(1, Optional.of(endTime) );
-                    endTime = new Date();
+                    ZonedDateTime todayZero = LocalDate.now(ZONE).atStartOfDay(ZONE);
+                    endTime = Instant.now();
+                    beginTime = todayZero.minusDays(1).toInstant();
                 } else {
-                    beginTime = formatter.parse(beginTimeString);
-                    endTime = formatter.parse(endTimeString);
+                    beginTime = LocalDateTime.parse(beginTimeString, formatter).atZone(ZONE).toInstant();
+                    endTime = LocalDateTime.parse(endTimeString, formatter).atZone(ZONE).toInstant();
                 }
-            } catch (ParseException e) {
+            } catch (DateTimeParseException e) {
                 throw new RuntimeException("日期格式错误");
             }
-            core = (EcatCore) parameters.get("core");
+            EcatCore core = (EcatCore) parameters.get("core");
 
             // 生成beginTime~endTime时间内的报告
             ReportGenerator reportGenerator = new ReportGenerator(core);
-            List <EnvQualityControlReport> reports = reportGenerator.generate(beginTime, endTime);
+            List <QcmReport> reports = reportGenerator.generate(beginTime, endTime);
 
             if (reports.isEmpty()) {
                 log.info("未生成报告"+ "["+beginTime+"~"+endTime+"]");
                 return;
             }
-            // 存储质控报告
-            if (mry == null) {
-                mry = (EcatCoreRuoyiIntegration) core.getIntegrationRegistry().getIntegration("integration-ecat-core-ruoyi");
+            // 存储质控报告（G-BUG-8：不再持有惰性 mry 字段，每次执行按 core 现取 bean）
+            EcatCoreRuoyiIntegration mry = (EcatCoreRuoyiIntegration) core.getIntegrationRegistry()
+                    .getIntegration("integration-ecat-core-ruoyi");
+            IQcmReportService qcmReportService = mry.getSpringBean(IQcmReportService.class);
+            // 整批一次写入；失败不静默——记录失败批次摘要并汇总成功/失败条数，不中断后续任务
+            int successCount;
+            int failedCount;
+            try {
+                successCount = qcmReportService.saveBatch(reports);
+                failedCount = reports.size() - successCount;
+            } catch (Exception e) {
+                successCount = 0;
+                failedCount = reports.size();
+                log.error("存储报告批次失败: 共 {} 条, 批次摘要: 首条 reportName={}, reportType={}, 失败原因: {}",
+                        reports.size(),
+                        reports.get(0).getReportName(),
+                        reports.get(0).getReportType(),
+                        e.getMessage(), e);
             }
-            IEnvQualityControlReportService envQualityControlReportService = mry.getSpringBean(IEnvQualityControlReportService.class);
-            for (EnvQualityControlReport report : reports) {
-                try {
-                    int insertOne = envQualityControlReportService.save(report);
-                    if (insertOne > 0) {
-                        log.info("存储报告成功");
-                    } else {
-                        log.error("存储报告失败");
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    log.error("存储报告失败", e);
-                }
-            }
-
-            log.info("生成报告成功, 生成报告数量: " + reports.size() + ", 时间范围: ["+beginTime+"~"+endTime+"]");
+            log.info("生成报告完成, 时间范围: [{}~{}], 成功 {} 条 / 失败 {} 条", beginTime, endTime, successCount, failedCount);
         } catch (Exception e) {
-            e.printStackTrace();
             log.error("生成报告失败", e);
             throw new RuntimeException(e);
         }

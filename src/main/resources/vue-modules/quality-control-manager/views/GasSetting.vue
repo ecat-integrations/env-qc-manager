@@ -78,12 +78,29 @@
               </div>
 
 
+              <!-- 标气溯源（来源/编号）：执行时快照冻结进质控记录，换瓶后历史不受影响 -->
+              <div class="qc:text-left">
+                <p class="qc:text-sm qc:text-gray-500">标气来源</p>
+                <p class="qc:text-sm qc:font-medium qc:text-gray-700 qc:max-w-[200px] qc:truncate">
+                  {{ traceOf(cylinder).gasSource || '未配置' }}
+                </p>
+                <p class="qc:text-xs qc:text-gray-400">编号: {{ traceOf(cylinder).gasNo || '未配置' }}</p>
+              </div>
+
               <button
                 class="!rounded-button whitespace-nowrap qc:bg-gradient-to-r qc:from-gray-100 qc:to-gray-200 qc:text-gray-700 qc:px-4 qc:py-2 qc:flex qc:items-center qc:gap-2 qc:hover:from-gray-200 qc:hover:to-gray-300 qc:transition-all qc:rounded-lg"
                 @click="openConcentrationDialog(index)"
               >
                 <el-icon><Edit /></el-icon>
                 <span>设置浓度</span>
+              </button>
+
+              <button
+                class="!rounded-button whitespace-nowrap qc:bg-gradient-to-r qc:from-blue-500 qc:to-blue-600 qc:text-white qc:px-4 qc:py-2 qc:flex qc:items-center qc:gap-2 qc:hover:from-blue-600 qc:hover:to-blue-700 qc:transition-all qc:rounded-lg"
+                @click="openTraceDialog(index)"
+              >
+                <el-icon><Edit /></el-icon>
+                <span>溯源配置</span>
               </button>
             </div>
           </div>
@@ -138,6 +155,44 @@
       </template>
     </el-dialog>
 
+    <!-- Gas Trace (source/no) Setting Dialog -->
+    <el-dialog
+      v-model="showTraceDialog"
+      :title="`溯源配置 ${editingTraceGasCode || ''}`"
+      width="420px"
+      :close-on-click-modal="false"
+    >
+      <div class="qc:space-y-4">
+        <div>
+          <label class="qc:block qc:text-sm qc:font-medium qc:text-gray-700 qc:mb-1">标气来源</label>
+          <el-input v-model="editingTraceSource" placeholder="供应商 / 标准物质名称" class="qc:w-full" />
+        </div>
+        <div>
+          <label class="qc:block qc:text-sm qc:font-medium qc:text-gray-700 qc:mb-1">标气编号</label>
+          <el-input v-model="editingTraceNo" placeholder="钢瓶 / 标准物质编号" class="qc:w-full" />
+        </div>
+        <p class="qc:text-xs qc:text-gray-500">
+          保存后仅影响后续质控执行的快照；历史记录保留执行当时的溯源值。
+        </p>
+      </div>
+      <template #footer>
+        <div class="qc:flex qc:justify-end qc:gap-4">
+          <button
+            class="!rounded-button whitespace-nowrap qc:px-4 qc:py-2 qc:bg-gradient-to-r qc:from-gray-100 qc:to-gray-200 qc:text-gray-700 qc:hover:from-gray-200 qc:hover:to-gray-300 qc:transition-all qc:rounded-lg"
+            @click="showTraceDialog = false"
+          >
+            取消
+          </button>
+          <button
+            class="!rounded-button whitespace-nowrap qc:px-4 qc:py-2 qc:bg-gradient-to-r qc:from-blue-500 qc:to-blue-600 qc:text-white qc:hover:from-blue-600 qc:hover:to-blue-700 qc:transition-all qc:rounded-lg"
+            @click="saveTraceInfo"
+          >
+            确认
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- Success Toast -->
     <div
       v-if="showSuccessToast"
@@ -152,7 +207,7 @@
 </template>
 
 <script setup>
-import { listGasSetting, updateGasSetting } from "@/api/quality_control/gas_setting";
+import { listGasSetting, updateGasSetting, getGasInfo, saveGasInfo } from "@/api/quality_control/gas_setting";
 import { ref, reactive } from 'vue';
 import { Search, Edit, CircleCheck, Box, Plus } from '@element-plus/icons-vue';
 import GasCylinderIcon from '../components/GasCylinderIcon.vue';
@@ -191,6 +246,13 @@ const gasCylinders = reactive([
   }
 ]);
 
+// ===== 标气溯源配置（qcm_gas_info，按 gasCode 键；闭集 SO2/NO2/CO/O3） =====
+const gasInfoMap = reactive({});
+const showTraceDialog = ref(false);
+const editingTraceGasCode = ref('');
+const editingTraceSource = ref('');
+const editingTraceNo = ref('');
+
 const showConcentrationDialog = ref(false);
 const editingCylinderIndex = ref(-1);
 const editingCylinder = ref(null);
@@ -204,7 +266,51 @@ function getList() {
     console.log(response)
     gasCylinders.splice(0, gasCylinders.length, ...response.rows);
   });
+  loadGasInfo();
 }
+
+/** 拉取标气溯源配置（qcm_gas_info 逐气体一行） */
+function loadGasInfo() {
+  getGasInfo().then(response => {
+    const rows = response.data || [];
+    for (const k of Object.keys(gasInfoMap)) delete gasInfoMap[k];
+    rows.forEach(row => { gasInfoMap[row.gasCode] = row; });
+  });
+}
+
+/** 卡片 → 溯源行：卡片 gases 用校准仪属性词汇（NO），档案键是名称闭集（NO2）——NO 归一到 NO2 */
+function traceOf(cylinder) {
+  const code = (cylinder.gases || []).find(g => gasInfoMap[g === 'NO' ? 'NO2' : g]);
+  return code ? gasInfoMap[code === 'NO' ? 'NO2' : code] : {};
+}
+
+const openTraceDialog = (index) => {
+  const cylinder = gasCylinders[index];
+  // NO 卡片对应 nox 槽（NO 标气），登记键归一为 NO2
+  const g0 = (cylinder.gases || [])[0] || '';
+  editingTraceGasCode.value = g0 === 'NO' ? 'NO2' : g0;
+  const info = gasInfoMap[editingTraceGasCode.value] || {};
+  editingTraceSource.value = info.gasSource || '';
+  editingTraceNo.value = info.gasNo || '';
+  showTraceDialog.value = true;
+};
+
+const saveTraceInfo = () => {
+  if (!editingTraceGasCode.value) {
+    proxy.$modal.msgError("该卡片无有效气体代码（闭集 SO2/NO2/CO/O3）");
+    return;
+  }
+  // 方案 A：转写 airstation 钢瓶档案（仅来源/编号两字段；浓度是档案属性另行编辑）
+  saveGasInfo({
+    gasCode: editingTraceGasCode.value,
+    gasSource: editingTraceSource.value,
+    gasNo: editingTraceNo.value
+  }).then(response => {
+    proxy.$modal.msgSuccess(response.msg);
+    loadGasInfo();
+  });
+  showTraceDialog.value = false;
+};
 // 设置每30秒执行一次
 setInterval(() => {
   getList();

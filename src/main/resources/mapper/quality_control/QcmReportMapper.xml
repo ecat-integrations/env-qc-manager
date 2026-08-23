@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmReportMapper">
+
+    <!-- timestamptz 列经 OffsetDateTime 中转的 Instant 局部 TypeHandler（非全局注册）；report_date 为 date 列走默认 LocalDate 映射 -->
+    <resultMap id="QcmReportResult" type="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport">
+        <result column="id" property="id" />
+        <result column="report_name" property="reportName" />
+        <result column="report_type" property="reportType" />
+        <result column="report_date" property="reportDate" />
+        <result column="instrument_name" property="instrumentName" />
+        <result column="instrument_no" property="instrumentNo" />
+        <result column="gas_type" property="gasType" />
+        <result column="filer" property="filer" />
+        <result column="reviewer" property="reviewer" />
+        <result column="maintenance_company" property="maintenanceCompany" />
+        <result column="report_content" property="reportContent" />
+        <result column="report_note" property="reportNote" />
+        <result column="is_discarded" property="isDiscarded" />
+        <result column="created_by" property="createdBy" />
+        <result column="updated_by" property="updatedBy" />
+        <result column="create_time" property="createTime"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler" />
+        <result column="update_time" property="updateTime"
+                typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler" />
+        <result column="gas_source" property="gasSource" />
+        <result column="gas_no" property="gasNo" />
+    </resultMap>
+
+    <!-- 基础查询字段（含 report_content 大列，详情/日期范围等全量语义使用） -->
+    <sql id="Base_Column_List">
+        id, report_name, report_type, report_date, instrument_name,
+        instrument_no, gas_type, filer, reviewer, maintenance_company,
+        report_content, report_note, is_discarded, created_by, updated_by,
+        create_time, update_time, gas_source, gas_no
+    </sql>
+
+    <!-- 列表瘦身列集（AC-C6）：不含 report_content 大列；「查看」走 selectDetailById -->
+    <sql id="List_Column_List">
+        id, report_name, report_type, report_date, instrument_name,
+        instrument_no, gas_type, filer, reviewer, maintenance_company,
+        report_note, is_discarded, created_by, updated_by,
+        create_time, update_time, gas_source, gas_no
+    </sql>
+
+    <!-- 复杂条件分页查询（列表版，无大列） -->
+    <select id="findPage" parameterType="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport" resultMap="QcmReportResult">
+        SELECT <include refid="List_Column_List" />
+        FROM qcm_report
+        <where>
+            <if test="reportName != null and reportName != ''">
+                AND report_name LIKE CONCAT('%', #{reportName}, '%')
+            </if>
+            <if test="reportType != null and reportType != ''">
+                AND report_type = #{reportType}
+            </if>
+            <if test="instrumentName != null and instrumentName != ''">
+                AND instrument_name LIKE CONCAT('%', #{instrumentName}, '%')
+            </if>
+            <if test="instrumentNo != null and instrumentNo != ''">
+                AND instrument_no = #{instrumentNo}
+            </if>
+            <if test="gasType != null and gasType != ''">
+                AND gas_type = #{gasType}
+            </if>
+            <if test="filer != null and filer != ''">
+                AND filer = #{filer}
+            </if>
+            <if test="reviewer != null and reviewer != ''">
+                AND reviewer = #{reviewer}
+            </if>
+            <if test="maintenanceCompany != null and maintenanceCompany != ''">
+                AND maintenance_company LIKE CONCAT('%', #{maintenanceCompany}, '%')
+            </if>
+            <if test="isDiscarded != null">
+                AND is_discarded = #{isDiscarded}
+            </if>
+            <if test="startDate != null and endDate != null"> AND report_date BETWEEN #{startDate} AND #{endDate}
+            </if>
+        </where>
+        ORDER BY
+        update_time
+        DESC
+    </select>
+
+    <!-- 根据ID查询详情 -->
+    <select id="selectDetailById" parameterType="Long" resultMap="QcmReportResult">
+        SELECT <include refid="Base_Column_List" />
+        FROM qcm_report
+        WHERE id = #{id}
+    </select>
+
+    <!-- 插入报表 -->
+    <insert id="save" parameterType="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO qcm_report
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="reportName != null and reportName != ''">report_name,</if>
+            <if test="reportType != null and reportType != ''">report_type,</if>
+            <if test="reportDate != null">report_date,</if>
+            <if test="instrumentName != null and instrumentName != ''">instrument_name,</if>
+            <if test="instrumentNo != null and instrumentNo != ''">instrument_no,</if>
+            <if test="gasType != null and gasType != ''">gas_type,</if>
+            <if test="filer != null and filer != ''">filer,</if>
+            <if test="reviewer != null and reviewer != ''">reviewer,</if>
+            <if test="maintenanceCompany != null and maintenanceCompany != ''">maintenance_company,</if>
+            <if test="reportContent != null">report_content,</if>
+            <if test="reportNote != null and reportNote != ''">report_note,</if>
+            <if test="isDiscarded != null">is_discarded,</if>
+            <if test="createdBy != null and createdBy != ''">created_by,</if>
+            <if test="updatedBy != null and updatedBy != ''">updated_by,</if>
+            <if test="createTime != null">create_time,</if>
+            <if test="updateTime != null">update_time,</if>
+            <if test="gasSource != null and gasSource != ''">gas_source,</if>
+            <if test="gasNo != null and gasNo != ''">gas_no,</if>
+        </trim>
+        VALUES
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="reportName != null and reportName != ''">#{reportName},</if>
+            <if test="reportType != null and reportType != ''">#{reportType},</if>
+            <if test="reportDate != null">#{reportDate},</if>
+            <if test="instrumentName != null and instrumentName != ''">#{instrumentName},</if>
+            <if test="instrumentNo != null and instrumentNo != ''">#{instrumentNo},</if>
+            <if test="gasType != null and gasType != ''">#{gasType},</if>
+            <if test="filer != null and filer != ''">#{filer},</if>
+            <if test="reviewer != null and reviewer != ''">#{reviewer},</if>
+            <if test="maintenanceCompany != null and maintenanceCompany != ''">#{maintenanceCompany},</if>
+            <if test="reportContent != null">#{reportContent},</if>
+            <if test="reportNote != null and reportNote != ''">#{reportNote},</if>
+            <if test="isDiscarded != null">#{isDiscarded},</if>
+            <if test="createdBy != null and createdBy != ''">#{createdBy},</if>
+            <if test="updatedBy != null and updatedBy != ''">#{updatedBy},</if>
+            <if test="createTime != null">#{createTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="updateTime != null">#{updateTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="gasSource != null and gasSource != ''">#{gasSource},</if>
+            <if test="gasNo != null and gasNo != ''">#{gasNo},</if>
+        </trim>
+    </insert>
+
+    <!-- 报告生成任务整批写入（列与 save 一致，全列必填语义：仅非空列，行为对齐单条 save） -->
+    <insert id="insertBatch">
+        INSERT INTO qcm_report
+        (report_name, report_type, report_date, instrument_name, instrument_no, gas_type,
+         gas_source, gas_no, filer, reviewer, maintenance_company, report_content, report_note,
+         is_discarded, created_by, updated_by, create_time, update_time)
+        VALUES
+        <foreach item="item" collection="reports" separator=",">
+            (#{item.reportName}, #{item.reportType}, #{item.reportDate}, #{item.instrumentName}, #{item.instrumentNo},
+             #{item.gasType}, #{item.gasSource}, #{item.gasNo}, #{item.filer}, #{item.reviewer},
+             #{item.maintenanceCompany}, #{item.reportContent}, #{item.reportNote},
+             COALESCE(#{item.isDiscarded}, false), #{item.createdBy}, #{item.updatedBy},
+             #{item.createTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
+             #{item.updateTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP})
+        </foreach>
+    </insert>
+
+    <!-- 更新报表 -->
+    <update id="updateById" parameterType="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport">
+        UPDATE qcm_report
+        <set>
+            <if test="reportName != null and reportName != ''">report_name = #{reportName},</if>
+            <if test="reportType != null and reportType != ''">report_type = #{reportType},</if>
+            <if test="reportDate != null">report_date = #{reportDate},</if>
+            <if test="instrumentName != null and instrumentName != ''">instrument_name = #{instrumentName},</if>
+            <if test="instrumentNo != null and instrumentNo != ''">instrument_no = #{instrumentNo},</if>
+            <if test="gasType != null and gasType != ''">gas_type = #{gasType},</if>
+            <if test="filer != null and filer != ''">filer = #{filer},</if>
+            <if test="reviewer != null and reviewer != ''">reviewer = #{reviewer},</if>
+            <if test="maintenanceCompany != null and maintenanceCompany != ''">maintenance_company = #{maintenanceCompany},</if>
+            <if test="reportNote != null and reportNote != ''">report_note = #{reportNote},</if>
+            <if test="isDiscarded != null">is_discarded = #{isDiscarded},</if>
+            <if test="updatedBy != null and updatedBy != ''">updated_by = #{updatedBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
+            <if test="gasSource != null and gasSource != ''">gas_source = #{gasSource},</if>
+            <if test="gasNo != null and gasNo != ''">gas_no = #{gasNo},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <!-- 批量逻辑删除 -->
+    <update id="batchUpdateDiscarded">
+        UPDATE qcm_report
+        SET is_discarded = #{isDiscarded},
+        update_time = NOW()
+        WHERE id IN
+        <foreach item="id" collection="ids" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <!-- 统计各类报表数量 -->
+    <select id="countByReportType" resultType="map">
+        SELECT report_type AS type, COUNT(*) AS count
+        FROM qcm_report
+        WHERE is_discarded = FALSE
+        GROUP BY report_type
+    </select>
+
+    <!-- 按报表日期范围查询 -->
+    <select id="selectByDateRange" resultMap="QcmReportResult">
+        SELECT <include refid="Base_Column_List" />
+        FROM qcm_report
+        WHERE report_date BETWEEN #{startDate} AND #{endDate}
+        AND is_discarded = FALSE
+        ORDER BY report_date ASC
+    </select>
+
+    <!-- 按创建时间范围查询 -->
+    <select id="selectByDateRangeByCreateTime" resultMap="QcmReportResult">
+        SELECT <include refid="Base_Column_List" />
+        FROM qcm_report
+        WHERE create_time BETWEEN
+        #{startDate,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP} AND
+        #{endDate,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP}
+        AND is_discarded = FALSE
+        ORDER BY create_time ASC
+    </select>
+
+</mapper>

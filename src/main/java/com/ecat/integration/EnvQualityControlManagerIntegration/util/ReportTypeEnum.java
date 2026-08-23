@@ -32,6 +32,19 @@ public enum ReportTypeEnum {
         this.component = component;
     }
 
+    /** 按库存 report_type 数字码（"1".."7"）查枚举；未知码返回 null（严格模式，不猜测兜底）。 */
+    public static ReportTypeEnum findByCode(String code) {
+        if (code == null) {
+            return null;
+        }
+        for (ReportTypeEnum t : values()) {
+            if (t.code.equals(code.trim())) {
+                return t;
+            }
+        }
+        return null;
+    }
+
     public static Set<String> getAllReportTypeSet() {
         return Arrays.stream(values()).map(ReportTypeEnum::name).collect(Collectors.toSet());
     }

@@ -1,0 +1,42 @@
+package com.ecat.integration.EnvQualityControlManagerIntegration.api;
+
+import lombok.Builder;
+import lombok.Value;
+
+import java.util.List;
+
+/**
+ * SDK 触发回复（FR-03-10 毫秒级受理/拒绝）。
+ * accepted=true 时 batchId/recordIds 非空；拒绝时 reason 为
+ * {@link QualityControlSdk#REASON_BUSY_CONFLICT} 等四类结构化原因之一。
+ */
+@Value
+@Builder
+public class SdkTriggerReply {
+
+    /** 是否受理（拒绝含互斥闸冲突——该场景记录已写 FAILED 终态留痕） */
+    boolean accepted;
+
+    /** 批次标识（本次触发产生的 N 条记录共享；QUEUE_NOT_SUPPORTED/INVALID_PARAM 时为 null） */
+    String batchId;
+
+    /** 批次内记录 id 列表（受理与 BUSY_CONFLICT 拒绝时非空） */
+    List<Long> recordIds;
+
+    /** 触发请求标识（§4.0.1：受理→轮询→结果全程同一标识；受理与留痕拒绝时非空） */
+    String triggerRequestId;
+
+    /** 拒绝原因（结构化枚举字符串，见 QualityControlSdk 常量）；受理时为 null */
+    String reason;
+
+    /** 人读消息（含逐字段校验错误清单或编排器透传信息） */
+    String message;
+
+    public static SdkTriggerReply rejected(String reason, String message) {
+        return SdkTriggerReply.builder()
+                .accepted(false)
+                .reason(reason)
+                .message(message)
+                .build();
+    }
+}

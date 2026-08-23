@@ -19,7 +19,7 @@ class EnvQualityControlTaskConstructResultTest {
 
     private static class ExposedTask extends EnvQualityControlTask {
         ExposedTask() {
-            super(new HashMap<>());
+            super();
         }
 
         String build(EcatCore core, Map<String, Object> params,

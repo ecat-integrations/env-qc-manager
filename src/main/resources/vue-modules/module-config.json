@@ -58,6 +58,18 @@
               }
             },
             {
+              "name": "quality_control_plan",
+              "path": "quality_control_plan",
+              "hidden": false,
+              "component": "views/quality_control/plan",
+              "meta": {
+                "title": "质控任务计划",
+                "icon": "list",
+                "noCache": false,
+                "link": null
+              }
+            },
+            {
               "name": "gas_setting",
               "path": "gas_setting",
               "hidden": false,

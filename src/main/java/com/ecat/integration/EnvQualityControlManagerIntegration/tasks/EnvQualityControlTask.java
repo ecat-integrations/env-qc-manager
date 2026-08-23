@@ -1,16 +1,24 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.tasks;
 
-import com.ecat.core.Device.DeviceRegistry;
 import com.ecat.core.EcatCore;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
 import com.ecat.core.Task.Task;
-import com.ecat.core.Utils.DynamicConfig.*;
-import com.ecat.integration.EnvCalibrationComposerIntegration.*;
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
-import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
-import com.ruoyi.common.utils.DateUtils;
-import com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds;
-import com.ecat.integration.EnvQualityControlManagerIntegration.util.ExecutionStatusEnum;
+import com.ecat.core.Utils.DynamicConfig.ConfigDefinition;
+import com.ecat.core.Utils.DynamicConfig.ConfigItem;
+import com.ecat.core.Utils.DynamicConfig.ConfigItemBuilder;
+import com.ecat.core.Utils.DynamicConfig.StringEnumValidator;
+import com.ecat.core.Utils.DynamicConfig.StringLengthValidator;
+import com.ecat.integration.EnvCalibrationComposerIntegration.AccuracyResult;
+import com.ecat.integration.EnvCalibrationComposerIntegration.CheckResult;
+import com.ecat.integration.EnvCalibrationComposerIntegration.ConversionResult;
+import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorResultBase;
+import com.ecat.integration.EnvCalibrationComposerIntegration.MultiResult;
+import com.ecat.integration.EnvCalibrationComposerIntegration.PrecisionResult;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.QcmExecutionOrchestrator;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.QcResultFormatter;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.BatchResult;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.QcExecutionRequest;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.TriggerSource;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDeviceReportSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionLogHelper;
@@ -19,24 +27,27 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.util.TaskTypeEnu
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-public class EnvQualityControlTask extends Task {
-    private DeviceRegistry deviceRegistry;
-
-    private IEnvQualityControlRecordsService envQualityControlRecordsService;
-    private EcatCoreRuoyiIntegration mry;
+/**
+ * 标准质控任务（薄适配层，G-STRUCT-1）：quartz/hj212 参数签名与语义不变（triggerType/
+ * qualityControlType/parameter/targetFlowLpm），组 {@link QcExecutionRequest} 交
+ * {@link QcmExecutionOrchestrator} 统一编排；同时以 {@link QcResultFormatter} 身份向编排器
+ * 提供本类 constructResult 的结果格式化能力（5.2 再合并人工核查版）。
+ */
+public class EnvQualityControlTask extends Task implements QcResultFormatter {
 
     protected final Logger log = LoggerFactory.getLogger(this.getClass());
 
-    public static final Map<String, String> parameterMap = new HashMap<>();
-
-    private Map<Long, AbstractCalibrationFlow> executorMap;
-
-    public EnvQualityControlTask(Map<Long, AbstractCalibrationFlow> executorMap){
-        this.executorMap = executorMap;
+    public EnvQualityControlTask(){
     }
     @Override
     public String getTaskName() {
@@ -65,7 +76,6 @@ public class EnvQualityControlTask extends Task {
                 .add(new ConfigItem<>("parameter", String.class, true, null, new StringEnumValidator(validParameterValues)))
                 .add(new ConfigItem<>("deviceId", String.class, false, null, new StringLengthValidator(1, 50)));
 
-//                .add(new ConfigItem<>("calculatedValue", double.class, true, null, new DobleValueValidator(0, 50)));
         configDefinition.define(builder);
         return configDefinition;
     }
@@ -85,7 +95,10 @@ public class EnvQualityControlTask extends Task {
 
         Map<String, Object> metrics = new LinkedHashMap<>();
 
-        if (envQualityControlTypeCode.equals(QualityControlTypeEnum.ZERO_CHECK.getCode())) {
+        // 零点/跨度共用同一 CheckResult 载荷结构（G-STRUCT-2：合并原 6 行重复分支，行为由
+        // EnvQualityControlTaskConstructResultTest 锁死）
+        if (envQualityControlTypeCode.equals(QualityControlTypeEnum.ZERO_CHECK.getCode())
+                || envQualityControlTypeCode.equals(QualityControlTypeEnum.SPAN_CHECK.getCode())) {
             CheckResult checkResult = (CheckResult) result;
             float resultValue = checkResult.getResult();
             float stdValue = checkResult.getStdValue();
@@ -99,7 +112,7 @@ public class EnvQualityControlTask extends Task {
             metrics.put("checkCalibLimit", checkCalibLimit);
             metrics.put("isPass", result.isPass());
 
-        } else if (envQualityControlTypeCode.equals(QualityControlTypeEnum.SPAN_CHECK.getCode())) {
+        } else if (envQualityControlTypeCode.equals(QualityControlTypeEnum.MULTI_CHECK.getCode())) {
             CheckResult checkResult = (CheckResult) result;
             float resultValue = checkResult.getResult();
             float stdValue = checkResult.getStdValue();
@@ -230,9 +243,6 @@ public class EnvQualityControlTask extends Task {
         return serializableParams;
     }
 
-    private static boolean isBareExecutorResultOutcome(ExecutorResultBase result) {
-        return result != null && result.getClass() == ExecutorResultBase.class;
-    }
 
     private String executionLogJsonForStubResult(EcatCore core, Map<String, Object> params, ExecutorResultBase stub, long qcRecordId) {
         Map<String, Object> serializableParams = serializableTaskParamsForLog(params);
@@ -260,245 +270,65 @@ public class EnvQualityControlTask extends Task {
         }
     }
 
-    /**
-     * 编排在校准 flow 异步启动之前即失败（例如 ComposerContext 中校准仪/分析仪未配置）
-     */
-    private RuntimeException persistAndWrapCalibrationLaunchFailure(
-            EcatCore core,
-            Map<String, Object> parameters,
-            EnvQualityControlRecords envQualityControlRecords,
-            Throwable ex) {
-        log.error("Calibration task failed before async execution: {}", ex.getMessage(), ex);
-        String cleanMessage = ex.getMessage() != null ? ex.getMessage().replaceAll("^(java\\.lang\\.[A-Za-z]+: )", "") : "";
-        final String message = "校准任务过程异常 " + cleanMessage;
-        ExecutorResultBase stub = new ExecutorResultBase(false, true);
-        stub.setErrorMessage(cleanMessage);
-        String resultContentJson = executionLogJsonForStubResult(core, parameters, stub, envQualityControlRecords.getId());
-        envQualityControlRecords.setExecutionLog(resultContentJson);
-        envQualityControlRecords.setResultEvaluation(message);
-        envQualityControlRecords.setEndTime(DateUtils.getNowDate());
-        envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());
-        envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
-        return new RuntimeException(message, ex);
+    /** QcResultFormatter：标准质控负责除人工核查外的全部质控类型。 */
+    @Override
+    public boolean supports(String qualityControlTypeCode) {
+        return !QualityControlTypeEnum.AUDIT_SPAN_CHECK.getCode().equals(qualityControlTypeCode);
     }
 
     @Override
+    public String format(EcatCore core, Map<String, Object> params, ExecutorResultBase result,
+                         String qualityControlTypeCode, long qcRecordId) {
+        return constructResult(core, params, result, qualityControlTypeCode, qcRecordId);
+    }
+
+    @Override
+    public String formatStub(EcatCore core, Map<String, Object> params, ExecutorResultBase stub,
+                             String qualityControlTypeCode, long qcRecordId) {
+        return executionLogJsonForStubResult(core, params, stub, qcRecordId);
+    }
+
+    /**
+     * 薄适配层：解析 quartz/hj212 契约参数 → 统一触发编排器（G-STRUCT-1）。
+     * 签名与参数语义不变（triggerType/qualityControlType/parameter/targetFlowLpm）。
+     */
+    @Override
     protected void executeImpl(Map<String, Object> parameters) {
-
         try {
-            // 设置属性
-            String taskType = (String) parameters.get("taskType");
-            // String deviceId= (String) parameters.get("deviceId");
-            String parameter = (String) parameters.get("parameter");
+            String triggerType = (String) parameters.get("triggerType");
             String qualityControlType = (String) parameters.get("qualityControlType");
-            // double calculatedValue= (double) parameters.get("calculatedValue");
-            EcatCore core = (EcatCore) parameters.remove("core");  // 弹出core以便入库存储
-
-            // （提前）组装质控记录数据
-            // 增加记录
-            EnvQualityControlRecords envQualityControlRecords = new EnvQualityControlRecords();
-            envQualityControlRecords.setTaskType(taskType);
-            envQualityControlRecords.setQualityControlType(QualityControlTypeEnum.valueOf(qualityControlType.toUpperCase()).getCode());
-            envQualityControlRecords.setParameter(ParameterEnum.valueOf(parameter).getCode());
-            envQualityControlRecords.setStartTime(DateUtils.getNowDate());
-            envQualityControlRecords.setCreatedBy("admin"); // 临时
-            envQualityControlRecords.setUpdatedBy("admin");
-            envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.WAITING.getCode());  // 执行状态：0=等待中，1=运行中，2=成功结束，3=异常结束
-            // envQualityControlRecords.setCalculatedValue(calculatedValue);
-            if (mry == null) {
-                mry = (EcatCoreRuoyiIntegration) core.getIntegrationRegistry().getIntegration("integration-ecat-core-ruoyi");
-            }
-            envQualityControlRecordsService = mry.getSpringBean(IEnvQualityControlRecordsService.class);
-
-            // Insert a record，recordId will be generated
-            int insertCount =envQualityControlRecordsService.insertEnvQualityControlRecords(envQualityControlRecords);
-            if (insertCount == 1) {
-                log.info("insert record success.");
-            } else {
-                log.error("insert record failed.");
-                throw new RuntimeException("insert records failed.");
-            }
-
-            // env-calibration-composer：LogicDevice 编排校准，替代 env-device-calibration
-            EnvCalibrationComposerIntegration integration = (EnvCalibrationComposerIntegration) core.getIntegrationRegistry().getIntegration("integration-env-calibration-composer");
-
-            // Check if any calibration task is running
-            if (Boolean.TRUE.equals(integration.isRunning())) {
-                log.error("Calibration task exit: Other calibration task is currently running.");
-                String message = "校准任务退出 已有执行中的校准任务";
-                envQualityControlRecords.setEndTime(DateUtils.getNowDate());
-                envQualityControlRecords.setExecutionLog(message);  // 执行日志
-                envQualityControlRecords.setResultEvaluation(message);  // 结果评价
-                envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());
-                envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
-                throw new RuntimeException(message);
-            } else {
-                log.info("Calibration task start, no other calibration task is running at the moment.");
-                String message = "校准任务执行中...";
-                envQualityControlRecords.setExecutionLog(message);
-                envQualityControlRecords.setResultEvaluation(message);
-                envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.RUNNING.getCode());
-                envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
-            }
-
-            // Execute a specific calibration task
-            String executerClass = QualityControlTypeEnum.valueOf(qualityControlType.toUpperCase()).getClassName();
-            ExecutorType execType = ExecutorType.getEnum(executerClass);
-            String gasForComposer = LogicDeviceBindingIds.composerGasKeyFromParameterName(parameter);
-
+            String parameter = (String) parameters.get("parameter");
+            EcatCore core = (EcatCore) parameters.remove("core");  // 弹出core以便编排器使用
             Number flowRateNum = (Number) parameters.get("targetFlowLpm");
-            String qcCode = QualityControlTypeEnum.valueOf(qualityControlType.toUpperCase()).getCode();
-            boolean zeroOrSpan = QualityControlTypeEnum.ZERO_CHECK.getCode().equals(qcCode)
-                    || QualityControlTypeEnum.SPAN_CHECK.getCode().equals(qcCode);
 
-            CompletableFuture<ExecutorResultBase> calibrationFuture;
-            try {
-                if (zeroOrSpan) {
-                    Map<String, Object> flowParams = new HashMap<>();
-                    if (flowRateNum != null) {
-                        flowParams.put("flowRateLpm", flowRateNum.floatValue());
-                    }
-                    float spanPpb;
-                    if (QualityControlTypeEnum.ZERO_CHECK.getCode().equals(qcCode)) {
-                        spanPpb = 0f;
-                    } else {
-                        spanPpb = "CO".equalsIgnoreCase(parameter) ? 40000f : 400f;
-                    }
-                    flowParams.put("spanConcentrationPpb", spanPpb);
-                    calibrationFuture = integration.execute(execType, gasForComposer, flowParams);
-                } else {
-                    calibrationFuture = integration.execute(execType, gasForComposer);
-                }
-            } catch (Exception launchEx) {
-                throw persistAndWrapCalibrationLaunchFailure(core, parameters, envQualityControlRecords, launchEx);
+            // G-BUG-8：不再持有惰性 mry 字段（任务实例可被并发调度，字段竞态）；每次执行按 core 现取编排器 bean
+            EcatCoreRuoyiIntegration mry = (EcatCoreRuoyiIntegration) core.getIntegrationRegistry()
+                    .getIntegration("integration-ecat-core-ruoyi");
+            QcmExecutionOrchestrator orchestrator = mry.getSpringBean(QcmExecutionOrchestrator.class);
+            if (orchestrator == null) {
+                throw new IllegalStateException("QcmExecutionOrchestrator bean 不存在，质控任务无法触发");
             }
-            AbstractCalibrationFlow executor = integration.getRunningExecutor();
-            executorMap.put(envQualityControlRecords.getId(), executor);
-            if (executor == null) {
-                log.error("Calibration task failed: No calibration task executor found.");
-                String message = "校准任务未执行 " + "没有可用的执行器";
-                envQualityControlRecords.setExecutionLog(message);
-                envQualityControlRecords.setResultEvaluation(message);
-                envQualityControlRecords.setEndTime(DateUtils.getNowDate());
-                envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());
-                envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
-                throw new RuntimeException(message);
+
+            // quartz 参数无用户上下文：parameters 带 user key 则用之，否则 system（G-STD-4：废弃 "admin" 硬编码；
+            // 页面手动执行的真实用户由 2.4 controller 直调编排器传入）
+            Object user = parameters.get("user");
+            String triggerUser = user instanceof String && !((String) user).trim().isEmpty()
+                    ? (String) user : "system";
+
+            QcExecutionRequest request = QcExecutionRequest.builder()
+                    .qcType(qualityControlType)
+                    .instruments(Collections.singletonList(parameter))
+                    .flowRateLpm(flowRateNum != null ? BigDecimal.valueOf(flowRateNum.doubleValue()) : null)
+                    .build();
+
+            BatchResult result = orchestrator.triggerExecution(request,
+                    TriggerSource.fromTaskTypeCode(triggerType), triggerUser);
+            if (result.getStatus() != BatchResult.Status.ACCEPTED) {
+                // 互斥闸拒绝已落库留痕；向任务框架重抛保持旧可观测契约（调用方按失败处理）
+                log.error("task rejected: {} batch={}", result.getFailureReason(), result.getBatchId());
+                throw new RuntimeException("校准任务退出 已有执行中的校准任务");
             }
-            calibrationFuture.thenAccept(result -> {
-                /**
-                 * 获取执行结果
-                 * 以单点为例：
-                 * CheckResult result
-                 *       "isPass": true,
-                 *       "isException": false,
-                 *       "resultMessage": "CO校准参数设置成功"，
-                 *       "errorMessage": "",
-                 *       "result": 1835.8665f,
-                 *       "status": ""
-                 */
-                log.info("Calibration result " + result.toString());
-
-                // Is exception or not during calibration execution（编排器已在 result 上附带 phaseRecords，须入库，勿先 throw 否则 exceptionally 无法拿到 result）
-                if (result.isException()) {
-                    String resultContentJson = isBareExecutorResultOutcome(result)
-                            ? executionLogJsonForStubResult(core, parameters, result, envQualityControlRecords.getId())
-                            : constructResult(core, parameters, result, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
-                    String eval = result.getErrorMessage() != null && !result.getErrorMessage().isEmpty()
-                            ? result.getErrorMessage()
-                            : result.getResultMessage();
-                    envQualityControlRecords.setExecutionLog(resultContentJson);
-                    envQualityControlRecords.setResultEvaluation(eval != null ? eval : "校准过程异常");
-                    envQualityControlRecords.setEndTime(envQualityControlRecordsService.resolveTerminalEndTime(envQualityControlRecords.getId()));
-                    envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());
-                    envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
-                    executorMap.remove(envQualityControlRecords.getId());
-                    return;
-                }
-
-                String resultContentJson = constructResult(core, parameters, result, envQualityControlRecords.getQualityControlType(), envQualityControlRecords.getId());
-
-                // Is pass or not about the calibration
-                if (result.isPass()) {
-                    log.info("Calibration task completed successfully.");
-                    final String message = "校准任务完成，且已通过 " + result.getResultMessage();
-                    envQualityControlRecords.setEndTime(DateUtils.getNowDate());
-                    envQualityControlRecords.setExecutionLog(resultContentJson);
-                    envQualityControlRecords.setResultEvaluation(message);
-                    envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.SUCCESS.getCode());
-                    envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
-                } else {
-                    log.error("Calibration task not pass: " + result.getResultMessage());
-                    final String message = "校准任务完成，但未通过 " + result.getResultMessage();
-                    envQualityControlRecords.setExecutionLog(resultContentJson);
-                    envQualityControlRecords.setResultEvaluation(message);
-                    envQualityControlRecords.setEndTime(DateUtils.getNowDate());
-                    envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.SUCCESS.getCode());
-                    envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
-                    // throw new RuntimeException(message);
-                }
-                executorMap.remove(envQualityControlRecords.getId());
-            }).exceptionally(ex -> {
-                Throwable cause = ex;
-                if (cause instanceof CompletionException && cause.getCause() != null) {
-                    cause = cause.getCause();
-                }
-                if (cause instanceof ExecutorStoppedException) {
-                    ExecutorResultBase stopResult = ((ExecutorStoppedException) cause).toResult();
-                    AbstractCalibrationFlow flow = executorMap.remove(envQualityControlRecords.getId());
-                    if (flow != null) {
-                        List<PhaseExecutionRecord> recs = new ArrayList<>();
-                        for (PhaseInfo pi : flow.getExecutorPhases()) {
-                            if (pi == null) {
-                                continue;
-                            }
-                            recs.add(new PhaseExecutionRecord(
-                                    pi.getId(),
-                                    pi.getDisplayName(),
-                                    pi.getStartInstant(),
-                                    pi.getEndInstant(),
-                                    pi.getEstimatedSeconds()));
-                        }
-                        stopResult.setPhaseRecords(recs);
-                    }
-                    // toResult() 为裸 ExecutorResultBase，constructResult 对零点/跨度会 (CheckResult) 强转失败
-                    String resultContentJson = executionLogJsonForStubResult(core, parameters, stopResult, envQualityControlRecords.getId());
-                    envQualityControlRecords.setExecutionLog(resultContentJson);
-                    envQualityControlRecords.setResultEvaluation(stopResult.getErrorMessage());
-                    envQualityControlRecords.setEndTime(envQualityControlRecordsService.resolveTerminalEndTime(envQualityControlRecords.getId()));
-                    envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());
-                    envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
-                    return null;
-                }
-                log.error("Calibration task executed exception: " + ex.getMessage());
-                String cleanMessage = ex.getMessage() != null ? ex.getMessage().replaceAll("^(java\\.lang\\.[A-Za-z]+: )", "") : "";
-                final String message = "校准任务过程异常 " + cleanMessage;
-                AbstractCalibrationFlow flow = executorMap.remove(envQualityControlRecords.getId());
-                ExecutorResultBase stub = new ExecutorResultBase(false, true);
-                stub.setErrorMessage(cleanMessage);
-                if (flow != null) {
-                    List<PhaseExecutionRecord> recs = new ArrayList<>();
-                    for (PhaseInfo pi : flow.getExecutorPhases()) {
-                        if (pi == null) {
-                            continue;
-                        }
-                        recs.add(new PhaseExecutionRecord(
-                                pi.getId(),
-                                pi.getDisplayName(),
-                                pi.getStartInstant(),
-                                pi.getEndInstant(),
-                                pi.getEstimatedSeconds()));
-                    }
-                    stub.setPhaseRecords(recs);
-                }
-                String resultContentJson = executionLogJsonForStubResult(core, parameters, stub, envQualityControlRecords.getId());
-                envQualityControlRecords.setExecutionLog(resultContentJson);
-                envQualityControlRecords.setResultEvaluation(message);
-                envQualityControlRecords.setEndTime(DateUtils.getNowDate());
-                envQualityControlRecords.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode());
-                envQualityControlRecordsService.updateEnvQualityControlRecords(envQualityControlRecords);
-                throw new RuntimeException(message);
-            });
-            log.info("task success.");
+            log.info("task success. batch={}", result.getBatchId());
         } catch (Exception e) {
             log.error("task failed " + e.getMessage());
             throw new RuntimeException(e);

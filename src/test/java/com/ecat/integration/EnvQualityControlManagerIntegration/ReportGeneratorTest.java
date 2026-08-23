@@ -6,17 +6,22 @@ import com.ecat.core.Device.DeviceRegistry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlRecords;
-import com.ecat.integration.EnvQualityControlManagerIntegration.domain.EnvQualityControlReport;
-import com.ecat.integration.EnvQualityControlManagerIntegration.service.IEnvQualityControlRecordsService;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmRecordService;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ReportGenerator;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.*;
+import java.util.Calendar;
+import java.util.List;
+import java.util.Map;
+import java.util.ArrayList;
+import java.util.HashMap;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -44,27 +49,27 @@ class ReportGeneratorTest {
     private DeviceRegistry mockDeviceRegistry;
 
     @Mock
-    private IEnvQualityControlRecordsService mockQualityControlRecordsService;
+    private IQcmRecordService mockQualityControlRecordsService;
 
     private ReportGenerator reportGenerator;
 
-    private Date startTime;
-    private Date endTime;
+    private Instant startTime;
+    private Instant endTime;
 
     @BeforeEach
     void setUp() {
         // 设置测试时间范围
         Calendar cal = Calendar.getInstance();
         cal.set(2025, Calendar.JANUARY, 1, 0, 0, 0);
-        startTime = cal.getTime();
+        startTime = cal.toInstant();
         
         cal.set(2025, Calendar.JANUARY, 31, 23, 59, 59);
-        endTime = cal.getTime();
+        endTime = cal.toInstant();
 
         // 模拟 EcatCore
         lenient().when(mockEcatCore.getIntegrationRegistry()).thenReturn(mockRegistry);
         lenient().when(mockRegistry.getIntegration("integration-ecat-core-ruoyi")).thenReturn(mockMry);
-        lenient().when(mockMry.getSpringBean(IEnvQualityControlRecordsService.class)).thenReturn(mockQualityControlRecordsService);
+        lenient().when(mockMry.getSpringBean(IQcmRecordService.class)).thenReturn(mockQualityControlRecordsService);
         lenient().when(mockEcatCore.getDeviceRegistry()).thenReturn(mockDeviceRegistry);
 
         // 创建 ReportGenerator 实例
@@ -257,12 +262,12 @@ class ReportGeneratorTest {
     @Test
     void testGenerate_EmptyRecordList() {
         // 准备测试数据 - 空记录列表
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(new ArrayList<>());
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证结果
         assertNotNull(reports);
@@ -270,13 +275,13 @@ class ReportGeneratorTest {
         
         // 验证服务方法被调用
         verify(mockQualityControlRecordsService, times(1))
-                .selectEnvQualityControlRecordsByTypeTime(any(Date.class), any(Date.class), any(), any(Long.class));
+                .selectQcmRecordByTypeTime(any(Instant.class), any(Instant.class), any(), any(Integer.class));
     }
 
     @Test
     void testGenerate_WithMultipleQualityControlTypes() {
         // 准备测试数据 - 包含多种质控类型的记录
-        List<EnvQualityControlRecords> mockRecords = new ArrayList<>();
+        List<QcmRecord> mockRecords = new ArrayList<>();
         
         // 添加零点检查记录（使用 qualityControlType code="0", parameter code="1"）
         mockRecords.add(createMockQualityControlRecord("0", "1"));  // ZERO_CHECK, SO2
@@ -284,15 +289,15 @@ class ReportGeneratorTest {
         // 添加跨度检查记录（使用 qualityControlType code="1", parameter code="1"）
         mockRecords.add(createMockQualityControlRecord("1", "1"));  // SPAN_CHECK, SO2
         
-        when(mockQualityControlRecordsService.selectEnvQualityControlRecordsByTypeTime(
-                any(Date.class), any(Date.class), any(), any(Long.class)))
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
                 .thenReturn(mockRecords);
 
         // 模拟设备
         setupMockDevices();
 
         // 执行测试
-        List<EnvQualityControlReport> reports = reportGenerator.generate(startTime, endTime);
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
 
         // 验证结果
         assertNotNull(reports);
@@ -330,18 +335,18 @@ class ReportGeneratorTest {
     /**
      * 创建模拟的质控记录
      */
-    private EnvQualityControlRecords createMockQualityControlRecord(String qualityControlTypeCode, String parameter) {
-        EnvQualityControlRecords record = new EnvQualityControlRecords();
+    private QcmRecord createMockQualityControlRecord(String qualityControlTypeCode, String parameter) {
+        QcmRecord record = new QcmRecord();
         record.setId(1L);
         record.setQualityControlType(qualityControlTypeCode);
         record.setParameter(parameter);
         record.setStartTime(startTime);
         record.setEndTime(endTime);
-        record.setExecutionStatus(2L); // 成功状态
+        record.setExecutionStatus(2); // 成功状态
         record.setExecutionLog("{\"resultValue\":1.5,\"checkCalibLimit\":10.0,\"stdValue\":400.0,\"deviceValue\":394.0,\"checkPassLimit\":5.0}");
         record.setResultEvaluation("合格");
         record.setCreatedBy("admin");
-        record.setUpdateBy("admin");
+        record.setUpdatedBy("admin");
         record.setCreateTime(startTime);
         
         return record;

@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -90,20 +89,6 @@ public final class JsonUtils {
             return parseMap(standardJson, keyType, valueType);
         } catch (Exception e) {
             throw new RuntimeException("Failed to parse non-standard JSON string: " + nonStandardJson, e);
-        }
-    }
-
-    public static <T> List<T> parseList(String jsonStr, Class<T> elementType) {
-        try {
-            if (jsonStr == null || jsonStr.trim().isEmpty()) {
-                return Collections.emptyList();
-            }
-            return objectMapper.readValue(
-                    jsonStr,
-                    objectMapper.getTypeFactory().constructCollectionType(List.class, elementType)
-            );
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to parse JSON string to list", e);
         }
     }
 

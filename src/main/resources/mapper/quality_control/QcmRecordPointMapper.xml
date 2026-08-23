@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordPointMapper">
+
+    <resultMap type="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecordPoint" id="QcmRecordPointResult">
+        <result property="id"    column="id"    />
+        <result property="recordId"    column="record_id"    />
+        <result property="seq"    column="seq"    />
+        <result property="stdValue"    column="std_value"    />
+        <result property="deviceValue"    column="device_value"    />
+    </resultMap>
+
+    <!-- 完成时一次性写入快照（§4.0 判定层序列）：多点/精密度数据点批量落库 -->
+    <insert id="insertBatch" parameterType="java.util.List">
+        insert into qcm_record_point
+        (record_id, seq, std_value, device_value)
+        values
+        <foreach item="item" collection="records" separator=",">
+            (#{item.recordId}, #{item.seq}, #{item.stdValue}, #{item.deviceValue})
+        </foreach>
+    </insert>
+
+    <select id="selectByRecordId" parameterType="Long" resultMap="QcmRecordPointResult">
+        select id, record_id, seq, std_value, device_value
+        from qcm_record_point
+        where record_id = #{recordId}
+        order by seq asc
+    </select>
+
+    <delete id="deleteByRecordId" parameterType="Long">
+        delete from qcm_record_point where record_id = #{recordId}
+    </delete>
+</mapper>

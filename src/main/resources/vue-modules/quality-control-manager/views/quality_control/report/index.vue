@@ -57,6 +57,7 @@
 
     <!-- 报表列表区域 -->
     <el-table
+    v-loading="loading"
       :data="tableData"
       border
       style="width: 100%; margin-top: 20px;"
@@ -124,8 +125,7 @@ import { ref, onMounted, computed } from 'vue';
 import { ElMessage, ElMessageBox, ElDialog, ElTable, ElTableColumn, ElInput, ElDatePicker, ElButton } from 'element-plus';
 import FileSaver from 'file-saver';
 import * as XLSX from 'xlsx';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
+import { exportElementToPdf } from '../composables/usePdfExport';
 import {
   listReport,
   exportReport,
@@ -145,160 +145,7 @@ import ReportD5 from './ReportD5AccuracyCheck.vue';
 import ReportD6 from './ReportD6ConversionCheck.vue';
 import ReportD7 from './ReportD7TransferAndTrackCheck.vue';
 
-// 模拟后端返回的报表数据
-const mockTableData = [
-  {
-    id: 1,
-    reportName: '仪器运行状况检查记录表',
-    reportType: 'D.2',
-    reportDate: '2025-06-26',
-    instrumentName: '仪器A',
-    instrumentNo: 'NO001',
-    gasType: '标气1',
-    filer: '张三',
-    reviewer: '李四',
-    component: 'ReportD2',
-    reportData: {
-      title: '表D.2 （ ）仪器运行状况检查/校准记录表',
-      instrument_info: {
-        instrument_name: '仪器A',
-        instrument_no: 'NO001',
-        calibration_date: '2025-06-26',
-        gas_source: '标气源1',
-        gas_no: 'GS001',
-        gas_concentration: '100ppm',
-        full_scale: '200ppm'
-      },
-      calibration_points: [
-        {
-          point_name: '零点',
-          start_time: '09:00',
-          end_time: '09:10',
-          standard_concentration: '0ppm',
-          display_value: '0ppm',
-          calibration_value: '0ppm'
-        },
-        {
-          point_name: '满量程的80%',
-          start_time: '09:20',
-          end_time: '09:30',
-          standard_concentration: '160ppm',
-          display_value: '158ppm',
-          calibration_value: '160ppm'
-        }
-      ],
-      drift_info: {
-        zero_drift: '0ppm',
-        span_drift: '1%'
-      },
-      key_parameters: [
-        {
-          param_name: '参数1',
-          checked_value: '正常',
-          normal_range: '正常范围',
-          processing_record: '无'
-        }
-      ],
-      remark: '无特殊备注',
-      filer: '张三',
-      reviewer: '李四'
-    }
-  },
-  {
-    id: 2,
-    reportName: '仪器多点校准记录表',
-    reportType: 'D.3',
-    reportDate: '2025-06-26',
-    instrumentName: '仪器B',
-    instrumentNo: 'NO002',
-    gasType: '标气2',
-    filer: '张三',
-    reviewer: '李四',
-    component: 'ReportD3',
-    reportData: {
-      title: '表D.3 （ ）仪器多点校准记录表',
-      instrument_info: {
-        instrument_name: '仪器B',
-        instrument_no: 'NO002',
-        calibration_date: '2025-06-26',
-        gas_source: '标气源2',
-        gas_no: 'GS002',
-        gas_concentration: '200ppm'
-      },
-      gas_concentrations_input: ['50ppm', '100ppm', '150ppm'],
-      instrument_responses: ['48ppm', '98ppm', '147ppm'],
-      calibration_curve: {
-        formula: 'Y = aX + b',
-        a: '0.98',
-        b: '1',
-        r: '0.999'
-      },
-      calibration_result: '合格',
-      filer: '张三',
-      reviewer: '李四'
-    }
-  },
-  {
-    id: 7,
-    reportName: '仪器运行状况检查记录表',
-    reportType: 'D.1',
-    reportDate: '2025-06-26',
-    instrumentName: '仪器A',
-    instrumentNo: 'NO001',
-    gasType: '标气1',
-    filer: '张三',
-    reviewer: '李四',
-    component: 'ReportD2',
-    reportData: {
-      title: '表D.1 （ ）仪器运行状况检查/校准记录表',
-      instrument_info: {
-        instrument_name: '仪器A',
-        instrument_no: 'NO001',
-        calibration_date: '2025-06-26',
-        gas_source: '标气源1',
-        gas_no: 'GS001',
-        gas_concentration: '100ppm',
-        full_scale: '200ppm'
-      },
-      calibration_points: [
-        {
-          point_name: '自定义标点',
-          check_time: '09:00',
-          check_concentration: '0ppm',
-          standard_concentration: '0ppm',
-          check_data: '0ppm',
-          calibration_value: '0ppm'
-        },
-        {
-          point_name: '自定义标点',
-          check_time: '09:20',
-          check_concentration: '160ppm',
-          standard_concentration: '160ppm',
-          check_data: '158ppm',
-          calibration_value: '160ppm'
-        }
-      ],
-      drift_info: {
-        zero_drift: '0ppm',
-        span_drift: '1%'
-      },
-      key_parameters: [
-        {
-          param_name: '参数1',
-          checked_value: '正常',
-          normal_range: '正常范围',
-          processing_record: '无'
-        }
-      ],
-      remark: '无特殊备注',
-      filer: '张三',
-      reviewer: '李四'
-    }
-  },
-  // 继续补充其他报表数据...
-];
-
-const tableData = ref(mockTableData);
+const tableData = ref([]);
 const loading = ref(false);
 const showSearch = ref(true);
 const searchParams = ref({
@@ -324,7 +171,6 @@ const pageSize = ref(10); // 每页显示数量
 const total = ref(0); // 总数据量
 
 onMounted(() => {
-  // 实际应调用接口替换 mockTableData，如 fetchTableData();
   fetchTableData();
 });
 
@@ -341,21 +187,11 @@ const fetchTableData = async () => {
     const response = await listReport(params);
 
     if (response.code === 200) {
-      console.log('查询成功:', response);
+      // 过滤与分页由后端完成（searchParams 已随请求下发），此处仅承接——
+      // 前端二次 includes 过滤会破坏分页计数且字段为 null 时抛 TypeError（默认行为审查修复）
       reportList.value = response.rows || [];
-      tableData.value = reportList.value.filter(item => {
-        return (
-          item.reportName.includes(searchParams.value.reportName || '') &&
-          item.reportType.includes(searchParams.value.reportType || '') &&
-          (!searchParams.value.reportDate || item.reportDate === searchParams.value.reportDate) &&
-          item.instrumentName.includes(searchParams.value.instrumentName || '') &&
-          item.instrumentNo.includes(searchParams.value.instrumentNo || '') &&
-          item.gasType.includes(searchParams.value.gasType || '') &&
-          item.filer.includes(searchParams.value.filer || '')
-        );
-      });
-
-      total.value = response.total || tableData.value.length;
+      tableData.value = reportList.value;
+      total.value = Number(response.total || 0);
     } else {
       ElMessage.error(response.message || '查询失败');
     }
@@ -449,34 +285,47 @@ const handleSelectionChange = (val) => {
   selectedRows.value = val;
 };
 
-const handleView = (row) => {
-  switch (row.component) {
-    case 'ReportD1':
-      currentReportComponent.value = ReportD1;
-      break;
-    case 'ReportD2':
-      currentReportComponent.value = ReportD2;
-      break;
-    case 'ReportD3':
-      currentReportComponent.value = ReportD3;
-      break;
-    case 'ReportD4':
-      currentReportComponent.value = ReportD4;
-      break;
-    case 'ReportD5':
-      currentReportComponent.value = ReportD5;
-      break;
-    case 'ReportD6':
-      currentReportComponent.value = ReportD6;
-      break;
-    case 'ReportD7':
-      currentReportComponent.value = ReportD7;
-      break;
-    default:
+// 查看弹窗：列表接口已瘦身（不含 report_content），component/reportData 改从详情接口取
+const handleView = async (row) => {
+  try {
+    const res = await getReportDetail(row.id);
+    const detail = (res && res.code === 200 && res.data) ? res.data : null;
+    if (!detail) {
+      ElMessage.error('获取报表详情失败');
       return;
+    }
+    switch (detail.component) {
+      case 'ReportD1':
+        currentReportComponent.value = ReportD1;
+        break;
+      case 'ReportD2':
+        currentReportComponent.value = ReportD2;
+        break;
+      case 'ReportD3':
+        currentReportComponent.value = ReportD3;
+        break;
+      case 'ReportD4':
+        currentReportComponent.value = ReportD4;
+        break;
+      case 'ReportD5':
+        currentReportComponent.value = ReportD5;
+        break;
+      case 'ReportD6':
+        currentReportComponent.value = ReportD6;
+        break;
+      case 'ReportD7':
+        currentReportComponent.value = ReportD7;
+        break;
+      default:
+        ElMessage.warning('未知报表组件：' + detail.component);
+        return;
+    }
+    currentReportData.value = detail.reportData || {};
+    viewDialogVisible.value = true;
+  } catch (error) {
+    console.error('获取报表详情异常:', error);
+    ElMessage.error('获取报表详情失败，请稍后重试');
   }
-  currentReportData.value = row.reportData;
-  viewDialogVisible.value = true;
 };
 
 // const handleEdit = (row) => {
@@ -533,15 +382,9 @@ const exportToExcel = (data, reportName) => {
   FileSaver.saveAs(blob, `${reportName}_${new Date().getTime()}.xlsx`);
 };
 
-// 导出为 PDF
+// 导出为 PDF（G-VUE-2：与 records 质控结果预览共用 usePdfExport 的 A4 居中实现）
 const exportToPDF = async (element, reportName) => {
-  const canvas = await html2canvas(element);
-  const imgData = canvas.toDataURL('image/png');
-  const pdf = new jsPDF('p', 'mm', 'a4');
-  const width = pdf.internal.pageSize.getWidth();
-  const height = pdf.internal.pageSize.getHeight();
-  pdf.addImage(imgData, 'PNG', 0, 0, width, height * (canvas.height / canvas.width));
-  pdf.save(`${reportName}_${new Date().getTime()}.pdf`);
+  await exportElementToPdf(element, { fileName: `${reportName}_${new Date().getTime()}`, scale: 1 });
 };
 
 const handleExportSingle = (row, format) => {
@@ -564,26 +407,37 @@ const handleExportSingle = (row, format) => {
   }
 };
 
-const handleBatchExport = (format) => {
-  selectedRows.value.forEach(row => {
-    if (format === 'xlsx') {
-      exportToExcel(row.reportData, row.reportName);
-    } else if (format === 'pdf') {
-      const element = document.createElement('div');
-      // 同上，简单模拟渲染报表内容
-      switch (row.component) {
-        case 'ReportD2':
-          element.innerHTML = `
-            <h2>${row.reportData.title}</h2>
-            <!-- 复制 ReportD2.vue 表格逻辑 -->
-          `;
-          break;
-        // 其他报表...
+// 批量导出：选中行逐条取详情（列表行不再携带 reportData/component）
+const handleBatchExport = async (format) => {
+  try {
+    for (const row of selectedRows.value) {
+      const res = await getReportDetail(row.id);
+      const detail = (res && res.code === 200 && res.data) ? res.data : null;
+      if (!detail) {
+        continue;
       }
-      exportToPDF(element, row.reportName);
+      if (format === 'xlsx') {
+        exportToExcel(detail.reportData || {}, row.reportName);
+      } else if (format === 'pdf') {
+        const element = document.createElement('div');
+        // 同上，简单模拟渲染报表内容
+        switch (detail.component) {
+          case 'ReportD2':
+            element.innerHTML = `
+              <h2>${(detail.reportData || {}).title}</h2>
+              <!-- 复制 ReportD2.vue 表格逻辑 -->
+            `;
+            break;
+          // 其他报表...
+        }
+        exportToPDF(element, row.reportName);
+      }
     }
-  });
-  ElMessage.success(`批量导出${format.toUpperCase()}完成`);
+    ElMessage.success(`批量导出${format.toUpperCase()}完成`);
+  } catch (error) {
+    console.error('批量导出异常:', error);
+    ElMessage.error('批量导出失败，请稍后重试');
+  }
 };
 
 const handleExportCurrent = (format) => {

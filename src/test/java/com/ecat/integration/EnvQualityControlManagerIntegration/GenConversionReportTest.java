@@ -362,7 +362,7 @@ class GenConversionReportTest {
         Map<String, Object> reportData = report.getReportData();
         
         assertEquals("张三", reportData.get("filer"));
-        assertEquals("李四", reportData.get("reviewer"));
+        assertEquals("", reportData.get("reviewer"));
     }
 
     // ==================== 辅助方法 ====================

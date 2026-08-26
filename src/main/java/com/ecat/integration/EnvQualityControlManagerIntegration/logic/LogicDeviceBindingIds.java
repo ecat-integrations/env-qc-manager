@@ -53,6 +53,8 @@ public final class LogicDeviceBindingIds {
         public static final String SO2 = "so2";
         public static final String CO = "co";
         public static final String NO = "no";
+        /** 标准气钢瓶多实例后缀，与 {@code logicdevice_station.standard_gas.nox} 一致。 */
+        public static final String NOX = "nox";
         public static final String O3 = "o3";
     }
 

@@ -126,6 +126,7 @@ public final class LogicDeviceReportSupport {
             row.put("tRemark", "");
             rows.add(row);
         }
+        removePrimaryGasConcentrationRows(rows);
         return rows;
     }
 
@@ -233,26 +234,16 @@ public final class LogicDeviceReportSupport {
         return out;
     }
 
+    /**
+     * 报表「标气浓度」：只读标准气逻辑设备上的 {@code gas_concentration}（站房可写业务量）。
+     * <p>O₃ 无钢瓶实例，当前留空，不回退校准仪物理钢瓶点、也不用本次质控目标浓度。
+     */
     public static String readStandardGasCylinderConcentration(EcatCore core, String gasLabel) {
-        if (core == null) {
+        if (core == null || gasLabel == null || gasLabel.trim().isEmpty()) {
             return "";
         }
-        DeviceRegistry reg = core.getDeviceRegistry();
-        if (reg == null) {
+        if ("O3".equalsIgnoreCase(gasLabel.trim())) {
             return "";
-        }
-        String calibratorAttr = resolveCalibratorCylinderAttrId(core, gasLabel);
-        if (calibratorAttr != null) {
-            LogicDevice calibrator = (LogicDevice) airstationDevice(core,EntryId.Station.CALIBRATOR);
-            if (calibrator != null && calibrator.getAttrMap() != null) {
-                ILogicAttribute<?> attr = calibrator.getAttrMap().get(calibratorAttr);
-                if (attr != null) {
-                    String v = attr.getDisplayValue();
-                    if (v != null && !v.trim().isEmpty()) {
-                        return v.trim();
-                    }
-                }
-            }
         }
         return readStandardGasCylinderFromStandardGasDevices(core, gasLabel);
     }
@@ -356,11 +347,14 @@ public final class LogicDeviceReportSupport {
             if (cyl == null || cyl.getAttrMap() == null) {
                 continue;
             }
-            String concAttr = resolveStdGasConcentrationAttrId(cyl);
-            if (concAttr == null) {
-                continue;
-            }
+            String concAttr = "gas_concentration";
             ILogicAttribute<?> attr = cyl.getAttrMap().get(concAttr);
+            if (attr == null) {
+                concAttr = resolveStdGasConcentrationAttrId(cyl);
+                if (concAttr != null) {
+                    attr = cyl.getAttrMap().get(concAttr);
+                }
+            }
             if (attr != null) {
                 String v = attr.getDisplayValue();
                 if (v != null && !v.trim().isEmpty()) {
@@ -495,7 +489,7 @@ public final class LogicDeviceReportSupport {
     }
 
     /**
-     * 从 mapping 注入的 {@link LogicAttributeDefine} 列表挑选「工况 + 主浓度通道」，顺序与定义列表一致。
+     * 从 mapping 注入的 {@link LogicAttributeDefine} 列表挑选工况参数（流量/压力/温度），不含主浓度通道。
      */
     private static List<LabeledAttr> collectAnalyzerKeyParameterSpecs(String parameterName, LogicDevice analyzer) {
         List<LabeledAttr> list = new ArrayList<>();
@@ -515,24 +509,46 @@ public final class LogicDeviceReportSupport {
     }
 
     /**
-     * 是否入选关键参数：工况（流量/压力/温度）+ 与报表气体对应的主浓度 {@link AttributeClass}。
-     * NO₂ 报表沿用合并通道 NOx（{@link AttributeClass#NOX}），不含 NO/NO₂ 分项。
+     * 是否入选关键参数：仅工况（流量/压力/温度）。
+     * 主浓度（CO/SO2/NO/O3/NOx）与本次质控通入标气无关，不入表以免歧义。
      */
     private static boolean isKeyParameterAttrForReport(String parameterName, LogicAttributeDefine def) {
         if (def == null || !def.isDisplayable()) {
             return false;
         }
         AttributeClass ac = def.getAttrClass();
-        if (ac == AttributeClass.DISPATCH_COMMAND || ac == AttributeClass.MODE) {
+        if (ac == AttributeClass.DISPATCH_COMMAND || ac == AttributeClass.MODE || ac == AttributeClass.VALUE) {
             return false;
         }
-        if (ac == AttributeClass.VALUE) {
+        return ac == AttributeClass.FLOW || ac == AttributeClass.PRESSURE || ac == AttributeClass.TEMPERATURE;
+    }
+
+    /**
+     * 去掉历史快照中的主浓度行（名称含 CO/SO2/NO/O3/NOx 且带「浓度」）。
+     */
+    public static void removePrimaryGasConcentrationRows(List<Map<String, Object>> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        rows.removeIf(row -> row != null && isPrimaryGasConcentrationKeyParamName(String.valueOf(row.get("tName"))));
+    }
+
+    static boolean isPrimaryGasConcentrationKeyParamName(String name) {
+        if (name == null || name.trim().isEmpty() || "null".equals(name)) {
             return false;
         }
-        if (ac == AttributeClass.FLOW || ac == AttributeClass.PRESSURE || ac == AttributeClass.TEMPERATURE) {
-            return true;
+        String n = name.replace(" ", "").replace("₂", "2").replace("₃", "3");
+        String u = n.toUpperCase(Locale.ROOT);
+        boolean hasConc = n.contains("浓度") || u.contains("CONC");
+        if (!hasConc) {
+            return u.equals("CO") || u.equals("SO2") || u.equals("NO") || u.equals("NO2")
+                    || u.equals("NOX") || u.equals("O3");
         }
-        return matchesPrimaryGasConcentration(parameterName, ac);
+        return u.contains("SO2") || u.contains("NO2") || u.contains("NOX") || u.contains("O3")
+                || n.contains("CO浓度") || n.contains("浓度CO") || u.startsWith("CO")
+                || n.contains("NO浓度") || n.contains("浓度NO")
+                || n.contains("一氧化碳") || n.contains("二氧化硫") || n.contains("臭氧")
+                || n.contains("氮氧化物") || n.contains("一氧化氮");
     }
 
     private static boolean matchesPrimaryGasConcentration(String parameterName, AttributeClass ac) {
@@ -570,14 +586,13 @@ public final class LogicDeviceReportSupport {
                 return new String[] { GasKey.SO2 };
             case "CO":
                 return new String[] { GasKey.CO };
-            case "O3":
-                return new String[] { GasKey.O3 };
             case "NO":
-                return new String[] { GasKey.NO };
             case "NO2":
-                return new String[] { "no2", GasKey.NO };
+                return new String[] { GasKey.NOX };
+            case "O3":
+                return new String[0];
             default:
-                return new String[] { GasKey.SO2 };
+                return new String[0];
         }
     }
 }

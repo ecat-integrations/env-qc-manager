@@ -140,6 +140,41 @@ class GenMultiCheckReportTest {
     }
 
     @Test
+    void testGenMultiCheckReport_CO_scalesPpbToPpm() {
+        QcmRecord record = createMultiCheckRecordCoPpb();
+        List<QcmRecord> records = Arrays.asList(record);
+
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
+                .thenReturn(records);
+
+        DeviceBase coDevice = createMockDevice("esa-co", "CO分析仪", "SN-CO-001", "CO");
+        lenient().when(mockDeviceRegistry.getDeviceByID("esa-co")).thenReturn(coDevice);
+
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
+        assertEquals(1, reports.size());
+        Map<String, Object> reportData = reports.get(0).getReportData();
+
+        @SuppressWarnings("unchecked")
+        List<String> gasConcentrations = (List<String>) reportData.get("gas_concentrations_input");
+        assertEquals("0 ppm", gasConcentrations.get(0));
+        assertEquals("10 ppm", gasConcentrations.get(1));
+        assertEquals("20 ppm", gasConcentrations.get(2));
+        assertEquals("30 ppm", gasConcentrations.get(3));
+        assertEquals("40 ppm", gasConcentrations.get(4));
+
+        @SuppressWarnings("unchecked")
+        List<String> instrumentResponses = (List<String>) reportData.get("instrument_responses");
+        assertEquals("0.4 ppm", instrumentResponses.get(0));
+        assertEquals("40 ppm", instrumentResponses.get(4));
+
+        @SuppressWarnings("unchecked")
+        Map<String, String> calibrationCurve = (Map<String, String>) reportData.get("calibration_curve");
+        assertEquals("2.5", calibrationCurve.get("b"));
+        assertEquals("0.998", calibrationCurve.get("a"));
+    }
+
+    @Test
     void testGenMultiCheckReport_MultipleGases() {
         // 准备测试数据 - 多种气体的多点校准（使用 parameter code）
         List<QcmRecord> records = Arrays.asList(
@@ -293,6 +328,27 @@ class GenMultiCheckReportTest {
         record.setUpdatedBy("admin");
         record.setCreateTime(startTime);
         
+        return record;
+    }
+
+    /**
+     * CO 多点：execution_log 为编排器 PPB（80% 量程 40000 ppb = 40 ppm）。
+     */
+    private QcmRecord createMultiCheckRecordCoPpb() {
+        QcmRecord record = createMultiCheckRecord("4", true);
+        String executionLog = "{"
+                + "\"correlation\":0.9995,"
+                + "\"check_b_scope\":500.0,"
+                + "\"intercept\":2500.0,"
+                + "\"deviceValues\":[400.0,10000.0,20000.0,30000.0,40000.0],"
+                + "\"check_a_max\":1.05,"
+                + "\"stdValues\":[0.0,10000.0,20000.0,30000.0,40000.0],"
+                + "\"check_r_min\":0.999,"
+                + "\"check_a_min\":0.95,"
+                + "\"slope\":0.998,"
+                + "\"isPass\":true"
+                + "}";
+        record.setExecutionLog(executionLog);
         return record;
     }
 

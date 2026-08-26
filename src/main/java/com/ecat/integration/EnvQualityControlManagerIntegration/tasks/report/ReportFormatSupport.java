@@ -3,9 +3,12 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ReportGenerator;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.AnalyzerOperatingStatusNormalRanges;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDeviceReportSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionLogHelper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -94,16 +97,77 @@ public final class ReportFormatSupport {
         return result;
     }
 
+    /** 报表气种是否为 CO（记录字段存 ParameterEnum code，兼容名称）。 */
+    public static boolean isCoReportGas(String gasTypeCode) {
+        return ParameterEnum.CO.getCode().equals(gasTypeCode) || "CO".equalsIgnoreCase(gasTypeCode);
+    }
+
+    /**
+     * 编排器 / execution_log 中的浓度一律为 ppb。
+     * CO 报表展示 ppm，需 ÷1000；其余气种保持 ppb。
+     * <p>钢瓶标气等已按展示单位读出的字段不要走此方法，只用 {@link #appendConcUnit}。
+     */
+    public static double ppbToReportNumber(double ppb, String gasTypeCode) {
+        return isCoReportGas(gasTypeCode) ? ppb / 1000.0 : ppb;
+    }
+
+    /** 报表浓度最多两位小数；整数不补零，例如 {@code 40}、{@code 399.5}。 */
+    public static String formatConcDisplayNumber(double v) {
+        if (Double.isNaN(v) || Double.isInfinite(v)) {
+            return "";
+        }
+        return BigDecimal.valueOf(v).setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+    }
+
+    /** 将 ppb 数值转为报表单元格：CO → {@code 40 ppm}，其余 → {@code 400 ppb}。 */
+    public static String formatPpbWithDisplayUnit(double ppb, String gasTypeCode) {
+        return appendConcUnit(formatConcDisplayNumber(ppbToReportNumber(ppb, gasTypeCode)), gasTypeCode);
+    }
+
+    /**
+     * 线性拟合截距 b 与浓度同单位（ppb）。CO 报表按 ppm 展示时同步 ÷1000；斜率 a、相关系数 r 无量纲，不换算。
+     */
+    public static String formatPpbInterceptForDisplay(String rawIntercept, String gasTypeCode) {
+        if (rawIntercept == null || rawIntercept.trim().isEmpty()) {
+            return "";
+        }
+        try {
+            double v = Double.parseDouble(rawIntercept.trim());
+            if (isCoReportGas(gasTypeCode)) {
+                v = v / 1000.0;
+            }
+            return formatConcDisplayNumber(v);
+        } catch (NumberFormatException e) {
+            return rawIntercept;
+        }
+    }
+
     public static String appendConcUnit(String raw, String gasTypeCode) {
         if (raw == null || raw.trim().isEmpty()) {
             return "";
         }
         String s = raw.trim();
-        if (s.endsWith("ppm") || s.endsWith("ppb") || s.endsWith("%")) {
+        if (s.endsWith("%")) {
             return s;
         }
-        String u = ParameterEnum.CO.getCode().equals(gasTypeCode) ? " ppm" : " ppb";
-        return s + u;
+        String unit;
+        String numPart;
+        String lower = s.toLowerCase(Locale.ROOT);
+        if (lower.endsWith("ppm")) {
+            unit = " ppm";
+            numPart = s.substring(0, s.length() - 3).trim();
+        } else if (lower.endsWith("ppb")) {
+            unit = " ppb";
+            numPart = s.substring(0, s.length() - 3).trim();
+        } else {
+            unit = isCoReportGas(gasTypeCode) ? " ppm" : " ppb";
+            numPart = s;
+        }
+        Double parsed = tryParseConcNumber(numPart);
+        if (parsed != null) {
+            return formatConcDisplayNumber(parsed) + unit;
+        }
+        return lower.endsWith("ppm") || lower.endsWith("ppb") ? s : s + unit;
     }
 
     public static String appendDriftUnit(String raw, String unit) {
@@ -111,16 +175,52 @@ public final class ReportFormatSupport {
             return "";
         }
         String s = raw.trim();
-        if (s.endsWith("ppm") || s.endsWith("ppb") || s.endsWith("%")) {
+        if (s.endsWith("%")) {
             return s;
         }
-        return s + unit;
+        String unitNorm = unit == null ? "" : unit;
+        String numPart = s;
+        String lower = s.toLowerCase(Locale.ROOT);
+        if (lower.endsWith("ppm")) {
+            unitNorm = " ppm";
+            numPart = s.substring(0, s.length() - 3).trim();
+        } else if (lower.endsWith("ppb")) {
+            unitNorm = " ppb";
+            numPart = s.substring(0, s.length() - 3).trim();
+        }
+        Double parsed = tryParseConcNumber(numPart);
+        if (parsed != null) {
+            return formatConcDisplayNumber(parsed) + unitNorm;
+        }
+        if (lower.endsWith("ppm") || lower.endsWith("ppb")) {
+            return s;
+        }
+        return s + unitNorm;
+    }
+
+    private static Double tryParseConcNumber(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(raw.trim());
+        } catch (NumberFormatException e) {
+            String stripped = stripNumericConcentration(raw);
+            if (stripped.isEmpty()) {
+                return null;
+            }
+            try {
+                return Double.parseDouble(stripped);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
     }
 
     /**
-     * 标定侧响应值：编排器/任务写入的 {@code verificationValue} 优先，否则回退 {@code stdValue}（与历史数据兼容）。
+     * 标定侧响应值：仅取编排器复测均值 {@code verificationValue}，已校准但缺失则空，不回退 {@code stdValue}。
      */
-    public static Object pickVerificationOrStd(Map<String, Object> executionLogMap) {
+    public static Object pickVerificationValue(Map<String, Object> executionLogMap) {
         if (executionLogMap == null) {
             return null;
         }
@@ -129,9 +229,27 @@ public final class ReportFormatSupport {
             v = executionLogMap.get("verification_value");
         }
         if (v == null) {
-            v = executionLogMap.get("stdValue");
+            return null;
+        }
+        if (v instanceof String && ((String) v).trim().isEmpty()) {
+            return null;
+        }
+        String s = String.valueOf(v).trim();
+        if ("null".equalsIgnoreCase(s)) {
+            return null;
         }
         return v;
+    }
+
+    /** 标定响应展示：无复测值为空；CO 从 ppb 换到 ppm。 */
+    public static String formatCalibrationResponse(Object calSrc, String parameterCode) {
+        if (calSrc == null) {
+            return "";
+        }
+        if (isCoReportGas(parameterCode) && calSrc instanceof Number) {
+            return ((Number) calSrc).doubleValue() / 1000 + "";
+        }
+        return String.valueOf(calSrc);
     }
 
     /** 跨度漂移为相对百分比，不是浓度单位。 */
@@ -155,7 +273,7 @@ public final class ReportFormatSupport {
             if (f == null) {
                 out.add("");
             } else {
-                out.add(appendConcUnit(String.valueOf(f), gasTypeCode));
+                out.add(formatPpbWithDisplayUnit(f.doubleValue(), gasTypeCode));
             }
         }
         return out;
@@ -287,11 +405,13 @@ public final class ReportFormatSupport {
 
     /**
      * 关键参数「检查值」补单位：兼容仅有数值的 execution_log 快照行；并在 {@code tRange} 为空时填入分析仪运行状况参考正常范围。
+     * 入口先剔除主浓度行（与本次质控通入标气无关，历史快照残留也不入表）。
      */
     public static void enrichKeyParameterRowsForReport(List<Map<String, Object>> rows, String gasTypeCode) {
         if (rows == null) {
             return;
         }
+        LogicDeviceReportSupport.removePrimaryGasConcentrationRows(rows);
         for (Map<String, Object> row : rows) {
             if (row == null) {
                 continue;
@@ -351,7 +471,7 @@ public final class ReportFormatSupport {
         }
         if (name.contains("浓度") || name.contains("NO") || name.contains("SO") || name.contains("O₃") || name.contains("O3")
                 || name.contains("CO")) {
-            return ParameterEnum.CO.getCode().equals(gasTypeCode) ? " ppm" : " ppb";
+            return isCoReportGas(gasTypeCode) ? " ppm" : " ppb";
         }
         return "";
     }

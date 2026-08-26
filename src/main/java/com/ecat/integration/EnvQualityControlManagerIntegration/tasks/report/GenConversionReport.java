@@ -19,11 +19,9 @@ import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.rep
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.convertToFloatList;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.ensurePercentSuffix;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.firstNonNullMetric;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.firstNonBlank;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatEfficiencyPercent;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatFloatListWithConcUnit;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.recordCreatorRef;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.recordUpdaterRef;
+import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatPpbWithDisplayUnit;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.stripNumericConcentration;
 
 /**
@@ -63,12 +61,7 @@ public class GenConversionReport extends ReportGenerator {
      */
     private ConversionReport parseRecordToReport(QcmRecord record) {
         report.setReportDate(ReportFormatSupport.reportDateOf(record.getStartTime())); // 报告日期 默认是质控记录开始时间
-        String filerRef = recordCreatorRef(record);
-        String reviewerRef = firstNonBlank(recordUpdaterRef(record), filerRef);
-        report.setFiler(resolveReportFilerDisplayName(filerRef));
-        report.setReviewer(resolveReportPersonDisplayName(reviewerRef));
-        report.setCreatedBy(filerRef.isEmpty() ? record.getCreatedBy() : filerRef);
-        report.setUpdatedBy(reviewerRef.isEmpty() ? firstNonBlank(record.getUpdatedBy()) : reviewerRef);
+        applyReportFilerAndEmptyReviewer(report, record);
         report.setReportNote(record.getResultEvaluation()); // 备注 默认是质控记录结果评价
         report.setGasType(record.getParameter());
         String param = ParameterEnum.getNameByCode(report.getGasType());
@@ -93,8 +86,8 @@ public class GenConversionReport extends ReportGenerator {
 
         String concUnitCode = ParameterEnum.NO2.getCode();
         List<String> gasConcentrations = new ArrayList<>(2);
-        String noC = getStdGasConcentration("NO");
-        String no2C = getStdGasConcentration("NO2");
+        String noC = resolveReportStdGasConcentration("NO", record);
+        String no2C = resolveReportStdGasConcentration("NO2", record);
         gasConcentrations.add(noC == null ? "" : appendConcUnit(stripNumericConcentration(noC), concUnitCode));
         gasConcentrations.add(no2C == null ? "" : appendConcUnit(stripNumericConcentration(no2C), concUnitCode));
         report.setGasConcentration(gasConcentrations);
@@ -189,6 +182,6 @@ public class GenConversionReport extends ReportGenerator {
         if (f == null) {
             return "";
         }
-        return appendConcUnit(String.valueOf(f), gasTypeCode);
+        return formatPpbWithDisplayUnit(f.doubleValue(), gasTypeCode);
     }
 }

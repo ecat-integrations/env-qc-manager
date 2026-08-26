@@ -111,6 +111,9 @@ public class EnvQualityControlTask extends Task implements QcResultFormatter {
             metrics.put("checkPassLimit", checkPassLimit);
             metrics.put("checkCalibLimit", checkCalibLimit);
             metrics.put("isPass", result.isPass());
+            if (checkResult.getVerificationValue() != null) {
+                metrics.put("verificationValue", checkResult.getVerificationValue());
+            }
 
         } else if (envQualityControlTypeCode.equals(QualityControlTypeEnum.MULTI_CHECK.getCode())) {
             CheckResult checkResult = (CheckResult) result;
@@ -125,6 +128,9 @@ public class EnvQualityControlTask extends Task implements QcResultFormatter {
             metrics.put("checkPassLimit", checkPassLimit);
             metrics.put("checkCalibLimit", checkCalibLimit);
             metrics.put("isPass", result.isPass());
+            if (checkResult.getVerificationValue() != null) {
+                metrics.put("verificationValue", checkResult.getVerificationValue());
+            }
 
         } else if (envQualityControlTypeCode.equals(QualityControlTypeEnum.MULTI_CHECK.getCode())) {
             MultiResult multiResult = (MultiResult) result;
@@ -215,14 +221,22 @@ public class EnvQualityControlTask extends Task implements QcResultFormatter {
         }
 
         List<Map<String, Object>> keySnapshot;
+        String stdGasSnap = "";
         if (qcRecordId < 0) {
             keySnapshot = Collections.emptyList();
         } else {
             String paramStr = params != null ? (String) params.get("parameter") : null;
             String gasName = paramStr != null ? ParameterEnum.valueOf(paramStr).name() : null;
             keySnapshot = buildKeyParametersSnapshotAtComplete(core, gasName);
+            if (core != null && gasName != null) {
+                try {
+                    stdGasSnap = LogicDeviceReportSupport.readStandardGasCylinderConcentration(core, gasName);
+                } catch (Exception e) {
+                    log.debug("stdGasConcentration snapshot skipped: {}", e.getMessage());
+                }
+            }
         }
-        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, metrics, result, keySnapshot);
+        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, metrics, result, keySnapshot, stdGasSnap);
     }
 
     private static Map<String, Object> serializableTaskParamsForLog(Map<String, Object> params) {
@@ -247,14 +261,22 @@ public class EnvQualityControlTask extends Task implements QcResultFormatter {
     private String executionLogJsonForStubResult(EcatCore core, Map<String, Object> params, ExecutorResultBase stub, long qcRecordId) {
         Map<String, Object> serializableParams = serializableTaskParamsForLog(params);
         List<Map<String, Object>> keySnapshot;
+        String stdGasSnap = "";
         if (qcRecordId < 0) {
             keySnapshot = Collections.emptyList();
         } else {
             String paramStr = params != null ? (String) params.get("parameter") : null;
             String gasName = paramStr != null ? ParameterEnum.valueOf(paramStr).name() : null;
             keySnapshot = buildKeyParametersSnapshotAtComplete(core, gasName);
+            if (core != null && gasName != null) {
+                try {
+                    stdGasSnap = LogicDeviceReportSupport.readStandardGasCylinderConcentration(core, gasName);
+                } catch (Exception e) {
+                    log.debug("stdGasConcentration snapshot skipped: {}", e.getMessage());
+                }
+            }
         }
-        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, Collections.emptyMap(), stub, keySnapshot);
+        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, Collections.emptyMap(), stub, keySnapshot, stdGasSnap);
     }
 
     private List<Map<String, Object>> buildKeyParametersSnapshotAtComplete(EcatCore core, String gasParameterName) {

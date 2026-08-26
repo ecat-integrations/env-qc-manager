@@ -11,10 +11,6 @@ import lombok.Getter;
 import java.util.HashMap;
 import java.util.Map;
 
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.firstNonBlank;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.recordCreatorRef;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.recordUpdaterRef;
-
 /**
  * GenTransferAndTraceReport
  * <p>生成臭氧校准设备量值传递记录表</p>
@@ -49,12 +45,7 @@ public class GenTransferAndTraceReport extends ReportGenerator {
      */
     private TransferAndTraceReport parseRecordToReport(QcmRecord record) {
         report.setReportDate(ReportFormatSupport.reportDateOf(record.getStartTime())); // 报告日期 默认是质控记录开始时间
-        String filerRef = recordCreatorRef(record);
-        String reviewerRef = firstNonBlank(recordUpdaterRef(record), filerRef);
-        report.setFiler(resolveReportFilerDisplayName(filerRef));
-        report.setReviewer(resolveReportPersonDisplayName(reviewerRef));
-        report.setCreatedBy(filerRef.isEmpty() ? record.getCreatedBy() : filerRef);
-        report.setUpdatedBy(reviewerRef.isEmpty() ? firstNonBlank(record.getUpdatedBy()) : reviewerRef);
+        applyReportFilerAndEmptyReviewer(report, record);
         report.setReportNote(record.getResultEvaluation()); // 备注 默认是质控记录结果评价
         report.setGasType(record.getParameter());
         String param = ParameterEnum.getNameByCode(report.getGasType());

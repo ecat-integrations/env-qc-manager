@@ -4,7 +4,6 @@ import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.EcatCore;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ReportGenerator;
-import com.ecat.integration.EnvQualityControlManagerIntegration.util.JsonUtils;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionLogHelper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ReportTypeEnum;
@@ -22,14 +21,13 @@ import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.rep
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.appendDriftUnit;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.buildZeroSpanReportRemark;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.enrichKeyParameterRowsForReport;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.firstNonBlank;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.firstReadPhaseWindowForKeyParameters;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.fmtReportTime;
+import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatCalibrationResponse;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatSpanDriftPercentDisplay;
+import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.isCoReportGas;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.mergeKeyParameterSnapshotsFromRecords;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.pickVerificationOrStd;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.recordCreatorRef;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.recordUpdaterRef;
+import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.pickVerificationValue;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum.SPAN_CHECK;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum.ZERO_CHECK;
 
@@ -94,12 +92,7 @@ public class GenZeroAndSpanReport extends ReportGenerator {
         }
 
         report.setReportDate(businessDay);
-        String filerRef = firstNonBlank(recordCreatorRef(anchor), recordCreatorRef(zero), recordCreatorRef(span));
-        String reviewerRef = firstNonBlank(recordUpdaterRef(anchor), recordUpdaterRef(span), recordUpdaterRef(zero), filerRef);
-        report.setFiler(resolveReportFilerDisplayName(filerRef));
-        report.setReviewer(resolveReportPersonDisplayName(reviewerRef));
-        report.setCreatedBy(filerRef.isEmpty() ? anchor.getCreatedBy() : filerRef);
-        report.setUpdatedBy(reviewerRef.isEmpty() ? firstNonBlank(anchor.getUpdatedBy()) : reviewerRef);
+        applyReportFilerAndEmptyReviewer(report, anchor, zero, span);
         report.setGasType(anchor.getParameter());
         String param = ParameterEnum.getNameByCode(report.getGasType());
         if (param == null) {
@@ -123,8 +116,8 @@ public class GenZeroAndSpanReport extends ReportGenerator {
             report.setInstrumentNo("");
             report.setInstrumentNameAndNo("");
         }
-        String gasConcentration = param != null ? getStdGasConcentration(param) : "";
-        report.setGasConcentration(gasConcentration == null ? "" : gasConcentration);
+        String gasConcentration = param != null ? resolveReportStdGasConcentration(param, zero, span) : "";
+        report.setGasConcentration(gasConcentration);
 
         if (zero != null) {
             report.setZeroStartTime(fmtTime(zero.getStartTime()));
@@ -181,39 +174,7 @@ public class GenZeroAndSpanReport extends ReportGenerator {
         report.setSpanCalibrationValueApplicable(
                 span != null && QualityControlExecutionLogHelper.hasCompletedCalibrationPhase(span.getExecutionLog()));
 
-        report.setQcPhaseTimelinesForReport(mergeQcPhaseTimelines(zero, span));
-
         return report;
-    }
-
-    @SuppressWarnings("unchecked")
-    protected static List<Map<String, Object>> mergeQcPhaseTimelines(QcmRecord... records) {
-        List<Map<String, Object>> merged = new ArrayList<>();
-        if (records == null) {
-            return merged;
-        }
-        for (QcmRecord r : records) {
-            if (r == null || r.getExecutionLog() == null || r.getExecutionLog().trim().isEmpty()) {
-                continue;
-            }
-            Map<String, Object> root = QualityControlExecutionLogHelper.parseRootMap(r.getExecutionLog());
-            Object raw = root.get(QualityControlExecutionLogHelper.QC_PHASE_TIMELINES_KEY);
-            if (!(raw instanceof List)) {
-                continue;
-            }
-            String tag = ZERO_CHECK.getCode().equals(r.getQualityControlType())
-                    ? "零点"
-                    : (SPAN_CHECK.getCode().equals(r.getQualityControlType()) ? "跨度" : "记录");
-            for (Object o : (List<?>) raw) {
-                if (!(o instanceof Map)) {
-                    continue;
-                }
-                Map<String, Object> row = new LinkedHashMap<>((Map<String, Object>) o);
-                row.put("recordTag", tag);
-                merged.add(row);
-            }
-        }
-        return merged;
     }
 
     private String fmtTime(Instant d) {
@@ -224,24 +185,23 @@ public class GenZeroAndSpanReport extends ReportGenerator {
         if (executionLogMap == null || executionLogMap.isEmpty()) {
             return;
         }
-        Object calSrc = pickVerificationOrStd(executionLogMap);
-        if (ParameterEnum.CO.getCode().equals(parameterCode)) {
+        Object calSrc = pickVerificationValue(executionLogMap);
+        if (isCoReportGas(parameterCode)) {
             try {
                 report.setZeroStandardConcentration(((Number) executionLogMap.get("stdValue")).doubleValue() / 1000 + "");
                 report.setZeroDisplayResponse(((Number) executionLogMap.get("deviceValue")).doubleValue() / 1000 + "");
-                report.setZeroCalibrationResponse(
-                        calSrc instanceof Number ? (((Number) calSrc).doubleValue() / 1000 + "") : String.valueOf(calSrc));
+                report.setZeroCalibrationResponse(formatCalibrationResponse(calSrc, parameterCode));
                 report.setZeroDriftResult(((Number) executionLogMap.get("resultValue")).doubleValue() / 1000 + "");
             } catch (Exception e) {
                 report.setZeroStandardConcentration(String.valueOf(executionLogMap.get("stdValue")));
                 report.setZeroDisplayResponse(String.valueOf(executionLogMap.get("deviceValue")));
-                report.setZeroCalibrationResponse(calSrc != null ? String.valueOf(calSrc) : String.valueOf(executionLogMap.get("stdValue")));
+                report.setZeroCalibrationResponse(formatCalibrationResponse(calSrc, parameterCode));
                 report.setZeroDriftResult(String.valueOf(executionLogMap.get("resultValue")));
             }
         } else {
             report.setZeroStandardConcentration(String.valueOf(executionLogMap.get("stdValue")));
             report.setZeroDisplayResponse(String.valueOf(executionLogMap.get("deviceValue")));
-            report.setZeroCalibrationResponse(calSrc != null ? String.valueOf(calSrc) : String.valueOf(executionLogMap.get("stdValue")));
+            report.setZeroCalibrationResponse(formatCalibrationResponse(calSrc, parameterCode));
             report.setZeroDriftResult(String.valueOf(executionLogMap.get("resultValue")));
         }
     }
@@ -251,22 +211,21 @@ public class GenZeroAndSpanReport extends ReportGenerator {
             return;
         }
         report.setSpan80DriftResult(String.valueOf(resultEvaluation.get("resultValue")));
-        Object calSrc = pickVerificationOrStd(resultEvaluation);
-        if (ParameterEnum.CO.getCode().equals(parameterCode)) {
+        Object calSrc = pickVerificationValue(resultEvaluation);
+        if (isCoReportGas(parameterCode)) {
             try {
                 report.setSpan80StandardConcentration(((Number) resultEvaluation.get("stdValue")).doubleValue() / 1000 + "");
                 report.setSpan80DisplayResponse(((Number) resultEvaluation.get("deviceValue")).doubleValue() / 1000 + "");
-                report.setSpan80CalibrationResponse(
-                        calSrc instanceof Number ? (((Number) calSrc).doubleValue() / 1000 + "") : String.valueOf(calSrc));
+                report.setSpan80CalibrationResponse(formatCalibrationResponse(calSrc, parameterCode));
             } catch (Exception e) {
                 report.setSpan80StandardConcentration(String.valueOf(resultEvaluation.get("stdValue")));
                 report.setSpan80DisplayResponse(String.valueOf(resultEvaluation.get("deviceValue")));
-                report.setSpan80CalibrationResponse(calSrc != null ? String.valueOf(calSrc) : String.valueOf(resultEvaluation.get("stdValue")));
+                report.setSpan80CalibrationResponse(formatCalibrationResponse(calSrc, parameterCode));
             }
         } else {
             report.setSpan80StandardConcentration(String.valueOf(resultEvaluation.get("stdValue")));
             report.setSpan80DisplayResponse(String.valueOf(resultEvaluation.get("deviceValue")));
-            report.setSpan80CalibrationResponse(calSrc != null ? String.valueOf(calSrc) : String.valueOf(resultEvaluation.get("stdValue")));
+            report.setSpan80CalibrationResponse(formatCalibrationResponse(calSrc, parameterCode));
         }
     }
 
@@ -338,17 +297,16 @@ public class GenZeroAndSpanReport extends ReportGenerator {
         );
         reportContent.put("calibration_points", calibrationPoints);
         String gasCode = report.getGasType();
-        String fullSpan = ParameterEnum.CO.getCode().equals(gasCode) ? FULL_SPAN_CO : FULL_SPAN;
+        String fullSpan = isCoReportGas(gasCode) ? FULL_SPAN_CO : FULL_SPAN;
         reportContent.put("full_span", fullSpan);
-        String driftUnit = ParameterEnum.CO.getCode().equals(gasCode) ? " ppm" : " ppb";
+        String driftUnit = isCoReportGas(gasCode) ? " ppm" : " ppb";
         reportContent.put("zero_drift_result", appendDriftUnit(report.getZeroDriftResult(), driftUnit));
         reportContent.put("span_80_drift_result", formatSpanDriftPercentDisplay(report.getSpan80DriftResult()));
         reportContent.put("key_parameters", report.getKeyParameters());
         reportContent.put("span_calibration_result", report.getSpanCalibrationResult());
         reportContent.put("zero_calibration_result", report.getZeroCalibrationResult());
-        reportContent.put("qc_phase_timelines", report.getQcPhaseTimelinesForReport());
         reportContent.put("remark", report.getReportNote() != null ? report.getReportNote() : "");
-        reportContent.put("filler", report.getFiler() != null ? report.getFiler() : "");
+        reportContent.put("filer", report.getFiler() != null ? report.getFiler() : "");
         reportContent.put("reviewer", report.getReviewer() != null ? report.getReviewer() : "");
 
         return reportContent;

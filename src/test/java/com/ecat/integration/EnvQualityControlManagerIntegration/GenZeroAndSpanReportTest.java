@@ -148,6 +148,98 @@ class GenZeroAndSpanReportTest {
         }
     }
 
+    @Test
+    void calibrationResponse_usesVerificationValue_notStdValue() {
+        QcmRecord zero = createZeroCheckRecord("1");
+        zero.setExecutionLog("{"
+                + "\"result\":{"
+                + "\"resultValue\":1.5,"
+                + "\"stdValue\":0.0,"
+                + "\"deviceValue\":-7.5,"
+                + "\"verificationValue\":12.5,"
+                + "\"isPass\":true"
+                + "},"
+                + "\"qcPhaseTimelines\":[{\"phaseCode\":\"calibration\",\"endTimeMillis\":1736470800000}],"
+                + "\"stdGasConcentration\":\"400\""
+                + "}");
+        QcmRecord span = createSpanCheckRecord("1");
+        span.setExecutionLog("{"
+                + "\"result\":{"
+                + "\"resultValue\":1.1,"
+                + "\"stdValue\":400.0,"
+                + "\"deviceValue\":395.0,"
+                + "\"verificationValue\":398.0,"
+                + "\"isPass\":true"
+                + "},"
+                + "\"qcPhaseTimelines\":[{\"phaseCode\":\"calibration\",\"endTimeMillis\":1736474400000}]"
+                + "}");
+
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
+                .thenReturn(Arrays.asList(zero, span));
+        DeviceBase so2Device = createMockDevice("esa-so2", "SO2分析仪", "SN-SO2-001", "SO2");
+        when(mockDeviceRegistry.getDeviceByID("esa-so2")).thenReturn(so2Device);
+
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
+        assertEquals(1, reports.size());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reportData = reports.get(0).getReportData();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> instrumentInfo = (Map<String, Object>) reportData.get("instrument_info");
+        assertEquals("400 ppb", instrumentInfo.get("gas_concentration"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> points = (List<Map<String, Object>>) reportData.get("calibration_points");
+        assertEquals("12.5 ppb", points.get(0).get("calibration_value"));
+        assertEquals("398 ppb", points.get(1).get("calibration_value"));
+    }
+
+    @Test
+    void calibrationResponse_emptyWhenCalibratedButNoVerification_andDropsPrimaryConcKeyParams() {
+        QcmRecord zero = createZeroCheckRecord("1");
+        zero.setExecutionLog("{"
+                + "\"result\":{"
+                + "\"resultValue\":1.5,"
+                + "\"stdValue\":0.0,"
+                + "\"deviceValue\":-7.5,"
+                + "\"isPass\":true"
+                + "},"
+                + "\"qcPhaseTimelines\":[{\"phaseCode\":\"calibration\",\"endTimeMillis\":1736470800000}],"
+                + "\"keyParametersSnapshot\":["
+                + "{\"tName\":\"CO浓度\",\"tValue\":\"1\"},"
+                + "{\"tName\":\"样气流量\",\"tValue\":\"0.5\"}"
+                + "]"
+                + "}");
+        QcmRecord span = createSpanCheckRecord("1");
+        span.setExecutionLog("{"
+                + "\"result\":{"
+                + "\"resultValue\":1.1,"
+                + "\"stdValue\":400.0,"
+                + "\"deviceValue\":395.0,"
+                + "\"isPass\":true"
+                + "},"
+                + "\"qcPhaseTimelines\":[{\"phaseCode\":\"calibration\",\"endTimeMillis\":1736474400000}]"
+                + "}");
+
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
+                .thenReturn(Arrays.asList(zero, span));
+        DeviceBase so2Device = createMockDevice("esa-so2", "SO2分析仪", "SN-SO2-001", "SO2");
+        when(mockDeviceRegistry.getDeviceByID("esa-so2")).thenReturn(so2Device);
+
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
+        assertEquals(1, reports.size());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reportData = reports.get(0).getReportData();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> points = (List<Map<String, Object>>) reportData.get("calibration_points");
+        assertEquals("", points.get(0).get("calibration_value"));
+        assertEquals("", points.get(1).get("calibration_value"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> keyParams = (List<Map<String, Object>>) reportData.get("key_parameters");
+        assertEquals(1, keyParams.size());
+        assertEquals("样气流量", keyParams.get(0).get("tName"));
+    }
+
     // ==================== 辅助方法 ====================
 
     /**

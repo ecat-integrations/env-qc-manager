@@ -25,14 +25,6 @@
         <td colspan="5">{{ reportData.full_span }}</td>
       </tr>
 
-      <tr v-if="reportData.qc_phase_timelines && reportData.qc_phase_timelines.length">
-        <td colspan="6" class="qc-phase-title">阶段时间线（来自质控执行记录）</td>
-      </tr>
-      <tr v-for="(ph, idx) in (reportData.qc_phase_timelines || [])" :key="'ph-' + idx">
-        <td colspan="2">{{ phaseRecordTag(ph) }}{{ ph.phaseName }}</td>
-        <td colspan="4">{{ phaseTimeText(ph) }}</td>
-      </tr>
-
       <!-- 校准点部分 -->
       <tr>
         <th rowspan="2">校准点</th>
@@ -92,7 +84,7 @@
       <!-- 填表人和复核人部分 -->
       <tr>
         <td>填表人：</td>
-        <td colspan="2">{{ reportData.filer }}</td>
+        <td colspan="2">{{ reportData.filer || reportData.filler }}</td>
         <td>复核人：</td>
         <td colspan="2">{{ reportData.reviewer }}</td>
       </tr>
@@ -119,39 +111,6 @@ const props = defineProps({
 });
 
 const reportRemarkDisplay = computed(() => formatReportRemarkDisplay(props.reportData && props.reportData.remark));
-
-function phaseRecordTag(ph) {
-  if (!ph || !ph.recordTag) {
-    return '';
-  }
-  return `[${ph.recordTag}] `;
-}
-
-function phaseTimeText(ph) {
-  if (!ph) {
-    return '';
-  }
-  const fmt = (ms) => {
-    if (ms == null) {
-      return '';
-    }
-    const d = new Date(Number(ms));
-    if (Number.isNaN(d.getTime())) {
-      return String(ms);
-    }
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  };
-  const s = fmt(ph.startTimeMillis);
-  const e = fmt(ph.endTimeMillis);
-  if (s && e) {
-    return `${s} ~ ${e}`;
-  }
-  if (s) {
-    return `开始 ${s}`;
-  }
-  return '';
-}
 </script>
 
 <style scoped>
@@ -201,11 +160,6 @@ tr {
   color: #c0392b;
   border-color: rgba(192, 57, 43, 0.55);
   background: rgba(245, 108, 108, 0.12);
-}
-
-.qc-phase-title {
-  font-weight: 600;
-  background: #f5f7fa;
 }
 
 .report-table {

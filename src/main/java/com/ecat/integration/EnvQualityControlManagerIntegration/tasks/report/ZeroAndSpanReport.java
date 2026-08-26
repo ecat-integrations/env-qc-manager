@@ -75,8 +75,6 @@ public class ZeroAndSpanReport extends QcmReport {
     private String zeroCalibrationResult = "";
     // 校准结果
     private String spanCalibrationResult = "";
-    /** 零跨合并展示：来自各记录 execution_log 根级 {@code qcPhaseTimelines}。 */
-    private List<Map<String, Object>> qcPhaseTimelinesForReport = new ArrayList<>();
     /**
      * 是否展示「标定值-响应浓度」：仅当对应质控记录实际执行并完成自动校准相位（timeline 中带 endTimeMillis 的 calibration）时。
      */

@@ -244,7 +244,8 @@ const paramDisplayNames = {
   readDataCount: '读取数据次数',
   targetFlowLpm: '目标流量 (L/min)',
   flowRateLpm: '目标流量 (L/min)',
-  targetFlow: '目标流量 (L/min)'
+  targetFlow: '目标流量 (L/min)',
+  stdGasConcentration: '标气浓度'
 };
 
 /** 执行记录详情中不展示的 params 键（调度元信息，避免干扰业务参数阅读） */

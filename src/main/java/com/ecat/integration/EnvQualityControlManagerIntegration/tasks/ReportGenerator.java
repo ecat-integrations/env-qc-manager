@@ -25,6 +25,7 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.util.JsonUtils;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDeviceReportSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ZeroSpanDayPairSelector;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.QcCurrentUser;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionLogHelper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum;
 import com.ruoyi.common.core.domain.entity.SysUser;
@@ -50,6 +51,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
 
+import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.recordCreatorRef;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum.ACCURACY_CHECK;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum.AUDIT_SPAN_CHECK;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum.CONVERSION_CHECK;
@@ -124,6 +126,29 @@ public class ReportGenerator {
 
     protected String getStdGasConcentration(String gasType) {
         return LogicDeviceReportSupport.readStandardGasCylinderConcentration(core, gasType);
+    }
+
+    /**
+     * 报表「标气浓度」：优先质控完成时写入的快照，否则即时读标准气逻辑设备。
+     * O₃ 无钢瓶、不写快照，结果为空。
+     */
+    protected String resolveReportStdGasConcentration(String gasParamName, QcmRecord... records) {
+        if (records != null) {
+            for (QcmRecord r : records) {
+                if (r == null) {
+                    continue;
+                }
+                String snap = QualityControlExecutionLogHelper.readStdGasConcentrationSnapshot(r.getExecutionLog());
+                if (snap != null && !snap.isEmpty()) {
+                    return snap;
+                }
+            }
+        }
+        if (gasParamName == null || gasParamName.trim().isEmpty()) {
+            return "";
+        }
+        String live = getStdGasConcentration(gasParamName);
+        return live == null ? "" : live;
     }
 
     /**
@@ -390,15 +415,44 @@ public class ReportGenerator {
         return key;
     }
 
+    /** 当前登录用户的 RuoYi 用户名；无 Security 上下文时为空。 */
+    protected String currentLoginUsername() {
+        return QcCurrentUser.usernameOrEmpty();
+    }
+
     /**
-     * 报告「填表人」：解析逻辑同 {@link #resolveReportPersonDisplayName(String)}；若无创建人引用则尝试当前登录用户昵称（用于预览等场景）。
+     * 报告填表人：优先当前登录用户名；无登录时回退质控记录创建人。复核人默认空，不由填表人/更新人顶上。
+     */
+    protected void applyReportFilerAndEmptyReviewer(QcmReport target, QcmRecord... records) {
+        if (target == null) {
+            return;
+        }
+        String login = currentLoginUsername();
+        String fromRecord = "";
+        if (records != null) {
+            for (QcmRecord r : records) {
+                fromRecord = recordCreatorRef(r);
+                if (!fromRecord.isEmpty()) {
+                    break;
+                }
+            }
+        }
+        String filer = !login.isEmpty() ? login : fromRecord;
+        target.setFiler(filer);
+        target.setReviewer("");
+        target.setCreatedBy(filer);
+        target.setUpdatedBy("");
+    }
+
+    /**
+     * 报告「填表人」：优先当前登录用户名，否则用记录创建人引用。
      */
     protected String resolveReportFilerDisplayName(String recordCreatorRef) {
-        String resolved = resolveReportPersonDisplayName(recordCreatorRef);
-        if (!resolved.isEmpty()) {
-            return resolved;
+        String login = currentLoginUsername();
+        if (!login.isEmpty()) {
+            return login;
         }
-        return displayNameFromLoginUserOnly();
+        return recordCreatorRef == null ? "" : recordCreatorRef.trim();
     }
 
     /**

@@ -211,6 +211,38 @@ class GenAccuracyReportTest {
     }
 
     @Test
+    void testGenAccuracyReport_CO_scalesPpbToPpm() {
+        QcmRecord record = createAccuracyCheckRecordCoPpb();
+        List<QcmRecord> records = Arrays.asList(record);
+
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
+                .thenReturn(records);
+
+        DeviceBase coDevice = createMockDevice("esa-co", "CO分析仪", "SN-CO-001", "CO");
+        lenient().when(mockDeviceRegistry.getDeviceByID("esa-co")).thenReturn(coDevice);
+
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
+        Map<String, Object> reportData = reports.get(0).getReportData();
+
+        @SuppressWarnings("unchecked")
+        List<String> gasConcentrations = (List<String>) reportData.get("gas_concentrations_input");
+        assertEquals("10 ppm", gasConcentrations.get(0));
+        assertEquals("20 ppm", gasConcentrations.get(1));
+        assertEquals("40 ppm", gasConcentrations.get(2));
+
+        @SuppressWarnings("unchecked")
+        List<String> instrumentResponses = (List<String>) reportData.get("instrument_responses");
+        assertEquals("9.95 ppm", instrumentResponses.get(0));
+        assertEquals("39.78 ppm", instrumentResponses.get(2));
+
+        @SuppressWarnings("unchecked")
+        Map<String, String> calibrationCurve = (Map<String, String>) reportData.get("calibration_curve");
+        assertEquals("1.5", calibrationCurve.get("b"));
+        assertEquals("0.992", calibrationCurve.get("a"));
+    }
+
+    @Test
     void testGenAccuracyReport_VerifyAverageRelativeError() {
         // 准备测试数据（NO2 code="2"）
         QcmRecord record = createAccuracyCheckRecord("2");  // NO2 code
@@ -361,6 +393,22 @@ class GenAccuracyReportTest {
         record.setUpdatedBy("admin");
         record.setCreateTime(startTime);
         
+        return record;
+    }
+
+    /** CO 准确度：标准浓度与响应为编排器 PPB，截距同为 ppb。 */
+    private QcmRecord createAccuracyCheckRecordCoPpb() {
+        QcmRecord record = createAccuracyCheckRecord("4", true);
+        String executionLog = "{"
+                + "\"slope\":0.992,"
+                + "\"intercept\":1500.0,"
+                + "\"correlation\":0.9985,"
+                + "\"relativeError\":2.35,"
+                + "\"stdValues\":[10000.0,20000.0,40000.0],"
+                + "\"deviceValues\":[9950.0,19820.0,39780.0],"
+                + "\"isPass\":true"
+                + "}";
+        record.setExecutionLog(executionLog);
         return record;
     }
 

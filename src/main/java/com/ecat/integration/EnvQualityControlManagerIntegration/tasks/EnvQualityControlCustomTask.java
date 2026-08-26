@@ -124,12 +124,20 @@ public class EnvQualityControlCustomTask extends Task implements QcResultFormatt
         }
 
         List<Map<String, Object>> keySnap = Collections.emptyList();
+        String stdGasSnap = "";
         if (qcRecordIdForSnapshot >= 0) {
             String gasName = params != null ? (String) params.get("gas") : null;
             keySnap = buildKeyParametersSnapshotAtComplete(core, gasName);
+            if (core != null && gasName != null && !gasName.isEmpty()) {
+                try {
+                    stdGasSnap = LogicDeviceReportSupport.readStandardGasCylinderConcentration(core, gasName);
+                } catch (Exception e) {
+                    log.debug("stdGasConcentration snapshot skipped: {}", e.getMessage());
+                }
+            }
         }
 
-        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, resultContentList, result, keySnap);
+        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, resultContentList, result, keySnap, stdGasSnap);
     }
 
     private List<Map<String, Object>> buildKeyParametersSnapshotAtComplete(EcatCore core, String gasParameterName) {

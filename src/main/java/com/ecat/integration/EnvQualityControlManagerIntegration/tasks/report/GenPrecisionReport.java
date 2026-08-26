@@ -17,11 +17,9 @@ import java.util.Map;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.appendConcUnit;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.convertToFloat;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.convertToFloatList;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.firstNonBlank;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatFloatListWithConcUnit;
+import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatPpbWithDisplayUnit;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatRelativeStandardDeviationPercent;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.recordCreatorRef;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.recordUpdaterRef;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.stripNumericConcentration;
 
 /**
@@ -61,12 +59,7 @@ public class GenPrecisionReport extends ReportGenerator {
      */
     private PrecisionReport parseRecordToReport(QcmRecord record) {
         report.setReportDate(ReportFormatSupport.reportDateOf(record.getStartTime()));
-        String filerRef = recordCreatorRef(record);
-        String reviewerRef = firstNonBlank(recordUpdaterRef(record), filerRef);
-        report.setFiler(resolveReportFilerDisplayName(filerRef));
-        report.setReviewer(resolveReportPersonDisplayName(reviewerRef));
-        report.setCreatedBy(filerRef.isEmpty() ? record.getCreatedBy() : filerRef);
-        report.setUpdatedBy(reviewerRef.isEmpty() ? firstNonBlank(record.getUpdatedBy()) : reviewerRef);
+        applyReportFilerAndEmptyReviewer(report, record);
         report.setReportNote(record.getResultEvaluation());
         report.setGasType(record.getParameter());
         String param = ParameterEnum.getNameByCode(report.getGasType());
@@ -97,8 +90,8 @@ public class GenPrecisionReport extends ReportGenerator {
         report.setInstrumentResponses(instrumentResponse);
         report.setRelativeStandardDeviation(precision);
 
-        String cylinderConc = param != null ? getStdGasConcentration(param) : "";
-        report.setGasConcentration(cylinderConc == null ? "" : cylinderConc);
+        String cylinderConc = param != null ? resolveReportStdGasConcentration(param, record) : "";
+        report.setGasConcentration(cylinderConc);
 
         boolean pass = QualityControlExecutionLogHelper.readBoolean(executionLogMap, "isPass");
         report.setCalibrationResult(pass ? "合格" : "不合格");
@@ -137,10 +130,11 @@ public class GenPrecisionReport extends ReportGenerator {
         List<String> concCells = new ArrayList<>();
         if (resp != null) {
             for (int i = 0; i < resp.size(); i++) {
-                String rawNum = report.getDevicesStdGasFromMetrics() != null
-                        ? String.valueOf(report.getDevicesStdGasFromMetrics())
-                        : stripNumericConcentration(report.getGasConcentration());
-                concCells.add(appendConcUnit(rawNum, gasCode));
+                if (report.getDevicesStdGasFromMetrics() != null) {
+                    concCells.add(formatPpbWithDisplayUnit(report.getDevicesStdGasFromMetrics(), gasCode));
+                } else {
+                    concCells.add(appendConcUnit(stripNumericConcentration(report.getGasConcentration()), gasCode));
+                }
             }
         }
         reportContent.put("gas_concentrations_input", concCells);

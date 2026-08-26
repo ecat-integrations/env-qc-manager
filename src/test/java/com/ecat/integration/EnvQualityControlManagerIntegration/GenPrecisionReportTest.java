@@ -254,6 +254,36 @@ class GenPrecisionReportTest {
         assertNotNull(instrumentInfo.get("report_date"));
     }
 
+    @Test
+    void testGenPrecisionReport_CO_scalesPpbToPpm() {
+        QcmRecord record = createPrecisionCheckRecordCoPpb();
+        List<QcmRecord> records = Arrays.asList(record);
+
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
+                .thenReturn(records);
+
+        DeviceBase coDevice = createMockDevice("esa-co", "CO分析仪", "SN-CO-001", "CO");
+        lenient().when(mockDeviceRegistry.getDeviceByID("esa-co")).thenReturn(coDevice);
+
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
+        Map<String, Object> reportData = reports.get(0).getReportData();
+
+        @SuppressWarnings("unchecked")
+        List<String> concCells = (List<String>) reportData.get("gas_concentrations_input");
+        assertEquals("40 ppm", concCells.get(0));
+
+        @SuppressWarnings("unchecked")
+        List<String> instrumentResponses = (List<String>) reportData.get("instrument_responses");
+        assertEquals(7, instrumentResponses.size());
+        assertEquals("39.95 ppm", instrumentResponses.get(0));
+        assertEquals("40 ppm", instrumentResponses.get(5));
+
+        Object rsdObj = reportData.get("relative_standard_deviation");
+        assertTrue(String.valueOf(rsdObj).contains("%"));
+        assertEquals(1.25f, parsePercentCell(String.valueOf(rsdObj)), 0.01);
+    }
+
     // ==================== 辅助方法 ====================
 
     private static float parseConcCell(String cell) {
@@ -293,6 +323,22 @@ class GenPrecisionReportTest {
         record.setUpdatedBy("admin");
         record.setCreateTime(startTime);
         
+        return record;
+    }
+
+    /** CO 精密度：通入标气与响应均为编排器 PPB。 */
+    private QcmRecord createPrecisionCheckRecordCoPpb() {
+        QcmRecord record = createPrecisionCheckRecord("4");
+        String executionLog = "{"
+                + "\"precision\":1.25,"
+                + "\"mean\":39990.0,"
+                + "\"standardDeviation\":40.0,"
+                + "\"devicesStdGas\":40000.0,"
+                + "\"checkRsd20Max\":2.0,"
+                + "\"deviceValues\":[39950.0,40200.0,39800.0,40100.0,39700.0,40000.0,39900.0],"
+                + "\"isPass\":true"
+                + "}";
+        record.setExecutionLog(executionLog);
         return record;
     }
 

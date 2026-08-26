@@ -32,6 +32,9 @@ public final class QualityControlExecutionLogHelper {
      */
     public static final String QC_PHASE_TIMELINES_KEY = "qcPhaseTimelines";
 
+    /** 质控完成时从标准气逻辑设备快照的标气浓度，报告优先用此字段。 */
+    public static final String STD_GAS_CONCENTRATION_KEY = "stdGasConcentration";
+
     /** 阶段时间串解析（G-STD-7：SimpleDateFormat → DateTimeFormatter）。前两种为无时区本地串，末种带偏移。 */
     private static final DateTimeFormatter[] TIME_FORMATTERS = {
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
@@ -76,6 +79,18 @@ public final class QualityControlExecutionLogHelper {
             Object resultBody,
             ExecutorResultBase result,
             List<Map<String, Object>> keyParametersSnapshot) {
+        return toExecutionLogJson(params, resultBody, result, keyParametersSnapshot, null);
+    }
+
+    /**
+     * 组装入库的 execution_log JSON（可选关键参数快照与标气浓度快照）。
+     */
+    public static String toExecutionLogJson(
+            Map<String, Object> params,
+            Object resultBody,
+            ExecutorResultBase result,
+            List<Map<String, Object>> keyParametersSnapshot,
+            String stdGasConcentration) {
         Map<String, Object> root = new LinkedHashMap<>();
         List<?> phaseTimelines = null;
         if (params != null && !params.isEmpty()) {
@@ -105,6 +120,9 @@ public final class QualityControlExecutionLogHelper {
         root.put("statusMap", buildStatusMap(result));
         if (keyParametersSnapshot != null && !keyParametersSnapshot.isEmpty()) {
             root.put("keyParametersSnapshot", keyParametersSnapshot);
+        }
+        if (stdGasConcentration != null && !stdGasConcentration.trim().isEmpty()) {
+            root.put(STD_GAS_CONCENTRATION_KEY, stdGasConcentration.trim());
         }
         Date[] samplingWin = resolveReadPhaseWindowFromTimelinesList(phaseTimelines);
         if (samplingWin != null) {
@@ -196,7 +214,25 @@ public final class QualityControlExecutionLogHelper {
         m.remove("keyParametersSnapshot");
         m.remove(QC_PHASE_TIMELINES_KEY);
         m.remove("keyParametersSamplingWindow");
+        m.remove(STD_GAS_CONCENTRATION_KEY);
         return m;
+    }
+
+    /** 读取质控完成时写入的标气浓度快照；无则空串。 */
+    public static String readStdGasConcentrationSnapshot(String executionLog) {
+        Map<String, Object> root = parseRootMap(executionLog);
+        if (root.isEmpty()) {
+            return "";
+        }
+        Object v = root.get(STD_GAS_CONCENTRATION_KEY);
+        if (v == null && root.get("params") instanceof Map) {
+            v = ((Map<?, ?>) root.get("params")).get(STD_GAS_CONCENTRATION_KEY);
+        }
+        if (v == null) {
+            return "";
+        }
+        String s = String.valueOf(v).trim();
+        return "null".equals(s) ? "" : s;
     }
 
     /**

@@ -40,6 +40,22 @@ class QualityControlExecutionLogHelperTest {
     }
 
     @Test
+    void toExecutionLogJson_includesStdGasConcentrationAtRoot() {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("parameter", "SO2");
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        metrics.put("resultValue", 1.0f);
+        TestResult tr = new TestResult(true, false, "ok", "");
+        String json = QualityControlExecutionLogHelper.toExecutionLogJson(params, metrics, tr, null, "400");
+
+        Map<String, Object> root = QualityControlExecutionLogHelper.parseRootMap(json);
+        assertEquals("400", root.get(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_KEY));
+        assertEquals("400", QualityControlExecutionLogHelper.readStdGasConcentrationSnapshot(json));
+        Map<String, Object> m = QualityControlExecutionLogHelper.metricsForReport(json);
+        assertFalse(m.containsKey(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_KEY));
+    }
+
+    @Test
     void readIsPass_legacyFlat() {
         String legacy = "{\"resultValue\":1,\"isPass\":true}";
         assertTrue(QualityControlExecutionLogHelper.readIsPass(legacy));

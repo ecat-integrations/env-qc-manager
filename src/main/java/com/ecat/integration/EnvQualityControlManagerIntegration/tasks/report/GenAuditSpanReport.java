@@ -9,8 +9,6 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityCont
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ReportTypeEnum;
 import lombok.Getter;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -23,12 +21,10 @@ import java.util.Map;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.appendConcUnit;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.appendKeySnapshotRows;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.enrichKeyParameterRowsForReport;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.firstNonBlank;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.fmtReportTime;
+import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatConcDisplayNumber;
+import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.isCoReportGas;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.plainEvaluationIfNotJson;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.recordCreatorRef;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.recordUpdaterRef;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum.CO;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum.AUDIT_SPAN_CHECK;
 
 /**
@@ -73,12 +69,7 @@ public class GenAuditSpanReport extends ReportGenerator {
         QcmRecord records_0 = records.get(0);
 
         report.setReportDate(ReportFormatSupport.reportDateOf(records_0.getCreateTime()));
-        String filerRef = recordCreatorRef(records_0);
-        String reviewerRef = firstNonBlank(recordUpdaterRef(records_0), filerRef);
-        report.setFiler(resolveReportFilerDisplayName(filerRef));
-        report.setReviewer(resolveReportPersonDisplayName(reviewerRef));
-        report.setCreatedBy(filerRef.isEmpty() ? records_0.getCreatedBy() : filerRef);
-        report.setUpdatedBy(reviewerRef.isEmpty() ? firstNonBlank(records_0.getUpdatedBy()) : reviewerRef);
+        applyReportFilerAndEmptyReviewer(report, records_0);
         report.setGasType(records_0.getParameter());
         String param = ParameterEnum.getNameByCode(report.getGasType());
         report.setGasSource(param);
@@ -97,11 +88,11 @@ public class GenAuditSpanReport extends ReportGenerator {
             report.setInstrumentNameAndNo("");
             report.setReportName(report.getReportName());
         }
-        String gasConcentration = param != null ? getStdGasConcentration(param) : "";
-        report.setGasConcentration(gasConcentration == null ? "" : gasConcentration);
+        String gasConcentration = param != null ? resolveReportStdGasConcentration(param, records_0) : "";
+        report.setGasConcentration(gasConcentration);
 
         List<String> auditRemarkLines = new ArrayList<>();
-        boolean coByParameter = CO.getCode().equals(report.getGasType());
+        boolean coByParameter = isCoReportGas(report.getGasType());
         for (QcmRecord record : records) {
             if (record.getExecutionLog() != null) {
                 Map<String, Object> rootQuick = QualityControlExecutionLogHelper.parseRootMap(record.getExecutionLog());
@@ -188,10 +179,7 @@ public class GenAuditSpanReport extends ReportGenerator {
     }
 
     private static String conciseConcNumber(double v) {
-        if (Double.isNaN(v) || Double.isInfinite(v)) {
-            return "";
-        }
-        return BigDecimal.valueOf(v).setScale(6, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+        return formatConcDisplayNumber(v);
     }
 
     /**
@@ -239,7 +227,7 @@ public class GenAuditSpanReport extends ReportGenerator {
         reportContent.put("start_time", report.getSpanStartTime());
         reportContent.put("end_time", report.getSpanEndTime());
 
-        boolean coByParameter = CO.getCode().equals(report.getGasType());
+        boolean coByParameter = isCoReportGas(report.getGasType());
         List<Map<String, Object>> calibrationPoints = new ArrayList<>();
         for (Map<String, String> auditCheckResultItem : report.getSpanDisplayResponses()) {
             calibrationPoints.add(
@@ -255,7 +243,7 @@ public class GenAuditSpanReport extends ReportGenerator {
         }
         reportContent.put("calibration_points", calibrationPoints);
         String gasCode = report.getGasType();
-        String fullSpan = CO.getCode().equals(gasCode) ? FULL_SPAN_CO : FULL_SPAN;
+        String fullSpan = isCoReportGas(gasCode) ? FULL_SPAN_CO : FULL_SPAN;
         reportContent.put("full_span", fullSpan);
         reportContent.put("span_drift_result", report.getSpanDriftResult());
         reportContent.put("key_parameters", report.getKeyParameters());

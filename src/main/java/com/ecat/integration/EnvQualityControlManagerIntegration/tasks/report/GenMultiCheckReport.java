@@ -4,7 +4,6 @@ import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.EcatCore;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ReportGenerator;
-import com.ecat.integration.EnvQualityControlManagerIntegration.util.JsonUtils;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionLogHelper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ReportTypeEnum;
@@ -16,11 +15,9 @@ import java.util.Map;
 
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.appendConcUnit;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.convertToFloatList;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.firstNonBlank;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatFloatListWithConcUnit;
+import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatPpbInterceptForDisplay;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.metricString;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.recordCreatorRef;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.recordUpdaterRef;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.stripNumericConcentration;
 
 /**
@@ -60,12 +57,7 @@ public class GenMultiCheckReport extends ReportGenerator {
      */
     private MultiCheckReport parseRecordToReport(QcmRecord record) {
         report.setReportDate(ReportFormatSupport.reportDateOf(record.getStartTime()));
-        String filerRef = recordCreatorRef(record);
-        String reviewerRef = firstNonBlank(recordUpdaterRef(record), filerRef);
-        report.setFiler(resolveReportFilerDisplayName(filerRef));
-        report.setReviewer(resolveReportPersonDisplayName(reviewerRef));
-        report.setCreatedBy(filerRef.isEmpty() ? record.getCreatedBy() : filerRef);
-        report.setUpdatedBy(reviewerRef.isEmpty() ? firstNonBlank(record.getUpdatedBy()) : reviewerRef);
+        applyReportFilerAndEmptyReviewer(report, record);
         report.setReportNote(record.getResultEvaluation());
         report.setGasType(record.getParameter());
         String param = ParameterEnum.getNameByCode(report.getGasType());
@@ -99,8 +91,8 @@ public class GenMultiCheckReport extends ReportGenerator {
         List<Float> instrumentResponse = convertToFloatList(executionLogMap.get("deviceValues"));
         report.setInstrumentResponses(instrumentResponse);
 
-        String cylinderConc = param != null ? getStdGasConcentration(param) : "";
-        report.setGasConcentration(cylinderConc == null ? "" : cylinderConc);
+        String cylinderConc = param != null ? resolveReportStdGasConcentration(param, record) : "";
+        report.setGasConcentration(cylinderConc);
 
         boolean pass = QualityControlExecutionLogHelper.readBoolean(executionLogMap, "isPass");
         report.setCalibrationResult(pass ? "合格" : "不合格");
@@ -158,7 +150,7 @@ public class GenMultiCheckReport extends ReportGenerator {
         Map<String, String> calibrationCurve = new HashMap<>();
         calibrationCurve.put("formula", report.getFormula());
         calibrationCurve.put("a", report.getA());
-        calibrationCurve.put("b", report.getB());
+        calibrationCurve.put("b", formatPpbInterceptForDisplay(report.getB(), gasCode));
         calibrationCurve.put("r", report.getR());
         reportContent.put("calibration_curve", calibrationCurve);
         reportContent.put("calibration_result", report.getCalibrationResult());

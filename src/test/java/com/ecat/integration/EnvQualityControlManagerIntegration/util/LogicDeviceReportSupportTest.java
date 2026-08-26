@@ -18,25 +18,25 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * 报告关键参数快照取值单位口径（G-BUG-20 回归锁）。
+ * 报告关键参数快照契约。
  *
- * <p>背景：airdevice 逻辑设备主浓度属性 native 单位为 µg/m³（ADM 国标口径定案），
- * 裸 {@code getDisplayValue()} 返回 µg/m³ 数值（400ppb → 1047.47），
- * 而快照标签无条件补 " ppb" —— 造成报告「SO₂浓度 1047.472 ppb」数值与标签错位。
- * 判定链路 {@code getDisplayValue(PPB)} 一直正确，仅快照错。</p>
+ * <p>历史（G-BUG-20）：主浓度行入选快照时曾按 native µg/m³ 裸值错标 ppb，修为按目标单位
+ * （SO2/NO2/O3 → PPB；CO → PPM，D19 单位规范）取值，与质控判定同口径。</p>
  *
- * <p>契约：主浓度行（SO2/NO2/O3 → PPB；CO → PPM，D19 单位规范）取值必须带目标单位，
- * 与质控判定同口径；非浓度工况行（流量/温度等）不受影响。</p>
+ * <p>现行契约（574955b 合入）：主浓度通道与本次质控通入标气无关，不再入选关键参数快照
+ * （构建侧 {@code isKeyParameterAttrForReport} 仅收工况 + 行级 {@code removePrimaryGasConcentrationRows}
+ * 剔除历史残留）；快照仅含工况行（流量/压力/温度），非浓度工况行不受影响。
+ * 目标单位取值逻辑保留为防御路径，供任何残留浓度行兜底。</p>
  */
 class LogicDeviceReportSupportTest {
 
-    private static LogicDevice analyzerWithSo2(String nativeDisplay, String ppbDisplay) {
+    private static LogicDevice analyzerWithSo2() {
         LogicDevice analyzer = mock(LogicDevice.class);
         Map<String, ILogicAttribute<?>> attrMap = new HashMap<>();
         ILogicAttribute<?> so2 = mock(ILogicAttribute.class);
-        when(so2.getDisplayValue()).thenReturn(nativeDisplay);
+        when(so2.getDisplayValue()).thenReturn("1047.472");
         //noinspection unchecked,rawtypes
-        when(so2.getDisplayValue((com.ecat.core.State.UnitInfo) AirVolumeUnit.PPB)).thenReturn(ppbDisplay);
+        when(so2.getDisplayValue((com.ecat.core.State.UnitInfo) AirVolumeUnit.PPB)).thenReturn("400.000");
         attrMap.put("so2", so2);
         //noinspection unchecked,rawtypes
         when(analyzer.getAttrMap()).thenReturn((Map) attrMap);
@@ -53,16 +53,15 @@ class LogicDeviceReportSupportTest {
     }
 
     @Test
-    void primaryGasConcentrationReadsWithPpbTargetUnitNotNativeUgm3() {
-        LogicDevice analyzer = analyzerWithSo2("1047.472", "400.000");
+    void primaryGasConcentrationRowExcludedFromKeyParams() {
+        LogicDevice analyzer = analyzerWithSo2();
         List<Map<String, Object>> rows = LogicDeviceReportSupport.buildAnalyzerKeyParametersForTest(analyzer, "SO2");
-        String so2Row = findRowValue(rows, "SO₂浓度");
-        assertEquals("400.000 ppb", so2Row,
-                "主浓度快照必须按目标单位 ppb 取值（与判定同口径），不得用 native µg/m³ 值错标 ppb");
+        assertTrue(rows.stream().noneMatch(r -> "SO₂浓度".equals(r.get("tName"))),
+                "主浓度与本次质控通入标气无关，不得入选关键参数快照（历史 G-BUG-20 错值行随之不再出现）");
     }
 
     @Test
-    void coPrimaryConcentrationUsesPpmUnit() {
+    void coPrimaryConcentrationRowExcludedFromKeyParams() {
         LogicDevice analyzer = mock(LogicDevice.class);
         Map<String, ILogicAttribute<?>> attrMap = new HashMap<>();
         ILogicAttribute<?> co = mock(ILogicAttribute.class);
@@ -82,8 +81,8 @@ class LogicDeviceReportSupportTest {
         when(analyzer.getAttrDefs()).thenReturn(defs);
 
         List<Map<String, Object>> rows = LogicDeviceReportSupport.buildAnalyzerKeyParametersForTest(analyzer, "CO");
-        assertEquals("1.047 ppm", findRowValue(rows, "CO浓度"),
-                "CO 主浓度按 D19 单位规范用 ppm 取值");
+        assertTrue(rows.stream().noneMatch(r -> "CO浓度".equals(r.get("tName"))),
+                "CO 主浓度通道同样不入选关键参数快照");
     }
 
     @Test

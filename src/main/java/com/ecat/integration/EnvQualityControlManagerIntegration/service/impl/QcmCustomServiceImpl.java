@@ -62,7 +62,7 @@ public class QcmCustomServiceImpl implements IQcmCustomService {
         try {
             log.info("executeCustomAuditCheck, gas: {}, genGasTime: {}, readDataCount: {}, readDataSpan: {}, genGasConc: {}, stdGasInPortName: {}, targetFlowLpm: {}", gas, genGasTime, readDataCount, readDataSpan, genGasConc, stdGasInPortName, flow);
             IIntegrationTaskManagement envQualityControlCustomTask = (IIntegrationTaskManagement) core.getIntegrationRegistry()
-                    .getIntegration("integration-env-quality-control-manager");
+                    .getIntegration("integration-env-qc-manager");
             Task wantedTask = envQualityControlCustomTask.getTaskExecutor().getTask("EnvQualityControlCustomTask");
             wantedTask.execute(parameters);
             log.info("executeCustomAuditCheck, gas: {}, genGasTime: {}, readDataCount: {}, readDataSpan: {}, genGasConc: {}, stdGasInPortName: {}, targetFlowLpm: {}, execute success", gas, genGasTime, readDataCount, readDataSpan, genGasConc, stdGasInPortName, flow);

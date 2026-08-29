@@ -148,7 +148,7 @@ public class QcmRecordServiceImpl implements IQcmRecordService
             result.put("msg", "质控记录不存在");
             return result;
         }
-        EnvQualityControlManagerIntegration integration = (EnvQualityControlManagerIntegration) core.getIntegrationRegistry().getIntegration("integration-env-quality-control-manager");
+        EnvQualityControlManagerIntegration integration = (EnvQualityControlManagerIntegration) core.getIntegrationRegistry().getIntegration("integration-env-qc-manager");
         Map<Long, AbstractCalibrationFlow> executorMap = integration.executorMap;
         List<Long> rowIds = target.getBatchId() != null
                 ? qcmRecordMapper.selectBatchRowIds(target.getBatchId())

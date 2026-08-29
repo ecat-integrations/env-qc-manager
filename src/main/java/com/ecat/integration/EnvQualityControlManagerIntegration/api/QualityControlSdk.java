@@ -9,7 +9,7 @@ import java.util.List;
  * <p>本包契约铁律：零第三方依赖（仅 java.* / lombok 编译期注解，SdkApiZeroDependencyGuardTest 守卫），
  * 状态与枚举一律用 String 常量承载，不 import qcm 内部枚举——外部类加载器无需可见 qcm 其余类。</p>
  *
- * <p>获取方式：{@code core.getIntegrationRegistry().getIntegration("integration-env-quality-control-manager")
+ * <p>获取方式：{@code core.getIntegrationRegistry().getIntegration("integration-env-qc-manager")
  * .getQualityControlSdk()}。</p>
  */
 public interface QualityControlSdk {

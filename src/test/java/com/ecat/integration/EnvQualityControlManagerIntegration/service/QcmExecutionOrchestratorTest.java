@@ -69,7 +69,7 @@ class QcmExecutionOrchestratorTest {
         entry = new EnvQualityControlManagerIntegration();
         when(core.getIntegrationRegistry()).thenReturn(registry);
         when(registry.getIntegration("integration-env-calibration-composer")).thenReturn(composer);
-        when(registry.getIntegration("integration-env-quality-control-manager")).thenReturn(entry);
+        when(registry.getIntegration("integration-env-qc-manager")).thenReturn(entry);
         formatter = mock(QcResultFormatter.class);
         when(formatter.supports(anyString())).thenReturn(true);
         when(formatter.format(any(), any(), any(), anyString(), org.mockito.ArgumentMatchers.anyLong()))

@@ -65,7 +65,7 @@ public class QcmExecutionOrchestrator {
     static final String ORCHESTRATOR_ACTOR = "qcm-orchestrator";
 
     private static final String COMPOSER_INTEGRATION_ID = "integration-env-calibration-composer";
-    private static final String SELF_INTEGRATION_ID = "integration-env-quality-control-manager";
+    private static final String SELF_INTEGRATION_ID = "integration-env-qc-manager";
 
     private static final Logger log = LoggerFactory.getLogger(QcmExecutionOrchestrator.class);
 

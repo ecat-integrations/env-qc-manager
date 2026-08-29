@@ -54,7 +54,7 @@ class QcmRecordStopBatchTest {
         registry = mock(IntegrationRegistry.class);
         entry = new EnvQualityControlManagerIntegration();
         when(core.getIntegrationRegistry()).thenReturn(registry);
-        when(registry.getIntegration("integration-env-quality-control-manager")).thenReturn(entry);
+        when(registry.getIntegration("integration-env-qc-manager")).thenReturn(entry);
         service = new QcmRecordServiceImpl(mapper, core);
     }
 

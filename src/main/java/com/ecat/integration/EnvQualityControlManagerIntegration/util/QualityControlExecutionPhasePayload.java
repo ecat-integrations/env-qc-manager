@@ -57,7 +57,7 @@ public final class QualityControlExecutionPhasePayload {
         try {
             EnvQualityControlManagerIntegration integration =
                     (EnvQualityControlManagerIntegration) core.getIntegrationRegistry()
-                            .getIntegration("integration-env-quality-control-manager");
+                            .getIntegration("integration-env-qc-manager");
             if (integration == null || integration.executorMap == null) {
                 return null;
             }

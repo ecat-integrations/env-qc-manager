@@ -1,7 +1,7 @@
 {
-  "public_path": "/ecat-integrations/integration-env-quality-control-manager/",
-  "module_path": "/ecat-integrations/integration-env-quality-control-manager/",
-  "module_name": "integration-env-quality-control-manager",
+  "public_path": "/ecat-integrations/integration-env-qc-manager/",
+  "module_path": "/ecat-integrations/integration-env-qc-manager/",
+  "module_name": "integration-env-qc-manager",
   "sub_modules": [
     {
       "module": "quality-control-manager",
@@ -26,14 +26,34 @@
               "path": "quality_control_records",
               "hidden": false,
               "component": "views/quality_control/records",
-              "permissions": ["quality_control:records:list"],
+              "permissions": [
+                "quality_control:records:list"
+              ],
               "buttons": [
-                { "title": "查询", "perms": "quality_control:records:query" },
-                { "title": "新增", "perms": "quality_control:records:add" },
-                { "title": "修改", "perms": "quality_control:records:edit" },
-                { "title": "停止", "perms": "quality_control:records:stop" },
-                { "title": "删除", "perms": "quality_control:records:remove" },
-                { "title": "导出", "perms": "quality_control:records:export" }
+                {
+                  "title": "查询",
+                  "perms": "quality_control:records:query"
+                },
+                {
+                  "title": "新增",
+                  "perms": "quality_control:records:add"
+                },
+                {
+                  "title": "修改",
+                  "perms": "quality_control:records:edit"
+                },
+                {
+                  "title": "停止",
+                  "perms": "quality_control:records:stop"
+                },
+                {
+                  "title": "删除",
+                  "perms": "quality_control:records:remove"
+                },
+                {
+                  "title": "导出",
+                  "perms": "quality_control:records:export"
+                }
               ],
               "meta": {
                 "title": "质控记录",
@@ -47,13 +67,30 @@
               "path": "quality_control_report",
               "hidden": false,
               "component": "views/quality_control/report",
-              "permissions": ["quality_control:report:list"],
+              "permissions": [
+                "quality_control:report:list"
+              ],
               "buttons": [
-                { "title": "查询", "perms": "quality_control:report:query" },
-                { "title": "新增", "perms": "quality_control:report:add" },
-                { "title": "修改", "perms": "quality_control:report:edit" },
-                { "title": "删除", "perms": "quality_control:report:remove" },
-                { "title": "导出", "perms": "quality_control:report:export" }
+                {
+                  "title": "查询",
+                  "perms": "quality_control:report:query"
+                },
+                {
+                  "title": "新增",
+                  "perms": "quality_control:report:add"
+                },
+                {
+                  "title": "修改",
+                  "perms": "quality_control:report:edit"
+                },
+                {
+                  "title": "删除",
+                  "perms": "quality_control:report:remove"
+                },
+                {
+                  "title": "导出",
+                  "perms": "quality_control:report:export"
+                }
               ],
               "meta": {
                 "title": "质控报告",
@@ -67,9 +104,14 @@
               "path": "quality_control_custom_audit_span_check",
               "hidden": false,
               "component": "views/quality_control/custom/audit_span_check",
-              "permissions": ["quality_control:custom:audit_span_check"],
+              "permissions": [
+                "quality_control:custom:audit_span_check"
+              ],
               "buttons": [
-                { "title": "执行空闲检查", "perms": "quality_control:custom:is_executor_free" }
+                {
+                  "title": "执行空闲检查",
+                  "perms": "quality_control:custom:is_executor_free"
+                }
               ],
               "meta": {
                 "title": "人工核查",
@@ -95,9 +137,14 @@
               "path": "gas_setting",
               "hidden": false,
               "component": "views/GasSetting",
-              "permissions": ["quality_control:records:list"],
+              "permissions": [
+                "quality_control:records:list"
+              ],
               "buttons": [
-                { "title": "保存钢瓶气", "perms": "quality_control:records:add" }
+                {
+                  "title": "保存钢瓶气",
+                  "perms": "quality_control:records:add"
+                }
               ],
               "meta": {
                 "title": "钢瓶气设置",

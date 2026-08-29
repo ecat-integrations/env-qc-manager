@@ -7,7 +7,7 @@
     <version>3.0.0</version>
     <relativePath />
   </parent>
-  <artifactId>integration-env-quality-control-manager</artifactId>
+  <artifactId>integration-env-qc-manager</artifactId>
   <version>3.0.1</version>
   <name>integration-env-quality-control-manager</name>
   <dependencies>

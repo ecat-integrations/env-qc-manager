@@ -16,12 +16,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 质控计划精确唤醒调度器（FR-01-02）：单线程按「最早 next_fire_time」挂一次性唤醒，
@@ -44,8 +41,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  *       读到旧 next_fire_time 立即重跑）只 log.error + 跳过 action、仍推进状态机，
  *       保证 action 语义上恰好执行一次；写失败热循环因此收敛为 drift audit 节奏重试。</li>
  *   <li>生命周期对齐 ASM 调度器先例：synchronized start() 幂等；shutdown() 由 @PreDestroy 与
- *       集成入口 onPause/onRelease 调（复位 started，pause→resume 可重启）；自建 executor
- *       单线程 daemon 命名 qcm-plan-scheduler，注入的测试 executor 不关。</li>
+ *       集成入口 onPause/onRelease 调（复位 started，pause→resume 可重启）；执行域经
+ *       {@link QcmScheduleExecutor} 解析（生产=本仓自持 IO 域计时器——fire/rearm/driftAudit
+ *       任务体走 planMapper PostgreSQL 阻塞 IO，按业务池边界 IO 禁入，不收编 core；ownsExecutor
+ *       恒 true，由本类 shutdown() 经 shutdownPool() 关停并清缓存；注入的测试 executor 不关）。</li>
  * </ul>
  */
 @Service
@@ -80,11 +79,20 @@ public class QcmPlanScheduler {
     /** 指纹闩：key=planId+":"+due.toEpochMilli()，value=入闩时刻；过期条目在 rearm/drift audit 时顺带清理。 */
     private final Map<String, Instant> firedFingerprints = new HashMap<>();
 
-    /** 生产构造：@Service 注入 mapper + 编排器 provider（可缺省），自建单线程 daemon 池，系统时钟。 */
+    /**
+     * 生产构造：@Service 注入 mapper + 编排器 provider（可缺省），系统时钟；执行域经
+     * {@link QcmScheduleExecutor#resolve()} 收编到平台调度引擎车道（core 引擎 → 本地兜底，
+     * 无 core 上下文时 ownsExecutor=true 由本类关停）。
+     */
     @Autowired
     public QcmPlanScheduler(QcmPlanMapper planMapper, ObjectProvider<PlanFireAction> fireActionProvider) {
         this(planMapper, fireActionProvider, Clock.systemDefaultZone(),
-                Executors.newSingleThreadScheduledExecutor(namedThreadFactory()), true);
+                QcmScheduleExecutor.resolve());
+    }
+
+    private QcmPlanScheduler(QcmPlanMapper planMapper, ObjectProvider<PlanFireAction> fireActionProvider,
+                             Clock clock, QcmScheduleExecutor.Resolution resolution) {
+        this(planMapper, fireActionProvider, clock, resolution.executor(), resolution.ownsExecutor());
     }
 
     /** 测试构造：注入可控 Clock 与捕获型 executor（手动 run 挂起的任务），不拥有 executor。 */
@@ -323,19 +331,11 @@ public class QcmPlanScheduler {
             driftFuture.cancel(false);
             driftFuture = null;
         }
-        if (ownsExecutor && executor != null) {
-            executor.shutdownNow();
+        if (ownsExecutor) {
+            // 停池 + 清 QcmScheduleExecutor.LOCAL 缓存一起收口（直接 shutdownNow 会留 LOCAL
+            // 指向死池，同 classloader 内再 resolve 全量 REE——动态重载/pause→resume 接线即触发）
+            QcmScheduleExecutor.shutdownPool();
         }
         log.info("qcm 计划调度器已关闭");
-    }
-
-    /** 单线程命名守护线程工厂（qcm-plan-scheduler；daemon 防 JVM 退出阻塞）。 */
-    private static ThreadFactory namedThreadFactory() {
-        AtomicInteger counter = new AtomicInteger(0);
-        return r -> {
-            Thread t = new Thread(r, "qcm-plan-scheduler-" + counter.incrementAndGet());
-            t.setDaemon(true);
-            return t;
-        };
     }
 }

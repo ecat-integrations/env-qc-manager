@@ -86,7 +86,7 @@ public class EnvQualityControlManagerIntegration extends IntegrationBase  implem
     }
 
     @Override
-    public void onRelease() {
+    protected void onReleaseImpl() {
         log.info("EnvQualityControlManagerIntegration released");
         stopPlanScheduler();
     }

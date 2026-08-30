@@ -235,8 +235,7 @@ public final class LogicDeviceReportSupport {
      * 优先校准仪逻辑设备上的 {@code <gas>_cylinder_concentration}（标气浓度真相源，见
      * {@link #readCalibratorCylinderConcentration}）；取到非空即返，否则回落标准气逻辑设备上的
      * {@code gas_concentration}（站房可写业务量，原路径保留，校准仪无值时行为向后兼容）。
-     * O₃ 无钢瓶实例，留空。两源皆空返回空串时 WARN 可见化——快照将缺失，不再静默无痕
-     * （bug-record-20260830-071500）。
+     * O₃ 无钢瓶实例，留空。两源皆空返回空串并记 ERROR——标气浓度缺失属业务错误，必须可见。
      */
     public static String readStandardGasCylinderConcentration(EcatCore core, String gasLabel) {
         if (core == null || gasLabel == null || gasLabel.trim().isEmpty()) {

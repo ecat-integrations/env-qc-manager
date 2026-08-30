@@ -1,10 +1,17 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.util;
 
+import com.ecat.core.Device.DeviceRegistry;
+import com.ecat.core.EcatCore;
+import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.Unit.AirVolumeUnit;
+import com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds.EntryId;
+import com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds.GasKey;
+import com.ecat.integration.logicdevice.Const;
 import com.ecat.integration.logicdevice.LogicDevice.LogicDevice;
 import com.ecat.integration.logicdevice.LogicState.ILogicAttribute;
 import com.ecat.integration.logicdevice.LogicState.LogicAttributeDefine;
+import com.ecat.integration.logicdeviceairstation.AirstationIntegration;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -115,5 +122,61 @@ class LogicDeviceReportSupportTest {
             }
         }
         return "<row " + name + " not found: " + rows + ">";
+    }
+
+    /** 逻辑设备 mock：attrDefs 含 attrId 定义，attrMap 中该属性展示值为 displayValue。 */
+    private static LogicDevice logicDeviceWithAttr(String attrId, String displayValue) {
+        LogicDevice ld = mock(LogicDevice.class);
+        Map<String, ILogicAttribute<?>> attrMap = new HashMap<>();
+        ILogicAttribute<?> attr = mock(ILogicAttribute.class);
+        when(attr.getDisplayValue()).thenReturn(displayValue);
+        attrMap.put(attrId, attr);
+        //noinspection unchecked,rawtypes
+        when(ld.getAttrMap()).thenReturn((Map) attrMap);
+        List<LogicAttributeDefine> defs = new ArrayList<>();
+        LogicAttributeDefine def = mock(LogicAttributeDefine.class);
+        when(def.getAttrId()).thenReturn(attrId);
+        defs.add(def);
+        when(ld.getAttrDefs()).thenReturn(defs);
+        return ld;
+    }
+
+    /** EcatCore → airstation 集成 mock 链：校准仪与 so2 标准气钢瓶设备按 uniqueId 返回。 */
+    private static EcatCore coreWithAirstationDevices(LogicDevice calibrator, LogicDevice standardGasSo2) {
+        EcatCore core = mock(EcatCore.class);
+        IntegrationRegistry integrationRegistry = mock(IntegrationRegistry.class);
+        AirstationIntegration airstation = mock(AirstationIntegration.class);
+        when(core.getIntegrationRegistry()).thenReturn(integrationRegistry);
+        when(core.getDeviceRegistry()).thenReturn(mock(DeviceRegistry.class));
+        when(integrationRegistry.getIntegration(Const.COORD_AIRSTATION)).thenReturn(airstation);
+        when(airstation.getDeviceByUniqueId(EntryId.Station.CALIBRATOR)).thenReturn(calibrator);
+        when(airstation.getDeviceByUniqueId(EntryId.Station.standardGas(GasKey.SO2))).thenReturn(standardGasSo2);
+        return core;
+    }
+
+    /**
+     * 冻结读取解析顺序（bug-record-20260830-071500 重新定性）：与 GasSettingService.listGasSettings
+     * 同序——校准仪 {@code so2_cylinder_concentration}（标气浓度真相源）优先；钢瓶设备
+     * {@code gas_concentration} 空时不得再产空快照。
+     */
+    @Test
+    void stdGasFreezePrefersCalibratorCylinderConcentration() {
+        LogicDevice calibrator = logicDeviceWithAttr("so2_cylinder_concentration", "50.00");
+        LogicDevice cylinder = logicDeviceWithAttr("gas_concentration", "");
+        EcatCore core = coreWithAirstationDevices(calibrator, cylinder);
+        assertEquals("50.00",
+                LogicDeviceReportSupport.readStandardGasCylinderConcentration(core, "SO2"),
+                "两读取方一致化：校准仪有值时冻结读取必须取到，钢瓶设备空不再导致记录缺 stdGasConcentration");
+    }
+
+    /** 校准仪无值时回落钢瓶设备读取（原路径保留），行为向后兼容。 */
+    @Test
+    void stdGasFreezeFallsBackToCylinderWhenCalibratorEmpty() {
+        LogicDevice calibrator = logicDeviceWithAttr("so2_cylinder_concentration", "");
+        LogicDevice cylinder = logicDeviceWithAttr("gas_concentration", "400.0");
+        EcatCore core = coreWithAirstationDevices(calibrator, cylinder);
+        assertEquals("400.0",
+                LogicDeviceReportSupport.readStandardGasCylinderConcentration(core, "SO2"),
+                "校准仪无值时保持原钢瓶设备读取（向后兼容）");
     }
 }

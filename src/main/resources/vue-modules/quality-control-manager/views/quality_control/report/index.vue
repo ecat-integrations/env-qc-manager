@@ -1,6 +1,6 @@
 <!-- ReportList.vue -->
 <template>
-  <div class="report-list-container">
+  <div class="app-container">
     <!-- 查询条件区域 -->
     <el-form
       :model="searchParams"
@@ -8,18 +8,27 @@
       :inline="true"
       v-show="showSearch"
       class="search-bar"
-      label-width="68px"
+      label-width="80px"
     >
-      <el-form-item label="报表名称" prop="reportName" class="search-item w-160">
-        <el-input v-model="searchParams.reportName" placeholder="报表名称" clearable />
+      <el-form-item label="报表类型" prop="reportType" class="search-item w-200">
+        <el-select
+          v-model="searchParams.reportType"
+          placeholder="报表类型"
+          clearable
+          @change="handleSearch"
+        >
+          <el-option
+            v-for="option in reportTypeOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
+        </el-select>
       </el-form-item>
-      <el-form-item label="报表类型" class="search-item w-160">
-        <el-input v-model="searchParams.reportType" placeholder="报表类型" clearable />
-      </el-form-item>
-      <el-form-item label="标气类型" class="search-item w-160">
+      <el-form-item label="仪器类型" prop="gasType" class="search-item w-200">
         <el-select
           v-model="searchParams.gasType"
-          placeholder="标气类型"
+          placeholder="仪器类型"
           clearable
           @change="handleSearch"
         >
@@ -31,10 +40,7 @@
           />
         </el-select>
       </el-form-item>
-      <el-form-item label="仪器名称" class="search-item w-160">
-        <el-input v-model="searchParams.instrumentName" placeholder="仪器名称" clearable />
-      </el-form-item>
-      <el-form-item label="报表日期" class="search-item w-160">
+      <el-form-item label="报表日期" prop="reportDate" class="search-item w-200">
         <el-date-picker
           v-model="searchParams.reportDate"
           type="date"
@@ -48,19 +54,17 @@
       <el-form-item label="填表人" class="search-item w-160" v-if="false">
         <el-input v-model="searchParams.filer" placeholder="填表人" clearable />
       </el-form-item>
-      <!-- 按钮组 -->
+      <!-- 按钮组（ruoyi 规范：搜索 primary+Search，重置默认+Refresh） -->
       <el-form-item class="search-buttons">
-        <el-button type="primary" icon="Search" plain @click="handleSearch">查询</el-button>
-        <el-button icon="Refresh" plain @click="resetQuery">重置</el-button>
+        <el-button type="primary" icon="Search" @click="handleSearch">搜索</el-button>
+        <el-button icon="Refresh" @click="resetQuery">重置</el-button>
       </el-form-item>
     </el-form>
 
-    <!-- 报表列表区域 -->
+    <!-- 报表列表区域（ruoyi 规范：表格默认形态，不加边框与内联样式） -->
     <el-table
-    v-loading="loading"
+      v-loading="loading"
       :data="tableData"
-      border
-      style="width: 100%; margin-top: 20px;"
       @selection-change="handleSelectionChange"
     >
       <el-table-column type="selection" width="55" />
@@ -69,7 +73,7 @@
       <el-table-column prop="reportDate" label="报表生成日期" />
       <el-table-column prop="instrumentName" label="仪器名称" />
       <el-table-column prop="instrumentNo" label="仪器编号" />
-      <el-table-column label="标气类型">
+      <el-table-column label="仪器类型">
         <template #default="{ row }">
           {{ getGasLabel(row.gasType) }}
         </template>
@@ -78,7 +82,7 @@
       <el-table-column prop="reviewer" label="审核人" />
       <el-table-column label="操作" width="180">
         <template #default="scope">
-          <el-button link @click="handleView(scope.row)">查看</el-button>
+          <el-button link type="primary" @click="handleView(scope.row)">查看</el-button>
           <el-button link @click="handleEdit(scope.row)" v-if="false">编辑</el-button>
           <el-button link @click="handleDelete(scope.row.id)" v-if="false">删除</el-button>
           <el-button link @click="handleExportSingle(scope.row, 'xlsx')" v-if="false">导出Excel</el-button>
@@ -96,12 +100,12 @@
       @pagination="handlePagination"
     />
 
-    <!-- 批量操作按钮 -->
+    <!-- 批量操作按钮（导出统一 warning plain+Download，ruoyi 规范形态） -->
     <div class="batch-operation" v-if="selectedRows.length > 0">
       <el-button type="primary" @click="handleBatchEdit" v-if="false">批量编辑</el-button>
       <el-button type="danger" @click="handleBatchDelete" v-if="false">批量删除</el-button>
       <el-button type="info" @click="handleBatchExport('xlsx')" v-if="false">批量导出Excel</el-button>
-      <el-button type="success" @click="handleBatchExport('pdf')">批量导出PDF</el-button>
+      <el-button type="warning" plain icon="Download" @click="handleBatchExport('pdf')">批量导出PDF</el-button>
     </div>
 
     <!-- 查看报表弹窗 -->
@@ -112,8 +116,8 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="viewDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="handleExportCurrent('xlsx')" v-if="false">导出Excel</el-button>
-          <el-button type="primary" @click="handleExportCurrent('pdf')">导出PDF</el-button>
+          <el-button type="warning" plain icon="Download" @click="handleExportCurrent('xlsx')" v-if="false">导出Excel</el-button>
+          <el-button type="warning" plain icon="Download" @click="handleExportCurrent('pdf')">导出PDF</el-button>
         </span>
       </template>
     </el-dialog>
@@ -121,7 +125,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, getCurrentInstance } from 'vue';
 import { ElMessage, ElMessageBox, ElDialog, ElTable, ElTableColumn, ElInput, ElDatePicker, ElButton } from 'element-plus';
 import FileSaver from 'file-saver';
 import * as XLSX from 'xlsx';
@@ -145,18 +149,18 @@ import ReportD5 from './ReportD5AccuracyCheck.vue';
 import ReportD6 from './ReportD6ConversionCheck.vue';
 import ReportD7 from './ReportD7TransferAndTrackCheck.vue';
 
+// ruoyi 惯例：resetForm 等通用方法经 proxy 取用（原文件引用 proxy 却未声明，重置按钮必抛错）
+const { proxy } = getCurrentInstance();
+
 const tableData = ref([]);
 const loading = ref(false);
 const showSearch = ref(true);
 const searchParams = ref({
-  reportName: '',
+  // 查询条件精简（2026-09-03 用户定稿）：报表类型（下拉，编码同 ReportTypeEnum）/仪器类型（原「标气类型」
+  // 更名，值域=被检分析仪 SO₂/NO₂/O₃/CO）/报表日期；报表名称与仪器名称已删（无查询价值）
   reportType: '',
   reportDate: null,
-  instrumentName: '',
-  instrumentNo: '',
-  gasType: '',
-  filer: '',
-  reviewer: ''
+  gasType: ''
 });
 const reportList = ref([]);
 const selectedIds = ref([]);
@@ -217,7 +221,7 @@ const submitAddForm = () => {
     .then(() => {
       ElMessage.success('新增成功');
       showAddDialog.value = false;
-      loadReportList();
+      fetchTableData();
     })
     .catch(() => {
       ElMessage.error('新增失败');
@@ -238,7 +242,7 @@ const submitEditForm = () => {
     .then(() => {
       ElMessage.success('更新成功');
       showEditDialog.value = false;
-      loadReportList();
+      fetchTableData();
     })
     .catch(() => {
       ElMessage.error('更新失败');
@@ -448,11 +452,24 @@ const handleExportCurrent = (format) => {
   }
 };
 
+// 仪器类型（原「标气类型」2026-09-03 更名）：值域=被检分析仪类型，编码同后端 ParameterEnum（qcm_report.gas_type 存编码）
 const gasTypeOptions = [
   { label: 'SO₂', value: '1' },
   { label: 'NO₂', value: '2' },
   { label: 'O₃', value: '3' },
   { label: 'CO', value: '4' }
+];
+
+// 报表类型：编码同后端 ReportTypeEnum（qcm_report.report_type 存编码）。
+// 不含 '6'（后端 CALIBRATION=臭氧校准设备量值传递记录 D7，非常规质控报告类型，用户定稿不进筛选；
+// 若将来需筛量值传递再加回并改名「量值传递」）
+const reportTypeOptions = [
+  { label: '零点和跨度检查', value: '1' },
+  { label: '多点检查', value: '2' },
+  { label: '精密度审核', value: '3' },
+  { label: '准确度审核', value: '4' },
+  { label: '转换率检查', value: '5' },
+  { label: '人工核查', value: '7' }
 ];
 
 const getGasLabel = (value) => {
@@ -463,9 +480,6 @@ const getGasLabel = (value) => {
 </script>
 
 <style scoped>
-.report-list-container {
-  padding: 20px;
-}
 .search-bar {
   display: flex;
   flex-wrap: wrap; /* 自动换行 */

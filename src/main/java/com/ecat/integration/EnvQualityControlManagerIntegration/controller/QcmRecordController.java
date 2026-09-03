@@ -29,6 +29,7 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ReportGene
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ExecutionStatusEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.JsonUtils;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.PagedExportSupport;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.QcLiveProcessPayload;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionPhasePayload;
 import com.github.pagehelper.PageHelper;
 import com.ruoyi.common.utils.poi.ExcelUtil;
@@ -55,6 +56,9 @@ public class QcmRecordController extends BaseController
     protected IQcmRecordService qcmRecordService;
 
     @Autowired
+    private com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmPlanService qcmPlanService;
+
+    @Autowired
     private EcatCore core;
 
     /**
@@ -64,6 +68,8 @@ public class QcmRecordController extends BaseController
     @GetMapping("/list")
     public TableDataInfo list(QcmRecord query)
     {
+        // params[key] 查询绑定绕过 setParams（Spring 自动生长 Map），时间窗须在此显式解析
+        query.resolveQueryWindows();
         startPage();
         List<QcmRecord> list = qcmRecordService.selectQcmRecordList(query);
         return getDataTable(list);
@@ -78,6 +84,8 @@ public class QcmRecordController extends BaseController
     @PostMapping("/export")
     public void export(HttpServletResponse response, QcmRecord query)
     {
+        // 与 list 同一筛选口径（导出跟随当前查询条件）
+        query.resolveQueryWindows();
         List<QcmRecordExportVo> vos = loadExportRows(query);
         writeExcel(response, vos);
     }
@@ -155,6 +163,30 @@ public class QcmRecordController extends BaseController
             return error("记录不存在");
         }
         return success(QualityControlExecutionPhasePayload.build(core, r));
+    }
+
+    /**
+     * 质控记录「过程展示」解析（详情弹窗 tabs 批 C）：record → 分析仪（uniqueId/name/sn）+
+     * 全参数实时快照 + 秒级历史曲线（仅执行中）+ 目标浓度辅助线。数据源全量走 ADM 数据 SDK
+     * （{@code QcLiveProcessPayload}，与 ADM 网页历史/实时同数同口径）。无状态纯读，
+     * 执行中轮询与已完成回放共用。权限沿用详情族 records:query（与 getInfo/executionPhases 同层——弹窗内只读视图）。
+     */
+    @PreAuthorize("@ss.hasPermi('quality_control:records:query')")
+    @GetMapping(value = "/{id}/live_process")
+    public AjaxResult liveProcess(@PathVariable("id") Long id)
+    {
+        QcmRecord r = qcmRecordService.selectQcmRecordById(id);
+        if (r == null) {
+            return error("记录不存在");
+        }
+        // 执行中 execution_log 尚未落 params（完成时才写），目标浓度线回落链补「计划表浓度」一级：
+        // 计划触发的记录 planId 始终在库，曲线打开即有目标线（payload 保持无 mapper 纯读）
+        java.math.BigDecimal planSpanPpb = null;
+        if (r.getPlanId() != null) {
+            com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan plan = qcmPlanService.selectById(r.getPlanId());
+            planSpanPpb = plan != null ? plan.getConcentrationPpb() : null;
+        }
+        return success(QcLiveProcessPayload.build(core, r, planSpanPpb));
     }
 
     /**

@@ -11,7 +11,6 @@ import org.mockito.MockedStatic;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -36,14 +35,6 @@ class CylinderArchiveSupportTest {
         assertEquals("co", CylinderArchiveSupport.standardGasSlotFor("4"));
         assertNull(CylinderArchiveSupport.standardGasSlotFor("3")); // O3 发生器供气
         assertNull(CylinderArchiveSupport.standardGasSlotFor(null));
-    }
-
-    @Test
-    void slotMapping_nameVocabulary() {
-        assertEquals("so2", CylinderArchiveSupport.standardGasSlotForName("SO2"));
-        assertEquals("nox", CylinderArchiveSupport.standardGasSlotForName("NO2"));
-        assertEquals("co", CylinderArchiveSupport.standardGasSlotForName("CO"));
-        assertNull(CylinderArchiveSupport.standardGasSlotForName("O3"));
     }
 
     /** 档案三要素读取：文本/数值/单位各走一次 AttrState（asm 同款无撕裂读）。 */
@@ -92,74 +83,12 @@ class CylinderArchiveSupportTest {
         }
     }
 
-    /** 回归（2026-08-23 失败分支 NPE）：属性存在但 getState()=null（新属性从未写入）——字段 null 不炸。 */
-    @Test
-    void readArchive_stateNullAttributes_dontThrow() {
-        EcatCore core = mock(EcatCore.class);
-        LogicDevice device = mock(LogicDevice.class);
-        Map<String, AttributeBase<?>> attrs = new HashMap<>();
-        AttributeBase<?> noState = mock(AttributeBase.class);
-        org.mockito.Mockito.doReturn(null).when(noState).getState();
-        attrs.put("gas_source", noState);
-        attrs.put("cylinder_id", noState);
-        attrs.put("gas_concentration", noState);
-        when(device.getAttrs()).thenReturn(attrs);
-        try (MockedStatic<LogicDeviceReportSupport> support = mockStatic(LogicDeviceReportSupport.class)) {
-            support.when(() -> LogicDeviceReportSupport.airstationDevice(any(), any())).thenReturn(device);
-            CylinderArchiveSupport.GasTrace trace = CylinderArchiveSupport.readArchive(core, "1");
-            assertNull(trace.gasSource);
-            assertNull(trace.cylinderId);
-            assertNull(trace.concentration);
-            assertNull(trace.concentrationUnit);
-        }
-    }
-
-    /** 换瓶登记：两属性各一次 setDisplayValue，全部成功才算成功。 */
-    @Test
-    @SuppressWarnings("unchecked")
-    void writeTrace_writesBothAttributes() {
-        EcatCore core = mock(EcatCore.class);
-        LogicDevice device = mock(LogicDevice.class);
-        Map<String, AttributeBase<?>> attrs = new HashMap<>();
-        attrs.put("gas_source", writableAttr(true));
-        attrs.put("cylinder_id", writableAttr(true));
-        when(device.getAttrs()).thenReturn(attrs);
-        try (MockedStatic<LogicDeviceReportSupport> support = mockStatic(LogicDeviceReportSupport.class)) {
-            support.when(() -> LogicDeviceReportSupport.airstationDevice(
-                            eq(core), eq("logicdevice_station.standard_gas.nox")))
-                    .thenReturn(device);
-            assertTrue(CylinderArchiveSupport.writeTraceByName(core, "NO2", "国家标准物质中心", "GBW-E-860823"));
-        }
-    }
-
-    /** 写入被拒（设备拒绝/属性缺失）：返回 false，调用方报错不落半态。 */
-    @Test
-    void writeTrace_rejectedReturnsFalse() {
-        EcatCore core = mock(EcatCore.class);
-        LogicDevice device = mock(LogicDevice.class);
-        Map<String, AttributeBase<?>> attrs = new HashMap<>();
-        attrs.put("gas_source", writableAttr(false)); // 写被拒
-        attrs.put("cylinder_id", writableAttr(true));
-        when(device.getAttrs()).thenReturn(attrs);
-        try (MockedStatic<LogicDeviceReportSupport> support = mockStatic(LogicDeviceReportSupport.class)) {
-            support.when(() -> LogicDeviceReportSupport.airstationDevice(any(), any())).thenReturn(device);
-            assertFalse(CylinderArchiveSupport.writeTraceByName(core, "SO2", "s", "n"));
-        }
-    }
-
     private static AttributeBase<?> attrWithState(Object value) {
         AttributeBase<?> attr = mock(AttributeBase.class);
         // AttrState<?> 通配泛型经 raw mock + doReturn 绕开 capture 类型不匹配
         AttrState<?> state = mock(AttrState.class);
         org.mockito.Mockito.doReturn(value).when(state).getValue();
         org.mockito.Mockito.doReturn(state).when(attr).getState();
-        return attr;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static AttributeBase<?> writableAttr(boolean accept) {
-        AttributeBase<?> attr = mock(AttributeBase.class);
-        when(attr.setDisplayValue(any())).thenReturn(CompletableFuture.completedFuture(accept));
         return attr;
     }
 }

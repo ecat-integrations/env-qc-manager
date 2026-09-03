@@ -19,6 +19,7 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.service.QcResult
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.BatchResult;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.QcExecutionRequest;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.TriggerSource;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.CylinderArchiveSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDeviceReportSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionLogHelper;
@@ -116,23 +117,9 @@ public class EnvQualityControlTask extends Task implements QcResultFormatter {
             }
 
         } else if (envQualityControlTypeCode.equals(QualityControlTypeEnum.MULTI_CHECK.getCode())) {
-            CheckResult checkResult = (CheckResult) result;
-            float resultValue = checkResult.getResult();
-            float stdValue = checkResult.getStdValue();
-            float deviceValue = checkResult.getDeviceValue();
-            float checkPassLimit = checkResult.getCheckPassLimit();
-            float checkCalibLimit = checkResult.getCheckCalibLimit();
-            metrics.put("resultValue", resultValue);
-            metrics.put("stdValue", stdValue);
-            metrics.put("deviceValue", deviceValue);
-            metrics.put("checkPassLimit", checkPassLimit);
-            metrics.put("checkCalibLimit", checkCalibLimit);
-            metrics.put("isPass", result.isPass());
-            if (checkResult.getVerificationValue() != null) {
-                metrics.put("verificationValue", checkResult.getVerificationValue());
-            }
-
-        } else if (envQualityControlTypeCode.equals(QualityControlTypeEnum.MULTI_CHECK.getCode())) {
+            // composer MultiPointCheckFlow 实际返回 MultiResult（斜率/截距/相关系数/点位序列）；
+            // 历史上此处曾有一段条件完全重复的 CheckResult 分支抢先命中，MultiResult 进来即
+            // ClassCastException（bugs/bug-record-20260902-161500，TDD 修复：multiCheckBranch_acceptsMultiResult）
             MultiResult multiResult = (MultiResult) result;
             float slope = multiResult.getSlope();
             float intercept = multiResult.getIntercept();
@@ -222,21 +209,19 @@ public class EnvQualityControlTask extends Task implements QcResultFormatter {
 
         List<Map<String, Object>> keySnapshot;
         String stdGasSnap = "";
+        String stdGasUnitSnap = "";
         if (qcRecordId < 0) {
             keySnapshot = Collections.emptyList();
         } else {
             String paramStr = params != null ? (String) params.get("parameter") : null;
             String gasName = paramStr != null ? ParameterEnum.valueOf(paramStr).name() : null;
             keySnapshot = buildKeyParametersSnapshotAtComplete(core, gasName);
-            if (core != null && gasName != null) {
-                try {
-                    stdGasSnap = LogicDeviceReportSupport.readStandardGasCylinderConcentration(core, gasName);
-                } catch (Exception e) {
-                    log.debug("stdGasConcentration snapshot skipped: {}", e.getMessage());
-                }
-            }
+            String[] stdGasPair = stdGasSnapshotPair(core, paramStr);
+            stdGasSnap = stdGasPair[0];
+            stdGasUnitSnap = stdGasPair[1];
         }
-        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, metrics, result, keySnapshot, stdGasSnap);
+        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, metrics, result, keySnapshot,
+                stdGasSnap, stdGasUnitSnap);
     }
 
     private static Map<String, Object> serializableTaskParamsForLog(Map<String, Object> params) {
@@ -262,21 +247,46 @@ public class EnvQualityControlTask extends Task implements QcResultFormatter {
         Map<String, Object> serializableParams = serializableTaskParamsForLog(params);
         List<Map<String, Object>> keySnapshot;
         String stdGasSnap = "";
+        String stdGasUnitSnap = "";
         if (qcRecordId < 0) {
             keySnapshot = Collections.emptyList();
         } else {
             String paramStr = params != null ? (String) params.get("parameter") : null;
             String gasName = paramStr != null ? ParameterEnum.valueOf(paramStr).name() : null;
             keySnapshot = buildKeyParametersSnapshotAtComplete(core, gasName);
-            if (core != null && gasName != null) {
-                try {
-                    stdGasSnap = LogicDeviceReportSupport.readStandardGasCylinderConcentration(core, gasName);
-                } catch (Exception e) {
-                    log.debug("stdGasConcentration snapshot skipped: {}", e.getMessage());
-                }
-            }
+            String[] stdGasPair = stdGasSnapshotPair(core, paramStr);
+            stdGasSnap = stdGasPair[0];
+            stdGasUnitSnap = stdGasPair[1];
         }
-        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, Collections.emptyMap(), stub, keySnapshot, stdGasSnap);
+        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, Collections.emptyMap(), stub,
+                keySnapshot, stdGasSnap, stdGasUnitSnap);
+    }
+
+    /**
+     * 标气快照对（[0]=浓度裸数串、[1]=单位短名；无档案/未登记时对应元素空串）。
+     *
+     * <p>走 {@link CylinderArchiveSupport#readArchive}（airstation 钢瓶逻辑设备 AttrState 一次读）
+     * 成对取浓度+单位——与 {@code ResultSnapshotWriter} 冻结 {@code gas_concentration(_unit)} 列同一条好链。
+     * 旧链 {@code LogicDeviceReportSupport.readStandardGasCylinderConcentration} 返回裸串无单位，
+     * execution_log 消费方无法判定浓度口径（ppm/ppb），是用户发现的上报缺陷。读取失败只降级为空快照
+     * （完成路径不能因档案缺失而失败，与旧链容错一致）。</p>
+     */
+    private String[] stdGasSnapshotPair(EcatCore core, String paramStr) {
+        if (core == null || paramStr == null) {
+            return new String[] {"", ""};
+        }
+        try {
+            CylinderArchiveSupport.GasTrace trace =
+                    CylinderArchiveSupport.readArchive(core, ParameterEnum.valueOf(paramStr).getCode());
+            if (trace != null && trace.concentration != null) {
+                return new String[] {
+                        trace.concentration.toPlainString(),
+                        trace.concentrationUnit != null ? trace.concentrationUnit.trim() : ""};
+            }
+        } catch (Exception e) {
+            log.debug("stdGasConcentration snapshot skipped: {}", e.getMessage());
+        }
+        return new String[] {"", ""};
     }
 
     private List<Map<String, Object>> buildKeyParametersSnapshotAtComplete(EcatCore core, String gasParameterName) {

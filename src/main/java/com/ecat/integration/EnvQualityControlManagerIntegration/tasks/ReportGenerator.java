@@ -26,6 +26,7 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDevice
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ZeroSpanDayPairSelector;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QcCurrentUser;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.CylinderArchiveSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionLogHelper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum;
 import com.ruoyi.common.core.domain.entity.SysUser;
@@ -129,8 +130,11 @@ public class ReportGenerator {
     }
 
     /**
-     * 报表「标气浓度」：优先质控完成时写入的快照，否则即时读标准气逻辑设备。
-     * O₃ 无钢瓶、不写快照，结果为空。
+     * 报表「标气浓度」（成对口径，2026-09-02 单位修复）：值必须随真实单位展示，禁止裸数字。
+     * 回落序：① execution_log 快照对（stdGasConcentration + stdGasConcentrationUnit，成对落库起才有）
+     * ② record 冻结对（gas_concentration + gas_concentration_unit，完成时冻结列）
+     * ③ live 即时读（旧裸串链，无单位——再经 {@link CylinderArchiveSupport#readArchive} 补单位）。
+     * O₃ 无钢瓶、不写快照，结果为空。旧数据单位键与冻结对皆缺时只显数值（如实，不猜单位）。
      */
     protected String resolveReportStdGasConcentration(String gasParamName, QcmRecord... records) {
         if (records != null) {
@@ -139,8 +143,23 @@ public class ReportGenerator {
                     continue;
                 }
                 String snap = QualityControlExecutionLogHelper.readStdGasConcentrationSnapshot(r.getExecutionLog());
+                String snapUnit = QualityControlExecutionLogHelper.readStdGasConcentrationUnitSnapshot(r.getExecutionLog());
+                String frozenUnit = r.getGasConcentrationUnit() != null ? r.getGasConcentrationUnit().trim() : "";
+                String frozenValue = r.getGasConcentration() != null
+                        ? r.getGasConcentration().stripTrailingZeros().toPlainString() : "";
                 if (snap != null && !snap.isEmpty()) {
+                    if (!snapUnit.isEmpty()) {
+                        return snap + " " + snapUnit;
+                    }
+                    // 单位键缺席（成对落库前的旧记录）→ 冻结对补单位（ResultSnapshotWriter 完成时冻结列，值同源）
+                    if (!frozenUnit.isEmpty() && !frozenValue.isEmpty()) {
+                        return frozenValue + " " + frozenUnit;
+                    }
                     return snap;
+                }
+                // 无快照值：冻结对完整则直接用（值+单位同源成对，优于下面的 live 裸串）
+                if (!frozenValue.isEmpty() && !frozenUnit.isEmpty()) {
+                    return frozenValue + " " + frozenUnit;
                 }
             }
         }
@@ -148,7 +167,15 @@ public class ReportGenerator {
             return "";
         }
         String live = getStdGasConcentration(gasParamName);
-        return live == null ? "" : live;
+        if (live == null || live.isEmpty()) {
+            return "";
+        }
+        // live 裸串无单位：经档案成对链补（与 ResultSnapshotWriter 冻结同源）
+        CylinderArchiveSupport.GasTrace trace = CylinderArchiveSupport.readArchive(core, gasParamName);
+        if (trace != null && trace.concentrationUnit != null && !trace.concentrationUnit.trim().isEmpty()) {
+            return live + " " + trace.concentrationUnit.trim();
+        }
+        return live;
     }
 
     /**

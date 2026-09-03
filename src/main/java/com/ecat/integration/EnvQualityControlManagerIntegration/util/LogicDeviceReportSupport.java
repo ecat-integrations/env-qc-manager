@@ -231,7 +231,7 @@ public final class LogicDeviceReportSupport {
     }
 
     /**
-     * 报表/任务「标气浓度」冻结读取：与 {@code GasSettingService.listGasSettings} 同一解析顺序——
+     * 报表/任务「标气浓度」冻结读取（唯一持有者；曾与 GasSetting 页共用，页面已移除）——
      * 优先校准仪逻辑设备上的 {@code <gas>_cylinder_concentration}（标气浓度真相源，见
      * {@link #readCalibratorCylinderConcentration}）；取到非空即返，否则回落标准气逻辑设备上的
      * {@code gas_concentration}（站房可写业务量，原路径保留，校准仪无值时行为向后兼容）。
@@ -259,7 +259,7 @@ public final class LogicDeviceReportSupport {
 
     /**
      * 读校准仪逻辑设备上当前气体对应的钢瓶浓度属性展示值（标气浓度真相源，读取顺序先于标准气钢瓶设备）。
-     * 属性 ID 复用 {@link #resolveCalibratorCylinderAttrId} 解析——与 {@code GasSettingService.listGasSettings}
+     * 属性 ID 复用 {@link #resolveCalibratorCylinderAttrId} 解析
      * 同一解析函数，两消费方共享；解析不到属性、设备未注册或属性无值返回空串，由调用方决定回落。
      */
     public static String readCalibratorCylinderConcentration(EcatCore core, String gasLabel) {

@@ -35,7 +35,8 @@ class QcmRecordSnapshotMapperTest {
 
     /** QcmRecord 上非数据库的查询扩展字段（列表时间窗/params 通道），对账时剔除 */
     private static final Set<String> RECORD_NON_DB_FIELDS = new java.util.HashSet<>(
-        Arrays.asList("QUERY_WINDOW_ZONE", "QUERY_WINDOW_FORMATTER", "beginEndTime", "endEndTime", "params"));
+        Arrays.asList("QUERY_WINDOW_ZONE", "QUERY_WINDOW_FORMATTER",
+            "beginEndTime", "endEndTime", "beginStartTime", "endStartTime", "params"));
 
     /** DDL 解析：取 CREATE TABLE xxx ( ... ) 内的顶层列名（跳过表级约束与行内注释） */
     private List<String> ddlColumns(String table) throws Exception {

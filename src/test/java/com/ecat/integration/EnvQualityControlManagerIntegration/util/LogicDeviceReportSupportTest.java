@@ -155,7 +155,7 @@ class LogicDeviceReportSupportTest {
     }
 
     /**
-     * 冻结读取解析顺序（bug-record-20260830-071500 重新定性）：与 GasSettingService.listGasSettings
+     * 冻结读取解析顺序（bug-record-20260830-071500 重新定性；GasSetting 页已移除，本链为唯一持有者）
      * 同序——校准仪 {@code so2_cylinder_concentration}（标气浓度真相源）优先；钢瓶设备
      * {@code gas_concentration} 空时不得再产空快照。
      */

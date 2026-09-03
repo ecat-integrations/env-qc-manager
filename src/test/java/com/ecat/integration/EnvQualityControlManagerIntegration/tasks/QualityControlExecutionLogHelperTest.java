@@ -46,13 +46,42 @@ class QualityControlExecutionLogHelperTest {
         Map<String, Object> metrics = new LinkedHashMap<>();
         metrics.put("resultValue", 1.0f);
         TestResult tr = new TestResult(true, false, "ok", "");
-        String json = QualityControlExecutionLogHelper.toExecutionLogJson(params, metrics, tr, null, "400");
+        String json = QualityControlExecutionLogHelper.toExecutionLogJson(params, metrics, tr, null, "400", null);
 
         Map<String, Object> root = QualityControlExecutionLogHelper.parseRootMap(json);
         assertEquals("400", root.get(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_KEY));
         assertEquals("400", QualityControlExecutionLogHelper.readStdGasConcentrationSnapshot(json));
         Map<String, Object> m = QualityControlExecutionLogHelper.metricsForReport(json);
         assertFalse(m.containsKey(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_KEY));
+    }
+
+    @Test
+    void toExecutionLogJson_stdGasConcentrationAndUnitArePaired() {
+        Map<String, Object> params = new LinkedHashMap<>();
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        metrics.put("resultValue", 1.0f);
+        TestResult tr = new TestResult(true, false, "ok", "");
+        String json = QualityControlExecutionLogHelper.toExecutionLogJson(params, metrics, tr, null, "400", "ppm");
+
+        Map<String, Object> root = QualityControlExecutionLogHelper.parseRootMap(json);
+        assertEquals("400", root.get(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_KEY));
+        assertEquals("ppm", root.get(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_UNIT_KEY),
+                "浓度与单位成对落键（气瓶快照单位修复）");
+        Map<String, Object> m = QualityControlExecutionLogHelper.metricsForReport(json);
+        assertFalse(m.containsKey(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_UNIT_KEY),
+                "单位键不进报表指标 Map");
+    }
+
+    /** 单位入参缺席（旧记录语义）：单位键不落（键缺席，解析方按缺单位处理不猜）。 */
+    @Test
+    void toExecutionLogJson_withoutUnit_omitsUnitKey() {
+        Map<String, Object> params = new LinkedHashMap<>();
+        TestResult tr = new TestResult(true, false, "ok", "");
+        String json = QualityControlExecutionLogHelper.toExecutionLogJson(params, Collections.emptyMap(), tr, null, "400", null);
+
+        Map<String, Object> root = QualityControlExecutionLogHelper.parseRootMap(json);
+        assertEquals("400", root.get(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_KEY));
+        assertFalse(root.containsKey(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_UNIT_KEY));
     }
 
     @Test

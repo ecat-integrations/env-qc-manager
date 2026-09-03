@@ -1,8 +1,8 @@
 <template>
   <div class="app-container">
     <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" label-width="68px">
-      <el-form-item label="任务类型" prop="taskType">
-        <el-select class="custom-select" v-model="queryParams.taskType" placeholder="请选择任务类型" clearable>
+      <el-form-item label="触发来源" prop="taskType">
+        <el-select class="custom-select" v-model="queryParams.taskType" placeholder="请选择触发来源" clearable>
           <el-option
             v-for="dict in quality_control_task_type"
             :key="dict.value"
@@ -21,6 +21,16 @@
           />
         </el-select>
       </el-form-item>
+      <el-form-item label="质控参数" prop="parameter">
+        <el-select class="custom-select" v-model="queryParams.parameter" placeholder="请选择质控参数" clearable>
+          <el-option
+            v-for="dict in quality_control_param"
+            :key="dict.value"
+            :label="dict.label"
+            :value="dict.value"
+          />
+        </el-select>
+      </el-form-item>
       <el-form-item label="执行状态" prop="executionStatus">
         <el-select class="custom-select" v-model="queryParams.executionStatus" placeholder="请选择执行状态" clearable>
           <el-option
@@ -30,6 +40,18 @@
             :value="dict.value"
           />
         </el-select>
+      </el-form-item>
+      <el-form-item label="开始时间">
+        <!-- 天粒度 daterange：提交时补 00:00:00/23:59:59 走 params 通道（后端按 start_time between 含边界过滤） -->
+        <el-date-picker
+          v-model="dateRange"
+          value-format="YYYY-MM-DD"
+          type="daterange"
+          range-separator="-"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          clearable
+        />
       </el-form-item>
       <el-form-item>
         <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
@@ -89,9 +111,12 @@
     <el-table v-loading="loading" :data="recordsList" @selection-change="handleSelectionChange">
       <el-table-column type="selection" width="30" align="center" />
       <el-table-column label="记录ID" align="center" prop="id" v-if="false" />
-      <el-table-column label="任务类型" align="center" prop="taskType">
+      <el-table-column label="触发来源" align="center" prop="taskType" width="130">
         <template #default="scope">
-          <dict-tag :options="quality_control_task_type" :value="scope.row.taskType"/>
+          <div class="qc-trigger-cell">
+            <dict-tag :options="quality_control_task_type" :value="scope.row.taskType"/>
+            <div v-if="triggerDetailText(scope.row)" class="qc-trigger-cell__detail">{{ triggerDetailText(scope.row) }}</div>
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="质控类型" align="center" prop="qualityControlType">
@@ -274,6 +299,15 @@
   width: 200px; /* 固定宽度 */
   min-width: 100px; /* 最小宽度 */
   max-width: 400px; /* 最大宽度 */
+}
+
+/* 触发来源列：第二行明细（操作人/来源系统），小号弱化 */
+.qc-trigger-cell__detail {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #909399;
+  word-break: break-all;
 }
 
 .execution-log-card {
@@ -526,6 +560,8 @@ const total = ref(0);
 const title = ref("");
 const executionLogDetailRef = ref(null);
 const qcResultPreviewRef = ref(null);
+// 「开始时间」daterange（天粒度串）；独立于 queryParams，避免分页参数混入日期数组
+const dateRange = ref([]);
 
 const data = reactive({
   form: {},
@@ -534,6 +570,7 @@ const data = reactive({
     pageSize: 10,
     taskType: null,
     qualityControlType: null,
+    parameter: null,
     executionStatus: null,
   },
   rules: {
@@ -636,10 +673,44 @@ function handleQcResultPreview(row) {
   qcResultPreviewRef.value?.open(row);
 }
 
+/**
+ * 触发来源第二行明细：手动/现场=操作人，远程=来源系统名；
+ * 计划触发（0）调度用户恒为 system，是噪音不显示。
+ */
+function triggerDetailText(row) {
+  const t = String(row.taskType ?? '');
+  const user = String(row.triggerUser || '').trim();
+  if (!user) {
+    return '';
+  }
+  if (t === '1' || t === '2') {
+    return user;
+  }
+  if (t === '3') {
+    return `来源：${user}`;
+  }
+  return '';
+}
+
+/**
+ * 组装查询参数：开始时间 daterange 补全时刻后经 params 通道下发
+ * （后端 setParams 识别 beginStartTime/endStartTime，对 start_time between 含边界）。
+ */
+function buildQueryParams() {
+  const params = { ...queryParams.value };
+  if (Array.isArray(dateRange.value) && dateRange.value.length === 2) {
+    params.params = {
+      beginStartTime: `${dateRange.value[0]} 00:00:00`,
+      endStartTime: `${dateRange.value[1]} 23:59:59`
+    };
+  }
+  return params;
+}
+
 /** 查询质控记录列表 */
 function getList() {
   loading.value = true;
-  listRecords(queryParams.value).then(response => {
+  listRecords(buildQueryParams()).then(response => {
     recordsList.value = response.rows;
     total.value = response.total;
     loading.value = false;
@@ -682,8 +753,9 @@ function handleQuery() {
   getList();
 }
 
-/** 重置按钮操作 */
+/** 重置按钮操作（daterange 不在 form model 内，手动清空） */
 function resetQuery() {
+  dateRange.value = [];
   proxy.resetForm("queryRef");
   handleQuery();
 }
@@ -753,11 +825,9 @@ function handleDelete(row) {
   });
 }
 
-/** 导出按钮操作 */
+/** 导出按钮操作（与列表同筛选条件，含开始时间 params 通道） */
 function handleExport() {
-  proxy.download('quality_control/records/export', {
-    ...queryParams.value
-  }, `records_${new Date().getTime()}.xlsx`)
+  proxy.download('quality_control/records/export', buildQueryParams(), `records_${new Date().getTime()}.xlsx`)
 }
 
 onMounted(() => {

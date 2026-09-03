@@ -69,8 +69,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <where>
             <if test="taskType != null  and taskType != ''"> and task_type = #{taskType}</if>
             <if test="qualityControlType != null  and qualityControlType != ''"> and quality_control_type = #{qualityControlType}</if>
+            <!-- parameter 存 dict quality_control_param 编码（'1'~'6'），前端下拉同词汇，编码精确匹配 -->
+            <if test="parameter != null  and parameter != ''"> and parameter = #{parameter}</if>
             <if test="executionStatus != null "> and execution_status = #{executionStatus}</if>
+            <if test="triggerUser != null and triggerUser != ''"> and trigger_user = #{triggerUser}</if>
             <if test="beginEndTime != null and endEndTime != null"> and end_time between #{beginEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP} and #{endEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP}</if>
+            <!-- records 页「开始时间」筛选：start_time between 含边界（与 selectByFilter 时间窗语义一致） -->
+            <if test="beginStartTime != null and endStartTime != null"> and start_time between #{beginStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP} and #{endStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP}</if>
         </where>
         order by create_time desc
     </select>

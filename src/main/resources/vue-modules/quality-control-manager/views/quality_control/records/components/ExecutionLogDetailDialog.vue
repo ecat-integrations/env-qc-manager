@@ -1,65 +1,64 @@
 <template>
-  <el-dialog title="执行记录详情" v-model="visible" width="800px" append-to-body @closed="onDialogClosed">
+  <el-dialog title="执行记录详情" v-model="visible" width="72%" top="5vh" append-to-body @closed="onDialogClosed">
     <div class="execution-log-dialog-content">
-      <div style="background: #f0f9ff; padding: 8px; margin-bottom: 15px; border-radius: 4px; font-size: 12px; color: #666;">
-        <strong>数据信息:</strong> 共 {{ Object.keys(parsedExecutionLog).length }} 个字段 |
-        <strong>任务参数:</strong> {{ Object.keys(mergedExecutionParams).length ? '有' : '无' }} |
-        <strong>执行结果:</strong> {{ executionResultSummaryLine }}
+      <!-- 批 C：弹窗分两页——「执行阶段」承载原有全部内容；「过程展示」为执行中实时属性/秒级曲线
+           与已完成 ADM 回放（详见 QcRecordProcessPanel）。默认停在执行阶段页。 -->
+      <el-tabs v-model="activeTab" class="qc-detail-tabs">
+        <el-tab-pane label="执行阶段" name="phase">
+
+      <!-- ==== 概要 ==== -->
+      <div class="qc-summary-bar">
+        <span v-for="item in summaryItems" :key="item.label" class="qc-summary-item">
+          <strong>{{ item.label }}:</strong> {{ item.text }}
+        </span>
       </div>
 
+      <!-- ==== 任务参数 ==== -->
       <div class="params-section">
         <h5>任务参数</h5>
-        <template v-if="Object.keys(mergedExecutionParams).length">
-          <el-table :data="[mergedExecutionParams]" border stripe size="small" class="params-table">
-            <el-table-column
-              v-for="(value, key) in mergedExecutionParams"
-              :key="key"
-              :prop="key"
-              :label="getParamDisplayName(key)"
-              align="center"
-              min-width="120">
-              <template #default="scope">
-                <span>{{ formatParamValue(scope.row[key], key) }}</span>
-              </template>
-            </el-table-column>
-          </el-table>
-        </template>
+        <el-descriptions v-if="paramItems.length" :column="2" border size="small" class="params-desc">
+          <el-descriptions-item v-for="item in paramItems" :key="item.key" :label="item.label">
+            {{ item.text }}
+          </el-descriptions-item>
+        </el-descriptions>
         <el-empty v-else description="暂无任务参数（执行日志更新后将自动显示）" :image-size="56" />
       </div>
 
+      <!-- ==== 执行结果 ==== -->
       <div class="result-section">
         <h5>执行结果</h5>
         <template v-if="hasStructuredExecutionResult">
-          <div v-if="Array.isArray(parsedExecutionLog.result)" class="result-array">
-            <el-table :data="parsedExecutionLog.result" border stripe size="small" class="result-table">
-              <el-table-column
-                v-for="(value, key) in parsedExecutionLog.result[0]"
-                :key="key"
-                :prop="key"
-                :label="getResultDisplayName(key)"
-                align="center"
-                min-width="120">
-                <template #default="scope">
-                  <span>{{ formatResultValue(scope.row[key], key) }}</span>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-          <div v-else class="result-object">
-            <el-table :data="[parsedExecutionLog.result]" border stripe size="small" class="result-table">
-              <el-table-column
-                v-for="(value, key) in parsedExecutionLog.result"
-                :key="key"
-                :prop="key"
-                :label="getResultDisplayName(key)"
-                align="center"
-                min-width="120">
-                <template #default="scope">
-                  <span>{{ formatResultValue(scope.row[key], key) }}</span>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
+          <!-- 语义说明：composer 三个原始字段的业务口径，帮助读数（判定指标单位随质控类型而异） -->
+          <el-alert type="info" :closable="false" class="result-semantics-alert">
+            设备值＝质控期间分析仪示值的采集均值（仪器实际读数）；标准值＝通入标气的名义浓度；结果值＝判定指标（零点为漂移绝对量，跨度为相对漂移%）。
+          </el-alert>
+          <!-- 人工核查（audit_span_check）历史结构：result 为 [{checkData, checkTime}] 列表，按时间序列平铺 -->
+          <el-table
+            v-if="Array.isArray(parsedExecutionLog.result)"
+            :data="parsedExecutionLog.result"
+            border
+            stripe
+            size="small"
+            class="result-table"
+          >
+            <el-table-column label="核查时间" prop="checkTime" align="center" min-width="150" />
+            <el-table-column label="核查读数" align="center" min-width="120">
+              <template #default="scope">
+                <span>{{ formatResultValue(scope.row.checkData, 'checkData') }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <!-- 指标体（零点/跨度/多点/精密度/转换率共用）：标量两列排布，序列值整行换行展示 -->
+          <el-descriptions v-else :column="2" border size="small" class="result-desc">
+            <el-descriptions-item
+              v-for="item in resultItems"
+              :key="item.key"
+              :label="item.label"
+              :span="item.isList ? 2 : 1"
+            >
+              <span :class="{ 'result-value-list': item.isList }">{{ item.text }}</span>
+            </el-descriptions-item>
+          </el-descriptions>
         </template>
         <template v-else-if="statusMapHasDisplayableFields">
           <el-descriptions :column="1" size="small" border class="result-status-map">
@@ -80,21 +79,7 @@
         <el-empty v-else class="qc-exec-result-empty" description="暂无执行结果" :image-size="32" />
       </div>
 
-      <!-- 如果没有params和result，直接显示所有数据 -->
-      <div v-if="showRawExecutionLogFallback" class="all-data-section">
-        <h5>执行记录数据</h5>
-        <div class="data-grid">
-          <div v-for="(value, key) in parsedExecutionLog" :key="key" class="data-item">
-            <span class="data-label">{{ getResultDisplayName(key) }}:</span>
-            <span class="data-value">{{ formatResultValue(value, key) }}</span>
-          </div>
-        </div>
-      </div>
-
-      <div v-if="showNoDataHint" class="no-data">
-        <p>暂无详细记录数据</p>
-      </div>
-
+      <!-- ==== 执行阶段 ==== -->
       <div class="params-section phase-section">
         <h5>执行阶段</h5>
         <!-- 使用 Element Plus 时间线组件替代表格（宿主全局注册，无需局部引入） -->
@@ -197,6 +182,28 @@
           </el-timeline-item>
         </el-timeline>
       </div>
+
+      <!-- 旧版扁平 execution_log 兜底：指标散在根级（无 params/result 结构）时按结果口径展示 -->
+      <div v-if="flatResultMetrics.length" class="all-data-section">
+        <h5>执行记录数据</h5>
+        <div class="data-grid">
+          <div v-for="item in flatResultMetrics" :key="item.key" class="data-item">
+            <span class="data-label">{{ item.label }}:</span>
+            <span class="data-value">{{ item.text }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showNoDataHint" class="no-data">
+        <p>暂无详细记录数据</p>
+      </div>
+
+        </el-tab-pane>
+        <el-tab-pane label="过程展示" name="process" lazy>
+          <!-- :key=row.id——弹窗关闭后 row 被父级重置（id 变化）强制重挂载，旧记录的轮询/图表随组件卸载清理 -->
+          <QcRecordProcessPanel v-if="visible" :key="row.id" :row="row" :active="activeTab === 'process'" />
+        </el-tab-pane>
+      </el-tabs>
     </div>
   </el-dialog>
 </template>
@@ -206,6 +213,7 @@ import { getCurrentInstance, nextTick, ref, computed } from 'vue';
 import { VideoPlay, CircleCheck, CircleClose, Loading, Clock } from '@element-plus/icons-vue';
 import { getRecords, getExecutionPhases } from '@/api/quality_control/records';
 import { useExecutionPolling } from '../../composables/useExecutionPolling';
+import QcRecordProcessPanel from './QcRecordProcessPanel.vue';
 import {
   isQcManualAbortEndRow,
   shouldPollExecutionDetailRow,
@@ -218,42 +226,99 @@ const { proxy } = getCurrentInstance();
 const { quality_control_param } = proxy.useDict('quality_control_param');
 
 const visible = ref(false);
+/** 详情弹窗当前页：phase=执行阶段（默认），process=过程展示（关闭弹窗时复位） */
+const activeTab = ref('phase');
 const row = ref({});
 const parsedExecutionLog = ref({});
 const phaseList = ref([]);
-/** 详情弹窗内用于浓度显示换算：存库 calculatedValue 为 ppm，非 CO 时按 ppb 展示（×1000） */
+/** 详情弹窗内的气体符号（SO2/NO2/O3/CO…）：概要「质控参数」与参数区展示共用 */
 const executionDetailGasSymbol = ref('');
 
-// 参数名中文映射（须在 mergedExecutionParams 之前定义）
-const paramDisplayNames = {
-  taskType: '任务类型',
-  qualityControlType: '质控类型',
-  parameter: '质控参数',
-  deviceId: '设备ID',
-  triggerType: '触发类型',
-  calculatedValue: '计算值',
-  standardValue: '标准值',
-  monitoringData: '监测数据',
-  stdGasInPortName: '标气入口（跨度口/采样口）',
-  taskDescription: '任务描述',
-  gas: '气体类型',
-  readDataSpan: '读取数据间隔(秒)',
-  genGasConc: '生成气体浓度',
-  taskName: '任务名称',
-  genGasTime: '生成气体时间(秒)',
-  readDataCount: '读取数据次数',
-  targetFlowLpm: '目标流量 (L/min)',
-  flowRateLpm: '目标流量 (L/min)',
-  targetFlow: '目标流量 (L/min)',
-  stdGasConcentration: '标气浓度'
+/**
+ * 质控类型权威中文命名（全弹窗统一术语）。
+ * execution_log.params 存英文名（*_check，composer 的 ExecutorType 契约），
+ * qcm_record.quality_control_type 行级列存数字码——两态都要能翻，任何位置不得露出英文原始值。
+ */
+const QC_TYPE_TEXTS = {
+  zero_check: '零点检查',
+  span_check: '跨度检查',
+  multi_check: '多点检查',
+  precision_check: '精密度检查',
+  accuracy_check: '准确度检查',
+  conversion_check: '转换率检查',
+  audit_span_check: '人工核查',
+  multi_zero_check: '多仪器零点质控'
 };
 
-/** 执行记录详情中不展示的 params 键（调度元信息，避免干扰业务参数阅读） */
+/** 行级数字码 → 英文名（对齐后端 QualityControlTypeEnum 的 code/name 次序） */
+const QC_TYPE_CODE_TO_KEY = {
+  0: 'zero_check',
+  1: 'span_check',
+  2: 'multi_check',
+  3: 'precision_check',
+  4: 'accuracy_check',
+  5: 'conversion_check',
+  6: 'audit_span_check',
+  7: 'multi_zero_check'
+};
+
+/** 任务类型（qcm_record.task_type 存数字码）：0 计划调度 / 1 手动 / 2 现场 / 3 远程（SDK） */
+const TASK_TYPE_TEXTS = {
+  0: '计划触发',
+  1: '手动触发',
+  2: '现场任务',
+  3: '远程平台触发'
+};
+
+/** 质控参数数字编码 → 化学符号（对齐后端 ParameterEnum；新结构 params 里通常已是符号本身） */
+const PARAM_GAS_TEXTS = { 1: 'SO2', 2: 'NO2', 3: 'O3', 4: 'CO', 5: 'PM10', 6: 'PM2.5' };
+
+/** 标气入口旧值归一：历史数据存「跨度检查/测量」，统一映射为气路口径名 */
+const STD_GAS_PORT_TEXTS = { '跨度检查': '跨度口', '测量': '采样口' };
+
+/**
+ * 任务参数中文名与展示次序（Object.keys 的插入次序即渲染次序）。
+ * 未登记的键一律不展示——防止英文裸键露出；新增 params 键须先在此登记。
+ */
+const PARAM_LABELS = {
+  qualityControlType: '质控类型',
+  parameter: '质控参数',
+  gas: '质控参数',
+  taskType: '触发方式',
+  planId: '所属质控计划',
+  triggerUser: '触发人／远程来源',
+  concentrationPpb: '标气浓度',
+  spanConcentrationPpb: '标气浓度',
+  // stdGasConcentration 是质控完成时从标准气逻辑设备快照的钢瓶原气浓度（气瓶档案口径，通常 ppm 量级），
+  // 与「标气浓度」（concentrationPpb 等＝任务稀释后通入分析仪的目标浓度，ppb）语义不同，命名与单位都须区分
+  stdGasConcentration: '钢瓶原气浓度（快照）',
+  genGasConc: '标气浓度',
+  targetFlowLpm: '目标稀释流量',
+  flowRateLpm: '目标稀释流量',
+  targetFlow: '目标稀释流量',
+  stableTimeSeconds: '标气稳定等待',
+  genGasTime: '生成气体时间',
+  sampleCount: '采样次数',
+  readDataCount: '采样次数',
+  sampleIntervalSeconds: '采样间隔',
+  readDataSpan: '采样间隔',
+  recoveryDelaySeconds: '恢复等待',
+  multiPointPercents: '校准点位（量程百分比）',
+  accuracyPointPercents: '核查点位（量程百分比）',
+  stdGasInPortName: '标气入口（跨度口/采样口）',
+  deviceId: '设备ID'
+};
+const PARAM_DISPLAY_ORDER = Object.keys(PARAM_LABELS);
+
+/**
+ * 执行记录详情中不展示的 params 键：
+ * - taskDescription / taskName / triggerType / user：调度框架注入的元信息（触发方式已由行级 taskType 翻译展示）。
+ */
 const EXECUTION_DETAIL_HIDDEN_PARAM_KEYS = new Set([
-  'taskType',
   'taskDescription',
+  'taskName',
   'triggerType',
-  'taskName'
+  'user'
 ]);
 
 /** 执行日志 JSON 根级结构字段：不作为「任务参数」从根级扁平合并 */
@@ -266,6 +331,85 @@ const EXECUTION_LOG_STRUCTURE_KEYS = new Set([
   'keyParametersSamplingWindow'
 ]);
 
+/** 结果字段中文名（通用口径；类型特化见 RESULT_LABEL_OVERRIDES） */
+const resultDisplayNames = {
+  deviceValue: '仪器示值均值',
+  stdValue: '标气浓度',
+  resultValue: '判定指标',
+  checkPassLimit: '通过限值',
+  checkCalibLimit: '校准限值',
+  verificationValue: '校准后复核示值',
+  slope: '校准曲线斜率',
+  intercept: '校准曲线截距',
+  correlation: '相关系数',
+  relativeError: '相对误差',
+  deviceValues: '各点仪器示值序列',
+  stdValues: '各点标气浓度序列',
+  precision: '精密度（RSD）',
+  mean: '平均值',
+  standardDeviation: '标准偏差',
+  deviceStdGas: '核查用标气浓度',
+  check_a_min: '斜率下限',
+  check_a_max: '斜率上限',
+  check_r_min: '相关系数下限',
+  check_b_scope: '截距限值区间',
+  checkRsd20Max: '精密度限值',
+  efficiency: 'NOx 转化效率',
+  origNoDatas: '原始 NO 数据序列',
+  origNoxDatas: '原始 NOx 数据序列',
+  remNoDatas: '滴定后 NO 数据序列',
+  remNoxDatas: '滴定后 NOx 数据序列',
+  origNoAvg: '原始 NO 平均值',
+  origNoxAvg: '原始 NOx 平均值',
+  remNoAvg: '滴定后 NO 平均值',
+  remNoxAvg: '滴定后 NOx 平均值',
+  isPass: '是否通过',
+  isException: '是否异常',
+  resultMessage: '结果说明',
+  errorMessage: '错误信息',
+  checkData: '核查读数',
+  checkTime: '核查时间'
+  // 注：devicesStdGas 是后端与 deviceStdGas 同值双写的兼容键，不重复登记展示
+};
+
+/** 同一键在不同质控类型下的业务含义不同（composer 判定语义），按类型特化命名 */
+const RESULT_LABEL_OVERRIDES = {
+  zero_check: { resultValue: '零点漂移' },
+  span_check: { resultValue: '跨度漂移' },
+  audit_span_check: { resultValue: '跨度漂移' }
+};
+
+/** 零点/跨度/人工核查共用一套指标体次序（CheckResult 载荷） */
+const RESULT_ORDER_CHECK_LIKE = [
+  'deviceValue', 'stdValue', 'resultValue',
+  'checkPassLimit', 'checkCalibLimit', 'verificationValue', 'isPass'
+];
+
+/**
+ * 各质控类型结果指标的展示次序；check_a_range 为合成键（check_a_min + check_a_max 合并成区间一行）。
+ * 不在序列内但已登记中文名的键由 resultItems 兜底追加，防类型识别偏差导致整段丢失。
+ */
+const RESULT_FIELD_ORDER = {
+  zero_check: RESULT_ORDER_CHECK_LIKE,
+  span_check: RESULT_ORDER_CHECK_LIKE,
+  audit_span_check: RESULT_ORDER_CHECK_LIKE,
+  multi_check: [
+    'slope', 'intercept', 'correlation', 'check_a_range', 'check_r_min', 'check_b_scope',
+    'stdValues', 'deviceValues', 'isPass'
+  ],
+  accuracy_check: [
+    'slope', 'intercept', 'correlation', 'relativeError', 'check_a_range', 'check_r_min', 'check_b_scope',
+    'stdValues', 'deviceValues', 'isPass'
+  ],
+  precision_check: [
+    'mean', 'standardDeviation', 'precision', 'checkRsd20Max', 'deviceStdGas', 'deviceValues', 'isPass'
+  ],
+  conversion_check: [
+    'efficiency', 'origNoAvg', 'origNoxAvg', 'remNoAvg', 'remNoxAvg',
+    'origNoDatas', 'origNoxDatas', 'remNoDatas', 'remNoxDatas', 'isPass'
+  ]
+};
+
 function recordFieldsAsExecutionParams(r) {
   if (!r || typeof r !== 'object') {
     return {};
@@ -277,12 +421,11 @@ function recordFieldsAsExecutionParams(r) {
     }
     out[k] = val;
   };
+  // 行级旧列 standardValue/monitoringData/calculatedValue 不并入：与执行结果区
+  // （标气浓度 / 仪器示值均值 / 判定指标）同值双显，且无 params 的记录本来就读不到业务参数
   put('taskType', r.taskType);
   put('qualityControlType', r.qualityControlType);
   put('parameter', r.parameter);
-  put('standardValue', r.standardValue);
-  put('monitoringData', r.monitoringData);
-  put('calculatedValue', r.calculatedValue);
   return out;
 }
 
@@ -293,6 +436,10 @@ function flatScalarParamsFromParsedRoot(parsed) {
   const out = {};
   for (const [k, v] of Object.entries(parsed)) {
     if (EXECUTION_LOG_STRUCTURE_KEYS.has(k)) {
+      continue;
+    }
+    // 根级散落的指标键属于执行结果口径（旧版扁平日志），不并入任务参数，由「执行记录数据」兜底区展示
+    if (k in resultDisplayNames) {
       continue;
     }
     if (v === null || v === undefined || v === '') {
@@ -323,6 +470,20 @@ const mergedExecutionParams = computed(() => {
     }
   }
   return out;
+
+});
+
+/** 当前记录的质控类型，统一归一为英文 key（行级数字码与 params 英文名两态兼容）；未知编码返回 '' */
+const qcTypeKey = computed(() => {
+  const raw = mergedExecutionParams.value.qualityControlType ?? row.value.qualityControlType;
+  if (raw == null || raw === '') {
+    return '';
+  }
+  const s = String(raw);
+  if (QC_TYPE_TEXTS[s]) {
+    return s;
+  }
+  return QC_TYPE_CODE_TO_KEY[s] || '';
 });
 
 const hasStructuredExecutionResult = computed(() => {
@@ -361,39 +522,126 @@ const statusMapHasDisplayableFields = computed(() => {
   return false;
 });
 
-const executionResultSummaryLine = computed(() => {
+/** 概要「是否通过」：优先结构化 result.isPass，其次 statusMap，最后行级旧列 */
+const summaryPassText = computed(() => {
   const r = parsedExecutionLog.value?.result;
-  if (r == null) {
-    return '无';
+  const sm = parsedExecutionLog.value?.statusMap;
+  let v;
+  if (r && !Array.isArray(r) && typeof r === 'object' && r.isPass != null) {
+    v = r.isPass;
+  } else if (sm && sm.isPass != null) {
+    v = sm.isPass;
+  } else if (row.value?.isPass != null) {
+    v = row.value.isPass;
+  } else {
+    return '—';
   }
-  if (Array.isArray(r)) {
-    return r.length ? `${r.length}条记录` : '无';
-  }
-  if (typeof r === 'object') {
-    return Object.keys(r).length ? '有' : '无';
-  }
-  return '有';
+  return formatResultValue(v, 'isPass');
 });
 
-const showRawExecutionLogFallback = computed(() => {
+/** 概要条：类型/参数/触发方式/结论/起止时间一行速览 */
+const summaryItems = computed(() => {
+  const r = row.value || {};
+  const items = [
+    { label: '质控类型', text: qcTypeKey.value ? QC_TYPE_TEXTS[qcTypeKey.value] : '—' },
+    { label: '质控参数', text: executionDetailGasSymbol.value || '—' },
+    { label: '触发方式', text: TASK_TYPE_TEXTS[String(r.taskType)] || '—' },
+    { label: '是否通过', text: summaryPassText.value }
+  ];
+  if (r.startTime) {
+    items.push({ label: '开始时间', text: String(r.startTime) });
+  }
+  const end = displayRecordEndTime(r);
+  if (end) {
+    items.push({ label: '结束时间', text: end });
+  }
+  return items;
+});
+
+/** 任务参数展示项：按登记次序渲染；parameter/gas 恒同值，同时存在只展示一条 */
+const paramItems = computed(() => {
+  const src = mergedExecutionParams.value;
+  const items = [];
+  for (const key of PARAM_DISPLAY_ORDER) {
+    if (key === 'gas' && 'parameter' in src) {
+      continue;
+    }
+    if (!(key in src)) {
+      continue;
+    }
+    const v = src[key];
+    if (v === null || v === undefined || v === '') {
+      continue;
+    }
+    items.push({ key, label: PARAM_LABELS[key], text: formatParamValue(v, key) });
+  }
+  return items;
+});
+
+/** 结果指标展示项：标量走 descriptions 两列，序列（deviceValues 等）整行换行展示 */
+const resultItems = computed(() => {
+  const r = parsedExecutionLog.value?.result;
+  if (!r || Array.isArray(r) || typeof r !== 'object') {
+    return [];
+  }
+  const type = qcTypeKey.value;
+  const used = new Set();
+  const items = [];
+  const push = (key, label, text, isList) => {
+    used.add(key);
+    items.push({ key, label, text, isList: !!isList });
+  };
+  for (const key of RESULT_FIELD_ORDER[type] || []) {
+    if (key === 'check_a_range') {
+      // 斜率上下限合并为单行区间（多点/准确度的判定标准是 a∈[min,max] 整体区间）
+      if (r.check_a_min !== undefined && r.check_a_max !== undefined) {
+        used.add('check_a_min');
+        used.add('check_a_max');
+        items.push({
+          key: 'check_a_range',
+          label: '斜率限值区间',
+          text: `${numText(r.check_a_min)} ~ ${numText(r.check_a_max)}`,
+          isList: false
+        });
+      }
+      continue;
+    }
+    if (!(key in r)) {
+      continue;
+    }
+    const override = RESULT_LABEL_OVERRIDES[type];
+    const label = (override && override[key]) || resultDisplayNames[key] || key;
+    push(key, label, formatResultValue(r[key], key, type), Array.isArray(r[key]));
+  }
+  // 兜底：不在类型序列内但已登记中文名的键也展示；未登记键不展示（禁英文裸键）
+  for (const key of Object.keys(r)) {
+    if (used.has(key) || !(key in resultDisplayNames)) {
+      continue;
+    }
+    push(key, resultDisplayNames[key], formatResultValue(r[key], key, type), Array.isArray(r[key]));
+  }
+  // 结果说明/错误信息（statusMap）非空时并入结果区，避免只看指标错过失败原因
+  const sm = parsedExecutionLog.value?.statusMap;
+  if (sm && typeof sm === 'object') {
+    if (sm.resultMessage && String(sm.resultMessage).trim()) {
+      push('resultMessage', '结果说明', String(sm.resultMessage), false);
+    }
+    if (sm.errorMessage && String(sm.errorMessage).trim()) {
+      push('errorMessage', '错误信息', String(sm.errorMessage), false);
+    }
+  }
+  return items;
+});
+
+/** 旧版扁平 execution_log（指标散在根级、无 params/result 结构）：按结果口径展示根级指标键 */
+const flatResultMetrics = computed(() => {
   const p = parsedExecutionLog.value;
   if (!p || typeof p !== 'object') {
-    return false;
+    return [];
   }
-  const keys = Object.keys(p);
-  if (keys.length === 0) {
-    return false;
-  }
-  if (Object.keys(mergedExecutionParams.value).length > 0) {
-    return false;
-  }
-  if (hasStructuredExecutionResult.value) {
-    return false;
-  }
-  if (statusMapHasDisplayableFields.value) {
-    return false;
-  }
-  return true;
+  return Object.keys(p)
+    .filter(k => k in resultDisplayNames)
+    .map(k => ({ key: k, label: resultDisplayNames[k], text: formatResultValue(p[k], k) }));
 });
 
 const showNoDataHint = computed(() => {
@@ -404,92 +652,11 @@ const showNoDataHint = computed(() => {
   const noParsed = !p || typeof p !== 'object' || Object.keys(p).length === 0;
   const noPhases = !phaseList.value || phaseList.value.length === 0;
   const noMerged = Object.keys(mergedExecutionParams.value).length === 0;
-  const noResult = !hasStructuredExecutionResult.value && !statusMapHasDisplayableFields.value;
+  const noResult = !hasStructuredExecutionResult.value
+    && !statusMapHasDisplayableFields.value
+    && flatResultMetrics.value.length === 0;
   return noParsed && noPhases && noMerged && noResult;
 });
-
-// 触发类型字典映射
-const triggerTypeDict = [
-  { value: '0', label: '自动触发' },
-  { value: '1', label: '手动触发' }
-];
-
-// 任务类型字典映射（用于执行记录详情）
-const taskTypeDict = [
-  { value: '0', label: '计划任务' },
-  { value: '1', label: '手动任务' },
-  { value: '2', label: '现场任务' }
-];
-
-// 质控类型字典映射（用于执行记录详情，包含英文名称映射）
-const qualityControlTypeDict = [
-  { value: '0', label: '零点核查' },
-  { value: '1', label: '跨度校准' },
-  { value: '2', label: '线性核查' },
-  { value: '3', label: '精密度检查' },
-  { value: '4', label: '准确度校准' },
-  { value: '5', label: '转换率检查' },
-  { value: '6', label: '人工核查' },
-  { value: '7', label: '多仪器零点质控' },
-  // 添加英文名称映射
-  { value: 'zero_check', label: '零点核查' },
-  { value: 'span_calibration', label: '跨度校准' },
-  { value: 'linear_check', label: '线性核查' },
-  { value: 'precision_check', label: '精密度检查' },
-  { value: 'accuracy_calibration', label: '准确度校准' },
-  { value: 'conversion_rate_check', label: '转换率检查' },
-  { value: 'audit_span_check', label: '人工核查' }
-];
-
-// 结果名中文映射
-const resultDisplayNames = {
-  resultValue: '结果值',
-  stdValue: '标准值',
-  deviceValue: '设备值',
-  checkPassLimit: '通过限值',
-  checkCalibLimit: '校准限值',
-  slope: '斜率',
-  intercept: '截距',
-  correlation: '相关系数',
-  deviceValues: '设备值列表',
-  stdValues: '标准值列表',
-  check_r_min: '相关系数最小值',
-  check_a_max: '斜率最大值',
-  check_a_min: '斜率最小值',
-  check_b_scope: '截距范围',
-  precision: '精密度',
-  mean: '平均值',
-  standardDeviation: '标准偏差',
-  deviceStdGas: '设备标气浓度',
-  checkRsd20Max: '20%满量程相对标准偏差最大值',
-  efficiency: '转换效率',
-  origNoDatas: '原始NO数据',
-  origNoxDatas: '原始NOx数据',
-  remNoDatas: '滴定NO数据',
-  remNoxDatas: '滴定NOx数据',
-  origNoAvg: '原始NO平均值',
-  origNoxAvg: '原始NOx平均值',
-  remNoAvg: '滴定NO平均值',
-  remNoxAvg: '滴定NOx平均值',
-  isPass: '是否通过',
-  // 新增字段映射
-  checkTime: '检查时间',
-  checkData: '检查数据',
-  qualityControlType: '质控类型',
-  taskType: '任务类型',
-  stdGasInPortName: '标气入口（跨度口/采样口）',
-  taskDescription: '任务描述',
-  gas: '气体类型',
-  readDataSpan: '读取数据间隔(秒)',
-  genGasConc: '生成气体浓度',
-  taskName: '任务名称',
-  triggerType: '触发类型',
-  genGasTime: '生成气体时间(秒)',
-  readDataCount: '读取数据次数',
-  isException: '是否异常',
-  resultMessage: '结果说明',
-  errorMessage: '错误信息'
-};
 
 // 解析执行记录JSON
 function parseExecutionLog(executionLog) {
@@ -506,50 +673,6 @@ function parseExecutionLog(executionLog) {
     console.error('解析执行记录失败:', error);
     return {};
   }
-}
-
-function looksLikeLogicAttrId(key) {
-  if (key == null || typeof key !== 'string') {
-    return false;
-  }
-  if (paramDisplayNames[key]) {
-    return false;
-  }
-  return key.includes('_') && key.length > 10;
-}
-
-function inferAttrLabelFromId(key) {
-  const lower = String(key).toLowerCase();
-  if (lower.includes('flow') || /_flow$/.test(lower) || /^flow/.test(lower) || lower.includes('流')) {
-    return '流量';
-  }
-  if (lower.includes('pressure') || lower.includes('press') || lower.includes('压')) {
-    return '压力';
-  }
-  if ((lower.includes('temp') && !lower.includes('attempt')) || lower.includes('温')) {
-    return '温度';
-  }
-  if (lower.includes('humid') || lower.includes('湿')) {
-    return '湿度';
-  }
-  return '';
-}
-
-// 获取参数显示名称
-function getParamDisplayName(key) {
-  if (paramDisplayNames[key]) {
-    return paramDisplayNames[key];
-  }
-  const inferred = inferAttrLabelFromId(key);
-  if (inferred) {
-    return looksLikeLogicAttrId(key) ? `${inferred}（逻辑属性）` : inferred;
-  }
-  return key;
-}
-
-// 获取结果显示名称
-function getResultDisplayName(key) {
-  return resultDisplayNames[key] || key;
 }
 
 // 获取字典标签
@@ -576,7 +699,7 @@ function getDictLabel(dictArray, value) {
 }
 
 /**
- * 从行数据与执行日志 params 推断气体符号（用于 calculatedValue：存 ppm，非 CO 展示为 ppb）。
+ * 从行数据与执行日志 params 推断气体符号（概要与参数区的「质控参数」显示用）。
  */
 function resolveExecutionDetailGasSymbol(r, parsed) {
   const params = parsed && typeof parsed === 'object' ? parsed.params : null;
@@ -584,7 +707,7 @@ function resolveExecutionDetailGasSymbol(r, parsed) {
   if (raw == null || raw === '') {
     return '';
   }
-  const s = String(raw).trim();
+  const s = String(raw);
   if (/^[A-Za-z][A-Za-z0-9]*$/i.test(s) && !/^\d+$/.test(s)) {
     return s.toUpperCase();
   }
@@ -597,108 +720,263 @@ function resolveExecutionDetailGasSymbol(r, parsed) {
     .replace(/O2/g, 'O2');
 }
 
-/**
- * 计算值在库中按 ppm 存储：CO 仍显示 ppm，其余气体显示为 ppb（×1000）。
- */
-function formatCalculatedValueFromStoredPpm(value) {
-  if (value === null || value === undefined) {
-    return '无';
-  }
+// ---------- 数值格式化（单位集中在这一组函数，模板不散落拼接） ----------
+
+/** 宽松转数值：失败返回 null（交由调用方按原样展示） */
+function toNumber(value) {
   const n = typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, ''));
-  if (Number.isNaN(n)) {
-    return String(value);
-  }
-  const gas = executionDetailGasSymbol.value;
-  if (gas === 'CO') {
-    const t = Number.isInteger(n) ? String(n) : String(Number(n.toFixed(6)).valueOf());
-    return `${t} ppm`;
-  }
-  const ppb = n * 1000;
-  const t = Number.isInteger(ppb) ? String(ppb) : ppb.toFixed(2).replace(/\.?0+$/, '');
-  return `${t} ppb`;
+  return Number.isNaN(n) ? null : n;
 }
 
-// 格式化参数值
-function formatParamValue(value, key) {
-  if (value === null || value === undefined) return '无';
-  if (typeof value === 'object') return JSON.stringify(value);
+/** 数值文本：整数不带小数、小数最多 2 位并去尾零（400.0 → 400；96.125 → 96.13） */
+function numText(value) {
+  const n = toNumber(value);
+  if (n === null) {
+    return String(value);
+  }
+  if (Number.isInteger(n)) {
+    return String(n);
+  }
+  return String(Number(n.toFixed(2)));
+}
+
+/** 相关系数等高精度值：最多 4 位小数（0.9995 若按 2 位会截成 1） */
+function preciseNumText(value) {
+  const n = toNumber(value);
+  if (n === null) {
+    return String(value);
+  }
+  return String(Number(n.toFixed(4)));
+}
+
+/** 漂移类带方向符：正值显式 +，负值自带 -（+2.5% / -96.13%） */
+function signedNumText(value) {
+  const n = toNumber(value);
+  if (n === null) {
+    return String(value);
+  }
+  return (n > 0 ? '+' : '') + numText(n);
+}
+
+/** 标量兜底：布尔转是否、数组以顿号连接、其余按原样字符串 */
+function scalarText(value) {
+  if (Array.isArray(value)) {
+    return value.length
+      ? value.map(v => (typeof v === 'number' ? numText(v) : String(v))).join('、')
+      : '—';
+  }
   if (typeof value === 'boolean') {
     return value ? '是' : '否';
   }
-  if (typeof value === 'number') {
-    if (key === 'calculatedValue') {
-      return formatCalculatedValueFromStoredPpm(value);
-    }
-    if (key === 'targetFlowLpm' || key === 'flowRateLpm' || key === 'targetFlow') {
-      return `${Number.isInteger(value) ? value : value.toFixed(2)} L/min`;
-    }
-    return Number.isInteger(value) ? value.toString() : value.toFixed(2);
+  return String(value);
+}
+
+function formatPpb(value) {
+  const n = toNumber(value);
+  return n === null ? String(value) : `${numText(n)} ppb`;
+}
+
+/** 标气浓度：0 视为零气（零点检查通入的是零气） */
+function formatStdGasConcPpb(value) {
+  const n = toNumber(value);
+  if (n === null) {
+    return String(value);
   }
+  return n === 0 ? '0 ppb（零气）' : `${numText(n)} ppb`;
+}
 
-  const strValue = String(value);
+/**
+ * 钢瓶原气浓度（快照）：值是气瓶档案浓度（通常 ppm 量级），历史快照无单位键，不得硬贴 ppb：
+ * 优先行级冻结对 gasConcentration+gasConcentrationUnit（有单位带单位；旧数据无单位裸值展示不猜）；
+ * 行级缺失回退 execution_log 根级快照值（新数据根级带 stdGasConcentrationUnit 键则拼上，旧数据裸值）。
+ */
+function formatCylinderGasConc(value) {
+  const rowConc = row.value?.gasConcentration;
+  if (rowConc !== null && rowConc !== undefined && rowConc !== '') {
+    const u = String(row.value?.gasConcentrationUnit || '').trim();
+    const n = toNumber(rowConc);
+    const text = n === null ? String(rowConc) : numText(rowConc);
+    return u ? `${text} ${u}` : text;
+  }
+  const n = toNumber(value);
+  const u = String(parsedExecutionLog.value?.stdGasConcentrationUnit || '').trim();
+  if (n === null) {
+    return u ? `${String(value)} ${u}` : String(value);
+  }
+  return u ? `${numText(n)} ${u}` : numText(n);
+}
 
+/** 目标稀释流量：固定 1 位小数（4.0 L/min） */
+function formatFlowLpm(value) {
+  const n = toNumber(value);
+  return n === null ? String(value) : `${n.toFixed(1)} L/min`;
+}
+
+/** 对称限值 → ppb 绝对区间（漂移判据为 |drift| ≤ limit，零点类） */
+function formatPpbLimitRange(value) {
+  const n = toNumber(value);
+  if (n === null) {
+    return String(value);
+  }
+  const a = Math.abs(n).toFixed(1);
+  return `-${a} ~ +${a} ppb`;
+}
+
+/** 对称限值 → 百分比绝对区间（跨度/人工核查类） */
+function formatPercentLimitRange(value) {
+  const n = toNumber(value);
+  if (n === null) {
+    return String(value);
+  }
+  const a = Math.abs(n).toFixed(1);
+  return `-${a}% ~ +${a}%`;
+}
+
+/** 量程百分比序列（composer 契约为 0~1 小数）：×100 后合并展示（80%、60%、40%、20%） */
+function formatPercentList(value) {
+  if (!Array.isArray(value)) {
+    return scalarText(value);
+  }
+  return value
+    .map(v => {
+      const n = toNumber(v);
+      return n === null ? String(v) : `${Math.round(n * 100)}%`;
+    })
+    .join('、');
+}
+
+/** 质控类型显示：params 英文名与行级数字码两态兼容；未知编码不上英文裸值 */
+function qcTypeTextOf(value) {
+  const s = String(value);
+  if (QC_TYPE_TEXTS[s]) {
+    return QC_TYPE_TEXTS[s];
+  }
+  const key = QC_TYPE_CODE_TO_KEY[s];
+  return key ? QC_TYPE_TEXTS[key] : '—';
+}
+
+/** 质控参数显示：数字编码翻化学符号（对齐后端 ParameterEnum），已是符号的直接大写 */
+function gasTextOf(value) {
+  const s = String(value);
+  if (PARAM_GAS_TEXTS[s]) {
+    return PARAM_GAS_TEXTS[s];
+  }
+  return /^[A-Za-z0-9.]+$/.test(s) ? s.toUpperCase() : s;
+}
+
+// 格式化参数值（任务参数区的唯一值出口）
+function formatParamValue(value, key) {
+  if (value === null || value === undefined) {
+    return '无';
+  }
   switch (key) {
-    case 'calculatedValue':
-      return formatCalculatedValueFromStoredPpm(strValue);
-    case 'taskType':
-      return getDictLabel(taskTypeDict, strValue);
     case 'qualityControlType':
-      return getDictLabel(qualityControlTypeDict, strValue);
-    case 'triggerType':
-      return getDictLabel(triggerTypeDict, strValue);
+      return qcTypeTextOf(value);
     case 'parameter':
-      return getDictLabel(quality_control_param.value, strValue);
+    case 'gas':
+      return gasTextOf(value);
+    case 'taskType':
+      return TASK_TYPE_TEXTS[String(value)] || '—';
+    case 'concentrationPpb':
+    case 'spanConcentrationPpb':
+    case 'genGasConc':
+      return formatStdGasConcPpb(value);
+    case 'stdGasConcentration':
+      // 钢瓶原气浓度是档案值（通常 ppm），不是任务稀释后的 ppb 目标浓度，禁止走 ppb 格式化
+      return formatCylinderGasConc(value);
     case 'targetFlowLpm':
     case 'flowRateLpm':
     case 'targetFlow':
-      return `${strValue} L/min`;
+      return formatFlowLpm(value);
+    case 'stableTimeSeconds':
+    case 'genGasTime':
+    case 'recoveryDelaySeconds':
+    case 'sampleIntervalSeconds':
+    case 'readDataSpan':
+      return `${numText(value)} 秒`;
+    case 'sampleCount':
+    case 'readDataCount':
+      return `${numText(value)} 次`;
+    case 'multiPointPercents':
+    case 'accuracyPointPercents':
+      return formatPercentList(value);
     case 'stdGasInPortName':
-      if (strValue === '跨度检查') {
-        return '跨度口';
-      }
-      if (strValue === '测量') {
-        return '采样口';
-      }
-      return strValue;
+      return STD_GAS_PORT_TEXTS[value] || String(value);
     default:
-      return strValue;
+      return scalarText(value);
   }
 }
 
-// 格式化结果值
-function formatResultValue(value, key) {
-  if (value === null || value === undefined) return '无';
+// 格式化结果值（执行结果区/兜底区的唯一值出口；type 缺省取当前记录质控类型）
+function formatResultValue(value, key, type = qcTypeKey.value) {
+  if (value === null || value === undefined) {
+    return '无';
+  }
   if (Array.isArray(value)) {
-    return value.length > 0 ? value.join(', ') : '空数组';
+    // 指标序列（各点示值/标气/原始·滴定数据）一律 ppb 口径，整行换行展示
+    return value.length
+      ? `${value.map(v => (typeof v === 'number' ? numText(v) : String(v))).join('、')} ppb`
+      : '空';
   }
   if (typeof value === 'object') {
     return JSON.stringify(value);
   }
-  if (typeof value === 'boolean') {
-    return value ? '是' : '否';
-  }
-  if (typeof value === 'number') {
-    if (key === 'calculatedValue') {
-      return formatCalculatedValueFromStoredPpm(value);
-    }
-    // 如果是整数，不显示小数位
-    return Number.isInteger(value) ? value.toString() : value.toFixed(2);
-  }
-
-  // 根据字段名使用字典数据转换
-  const strValue = String(value);
-
   switch (key) {
-    case 'calculatedValue':
-      return formatCalculatedValueFromStoredPpm(strValue);
-    case 'taskType':
-      return getDictLabel(taskTypeDict, strValue);
-    case 'qualityControlType':
-      return getDictLabel(qualityControlTypeDict, strValue);
-    case 'triggerType':
-      return getDictLabel(triggerTypeDict, strValue);
+    case 'isPass':
+      return (value === true || value === 'true') ? '通过' : '未通过';
+    case 'isException':
+      return (value === true || value === 'true') ? '是' : '否';
+    case 'resultValue':
+      // 判定指标单位随类型：零点为 ppb 绝对量，跨度/人工核查为相对漂移 %
+      if (type === 'zero_check' || type === 'multi_zero_check') {
+        return `${signedNumText(value)} ppb`;
+      }
+      if (type === 'span_check' || type === 'audit_span_check') {
+        return `${signedNumText(value)}%`;
+      }
+      return signedNumText(value);
+    case 'checkPassLimit':
+    case 'checkCalibLimit':
+      // 限值按绝对区间展示（用户决策②）：判据是 |drift| ≤ limit 的对称区间
+      if (type === 'zero_check' || type === 'multi_zero_check') {
+        return formatPpbLimitRange(value);
+      }
+      if (type === 'span_check' || type === 'audit_span_check') {
+        return formatPercentLimitRange(value);
+      }
+      return numText(value);
+    case 'stdValue':
+      return formatStdGasConcPpb(value);
+    case 'deviceValue':
+    case 'verificationValue':
+    case 'intercept':
+    case 'mean':
+    case 'standardDeviation':
+    case 'deviceStdGas':
+    case 'origNoAvg':
+    case 'origNoxAvg':
+    case 'remNoAvg':
+    case 'remNoxAvg':
+    case 'checkData':
+      return formatPpb(value);
+    case 'slope':
+      return numText(value);
+    case 'correlation':
+      return preciseNumText(value);
+    case 'relativeError':
+      return `${signedNumText(value)}%`;
+    case 'precision':
+    case 'efficiency':
+      return `${numText(value)}%`;
+    case 'checkRsd20Max':
+      return `≤ ${numText(value)}%`;
+    case 'check_r_min':
+      return `≥ ${preciseNumText(value)}`;
+    case 'check_b_scope':
+      // 截距限值：|b| ≤ 满量程 1%，存的是正数上界，按对称区间展示
+      return formatPpbLimitRange(value);
     default:
-      return strValue;
+      return scalarText(value);
   }
 }
 
@@ -820,6 +1098,8 @@ async function refreshExecutionPhases() {
 
 function onDialogClosed() {
   stopPolling();
+  // 复位到执行阶段页：过程展示面板随 active=false 停轮询、随 row 重置(v-if/key)卸载清理 echarts
+  activeTab.value = 'phase';
   row.value = {};
   parsedExecutionLog.value = {};
   phaseList.value = [];
@@ -832,6 +1112,7 @@ function open(targetRow) {
   parsedExecutionLog.value = parseExecutionLog(targetRow.executionLog);
   executionDetailGasSymbol.value = resolveExecutionDetailGasSymbol(targetRow, parsedExecutionLog.value);
   phaseList.value = [];
+  activeTab.value = 'phase';
   stopPolling();
   nextTick(() => {
     visible.value = true;
@@ -853,6 +1134,23 @@ defineExpose({ open });
 
 .phase-section .custom-timeline {
   margin-top: 4px;
+}
+
+/* 概要条：弹窗顶部业务速览 */
+.qc-summary-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  background: #f0f9ff;
+  padding: 8px 12px;
+  margin-bottom: 15px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #666;
+}
+
+.qc-summary-item strong {
+  font-weight: 600;
 }
 
 /* 时间线样式 */
@@ -920,19 +1218,28 @@ defineExpose({ open });
   font-style: italic;
 }
 
+/* 弹窗 top=5vh，内容区滚动（占位约 76vh，预留标题/内边距） */
 .execution-log-dialog-content {
-  max-height: 600px;
+  max-height: 76vh;
   overflow-y: auto;
 }
 
-.params-table, .result-table {
-  margin-bottom: 20px;
+/* tabs 分页：页签紧凑，内容区不再额外缩进 */
+.qc-detail-tabs :deep(.el-tabs__header) {
+  margin-bottom: 12px;
 }
 
-.params-table .el-table__header-wrapper th {
-  background-color: #f5f7fa;
-  color: #606266;
-  font-weight: 600;
+.result-semantics-alert {
+  margin-bottom: 12px;
+}
+
+/* 序列类指标（各点示值/标气等）整行展示并允许换行 */
+.result-value-list {
+  word-break: break-all;
+}
+
+.result-table {
+  margin-bottom: 20px;
 }
 
 .result-table .el-table__header-wrapper th {
@@ -941,7 +1248,7 @@ defineExpose({ open });
   font-weight: 600;
 }
 
-.params-section h5, .result-section h5, .phase-section h5 {
+.params-section h5, .result-section h5, .all-data-section h5, .phase-section h5 {
   margin-bottom: 12px;
   color: #303133;
   font-size: 16px;
@@ -956,7 +1263,7 @@ defineExpose({ open });
     grid-template-columns: 1fr;
   }
 
-  .params-table, .result-table {
+  .result-table {
     font-size: 12px;
   }
 }

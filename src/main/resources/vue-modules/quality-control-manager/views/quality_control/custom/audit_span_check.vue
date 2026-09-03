@@ -1,313 +1,235 @@
 <template>
-  <div class="q-control-page tw:min-h-screen tw:bg-gray-50 tw:p-6">
-    <div class="tw:max-w-4xl tw:mx-auto">
-      <!-- 页面标题 -->
-      <header class="tw:mb-8">
-        <h1 class="tw:text-[clamp(1.5rem,3vw,2.5rem)] tw:font-bold tw:text-gray-800">
-          <el-icon class="tw:text-blue-500 tw:mr-2">
-            <Setting />
-          </el-icon>
-          自定义跨度检查
-        </h1>
-        <p class="tw:text-gray-600 mt-2">配置气体参数并执行质控检查</p>
-      </header>
+  <div class="app-container qc-audit-page">
+    <!-- 参数配置：ruoyi 表单执行页规范形态，数值单位一律在输入框后缀可见 -->
+    <el-card>
+      <template #header>
+        <span>参数配置</span>
+      </template>
 
-      <!-- 参数配置卡片 -->
-      <el-card class="tw:rounded-xl tw:shadow-lg tw:border-0 tw:transition-all tw:duration-300 tw:hover:shadow-xl">
-        <template #header>
-          <div class="tw:flex tw:items-center">
-            <el-icon class="tw:text-blue-500 tw:mr-2">
-              <Edit />
-            </el-icon>
-            <h3 class="tw:text-lg tw:font-semibold">参数配置</h3>
-          </div>
-        </template>
+      <el-form
+        ref="formRef"
+        :model="formData"
+        :rules="rules"
+        label-width="130px"
+      >
+        <!-- 气体类型选择 -->
+        <el-form-item label="气体类型" prop="gas">
+          <el-select
+            v-model="formData.gas"
+            placeholder="请选择气体类型"
+            class="qc-audit-select"
+            @change="onGasTypeChange"
+          >
+            <el-option
+              v-for="(item, index) in gasOptions"
+              :key="index"
+              :label="item"
+              :value="item"
+            />
+          </el-select>
+        </el-form-item>
 
-        <el-form
-          ref="formRef"
-          :model="formData"
-          :rules="rules"
-          label-width="160px"
-          class="tw:space-y-4"
-        >
-          <!-- 气体类型选择 -->
-          <el-form-item label="气体类型" prop="gas">
-            <el-select
-              v-model="formData.gas"
-              placeholder="请选择气体类型"
-              class="tw:w-full"
-              size="large"
-              @change="onGasTypeChange"
+        <!-- 稳定气体时间 -->
+        <el-form-item label="稳定气体时间" prop="genGasTime">
+          <el-input-number
+            v-model="formData.genGasTime"
+            :min="0"
+            :max="9600"
+            :step="10"
+            class="qc-audit-number"
+            @change="validateRange('genGasTime')"
+          />
+          <span class="qc-audit-unit">秒</span>
+        </el-form-item>
+
+        <!-- 读取数据次数 -->
+        <el-form-item label="读取数据次数" prop="readDataCount">
+          <el-input-number
+            v-model="formData.readDataCount"
+            :min="0"
+            :max="50"
+            :step="1"
+            class="qc-audit-number"
+            @change="validateRange('readDataCount')"
+          />
+          <span class="qc-audit-unit">次</span>
+        </el-form-item>
+
+        <!-- 读取时间间隔 -->
+        <el-form-item label="读取时间间隔" prop="readDataSpan">
+          <el-input-number
+            v-model="formData.readDataSpan"
+            :min="0"
+            :max="600"
+            :step="1"
+            class="qc-audit-number"
+            @change="validateRange('readDataSpan')"
+          />
+          <span class="qc-audit-unit">秒</span>
+        </el-form-item>
+
+        <!-- 目标流量 -->
+        <el-form-item label="目标流量" prop="targetFlowLpm">
+          <el-input-number
+            v-model="formData.targetFlowLpm"
+            :min="0.1"
+            :max="20"
+            :step="0.1"
+            :precision="2"
+            class="qc-audit-number"
+          />
+          <span class="qc-audit-unit">L/min</span>
+        </el-form-item>
+
+        <!-- 气体浓度：始终以 ppm 为单位录入与提交（CO 上限 50 ppm，其余 0.5 ppm，预览区展示 ppb 折算值） -->
+        <el-form-item label="气体浓度" prop="genGasConc">
+          <el-input-number
+            v-model="formData.genGasConc"
+            :min="0"
+            :max="getMaxConcentration()"
+            :step="getConcentrationStep()"
+            :precision="getConcentrationPrecision()"
+            class="qc-audit-number"
+            @change="validateRange('genGasConc')"
+          />
+          <span class="qc-audit-unit">ppm</span>
+        </el-form-item>
+
+        <!-- 标气入口：跨度口 / 采样口（悬停提示气路说明） -->
+        <el-form-item label="标气入口" prop="stdGasInPortName">
+          <el-radio-group v-model="formData.stdGasInPortName">
+            <el-tooltip
+              v-for="(item, index) in stdGasInPortOptions"
+              :key="index"
+              :content="item.tooltip"
+              placement="top"
             >
-              <el-option
-                v-for="(item, index) in gasOptions"
-                :key="index"
-                :label="item"
-                :value="item"
+              <el-radio :value="item.value">{{ item.label }}</el-radio>
+            </el-tooltip>
+          </el-radio-group>
+        </el-form-item>
+
+        <el-form-item>
+          <el-button type="primary" @click="submitForm">确认配置</el-button>
+          <el-button @click="resetForm">
+            <el-icon class="qc-audit-btn-icon"><Refresh /></el-icon>
+            重置
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
+    <!-- 参数预览：确认配置后出现，确认无误后在此执行 -->
+    <el-card v-if="showPreview" ref="previewCardRef" class="qc-audit-preview-card">
+      <template #header>
+        <span>参数预览</span>
+      </template>
+
+      <el-row :gutter="16">
+        <!-- 气体类型 -->
+        <el-col :xs="24" :sm="12" :md="8">
+          <div class="qc-audit-preview-item">
+            <div class="qc-audit-preview-label">气体类型</div>
+            <div class="qc-audit-preview-value">
+              {{ formData.gas }}
+              <el-tag :type="getGasTagType(formData.gas)">{{ formData.gas }}</el-tag>
+            </div>
+          </div>
+        </el-col>
+
+        <!-- 稳定气体时间 -->
+        <el-col :xs="24" :sm="12" :md="8">
+          <div class="qc-audit-preview-item">
+            <div class="qc-audit-preview-label">稳定气体时间</div>
+            <div class="qc-audit-preview-value">
+              {{ formData.genGasTime }} 秒
+              <el-icon class="qc-audit-icon-blue"><Timer /></el-icon>
+            </div>
+          </div>
+        </el-col>
+
+        <!-- 读取数据次数 -->
+        <el-col :xs="24" :sm="12" :md="8">
+          <div class="qc-audit-preview-item">
+            <div class="qc-audit-preview-label">读取数据次数</div>
+            <div class="qc-audit-preview-value">
+              {{ formData.readDataCount }} 次
+              <el-icon class="qc-audit-icon-green"><DataAnalysis /></el-icon>
+            </div>
+          </div>
+        </el-col>
+
+        <!-- 读取时间间隔 -->
+        <el-col :xs="24" :sm="12" :md="8">
+          <div class="qc-audit-preview-item">
+            <div class="qc-audit-preview-label">读取时间间隔</div>
+            <div class="qc-audit-preview-value">
+              {{ formData.readDataSpan }} 秒
+              <el-icon class="qc-audit-icon-purple"><QuartzWatch /></el-icon>
+            </div>
+          </div>
+        </el-col>
+
+        <!-- 气体浓度 -->
+        <el-col :xs="24" :sm="12" :md="8">
+          <div class="qc-audit-preview-item">
+            <div class="qc-audit-preview-label">气体浓度</div>
+            <div class="qc-audit-preview-value qc-audit-preview-value--stack">
+              <span>{{ getDisplayConcentration() }}</span>
+              <el-progress
+                :percentage="getConcentrationPercentage()"
+                :color="getProgressColor(getConcentrationPercentage())"
+                :stroke-width="10"
               />
-            </el-select>
-          </el-form-item>
-
-          <!-- 气体时间设置 -->
-          <el-form-item label="稳定气体时间(秒)" prop="genGasTime">
-            <div class="tw:flex tw:items-center">
-              <el-input-number
-                v-model="formData.genGasTime"
-                :min="0"
-                :max="9600"
-                :step="10"
-                size="large"
-                class="tw:w-full"
-                @change="validateRange('genGasTime')"
-              />
-              <span class="tw:ml-2 tw:text-gray-500">秒</span>
-            </div>
-          </el-form-item>
-
-          <!-- 读取数据次数 -->
-          <el-form-item label="读取数据次数(次)" prop="readDataCount">
-            <div class="tw:flex tw:items-center">
-              <el-input-number
-                v-model="formData.readDataCount"
-                :min="0"
-                :max="50"
-                size="large"
-                class="tw:w-full"
-                @change="validateRange('readDataCount')"
-              />
-              <span class="tw:ml-2 tw:text-gray-500">次</span>
-            </div>
-          </el-form-item>
-
-          <!-- 读取时间间隔 -->
-          <el-form-item label="读取时间间隔(秒)" prop="readDataSpan">
-            <div class="tw:flex tw:items-center">
-              <el-input-number
-                v-model="formData.readDataSpan"
-                :min="0"
-                :max="600"
-                :step="1"
-                size="large"
-                class="tw:flex-1"
-                @change="validateRange('readDataSpan')"
-              />
-              <span class="tw:ml-2 tw:text-gray-500">秒</span>
-            </div>
-          </el-form-item>
-
-          <!-- 目标流量 -->
-          <el-form-item label="目标流量(L/min)" prop="targetFlowLpm">
-            <div class="tw:flex tw:items-center">
-              <el-input-number
-                v-model="formData.targetFlowLpm"
-                :min="0.1"
-                :max="20"
-                :step="0.1"
-                :precision="2"
-                size="large"
-                class="tw:w-full"
-              />
-              <span class="tw:ml-2 tw:text-gray-500">L/min</span>
-            </div>
-          </el-form-item>
-
-          <!-- 气体浓度 -->
-          <el-form-item label="气体浓度(ppm)" prop="genGasConc">
-            <div class="tw:flex tw:items-center">
-              <el-input-number
-                v-model="formData.genGasConc"
-                :min="0"
-                :max="getMaxConcentration()"
-                :step="getConcentrationStep()"
-                :precision="getConcentrationPrecision()"
-                size="large"
-                class="tw:w-full"
-                @change="validateRange('genGasConc')"
-              />
-              <span class="tw:ml-2 tw:text-gray-500">ppm</span>
-            </div>
-          </el-form-item>
-
-          <!-- 标气入口：跨度口 / 采样口 -->
-          <el-form-item label="标气入口" prop="stdGasInPortName">
-            <el-radio-group v-model="formData.stdGasInPortName">
-              <el-tooltip
-                v-for="(item, index) in stdGasInPortOptions"
-                :key="index"
-                :content="item.tooltip"
-                placement="top"
-              >
-                <el-radio :label="item.value" class="tw-mr-4 tw-py-1 tw-px-2 hover:tw-bg-gray-100 tw-rounded-md">
-                  {{ item.label }}
-                </el-radio>
-              </el-tooltip>
-            </el-radio-group>
-          </el-form-item>
-
-          <!-- 操作按钮 -->
-          <el-form-item class="tw:mt-6 tw:flex tw:justify-end tw:space-x-4">
-            <el-button
-              type="primary"
-              size="large"
-              class="tw:px-8 tw:bg-blue-500 hover:tw:bg-blue-600 tw:transition-colors"
-              @click="submitForm"
-            >
-              <el-icon class="tw:mr-2">
-                <Check />
-              </el-icon>
-              确认配置
-            </el-button>
-            <el-button
-              size="large"
-              class="tw:px-8 tw:bg-gray-200 hover:tw:bg-gray-300 tw:transition-colors"
-              @click="resetForm"
-            >
-              <el-icon class="tw:mr-2">
-                <Refresh />
-              </el-icon>
-              重置
-            </el-button>
-          </el-form-item>
-        </el-form>
-      </el-card>
-
-      <!-- 参数预览卡片 -->
-      <el-card class="tw:rounded-xl tw:shadow-lg tw:border-0 tw:mt-6" v-if="showPreview">
-        <template #header>
-          <div class="tw:flex tw:items-center">
-            <el-icon class="tw:text-green-500 tw:mr-2">
-              <Document />
-            </el-icon>
-            <h3 class="tw:text-lg tw:font-semibold">参数预览</h3>
-          </div>
-        </template>
-
-        <!-- 参数排列布局 -->
-        <div class="tw:flex tw:flex-wrap tw:-mx-3 tw:mt-2">
-          <!-- 气体类型 -->
-          <div class="tw:w-full sm:tw:w-1/2 md:tw:w-1/5 tw:px-3 tw:mb-4">
-            <div class="tw:p-3 tw:bg-gray-50 tw:rounded-lg tw:h-full">
-              <p class="tw:text-sm tw:text-gray-500">气体类型</p>
-              <p class="tw:text-lg tw:font-medium tw:text-gray-800">
-                {{ formData.gas }}
-                <el-tag :type="getGasTagType(formData.gas)" class="tw:ml-2">
-                  {{ formData.gas }}
-                </el-tag>
-              </p>
             </div>
           </div>
+        </el-col>
 
-          <!-- 气体时间 -->
-          <div class="tw:w-full sm:tw:w-1/2 md:tw:w-1/5 tw:px-3 tw:mb-4">
-            <div class="tw:p-3 tw:bg-gray-50 tw:rounded-lg tw:h-full">
-              <p class="tw:text-sm tw:text-gray-500">稳定气体时间</p>
-              <p class="tw:text-lg tw:font-medium tw:text-gray-800">
-                {{ formData.genGasTime }} 秒
-                <el-icon class="tw:text-blue-500 tw:ml-2">
-                  <Timer />
-                </el-icon>
-              </p>
+        <!-- 标气入口 -->
+        <el-col :xs="24" :sm="12" :md="8">
+          <div class="qc-audit-preview-item">
+            <div class="qc-audit-preview-label">标气入口</div>
+            <div class="qc-audit-preview-value">
+              {{ formData.stdGasInPortName }}
             </div>
           </div>
+        </el-col>
 
-          <!-- 读取数据次数 -->
-          <div class="tw:w-full sm:tw:w-1/2 md:tw:w-1/5 tw:px-3 tw:mb-4">
-            <div class="tw:p-3 tw:bg-gray-50 tw:rounded-lg tw:h-full">
-              <p class="tw:text-sm tw:text-gray-500">读取数据次数</p>
-              <p class="tw:text-lg tw:font-medium tw:text-gray-800">
-                {{ formData.readDataCount }} 次
-                <el-icon class="tw:text-green-500 tw:ml-2">
-                  <DataAnalysis />
-                </el-icon>
-              </p>
+        <!-- 目标流量 -->
+        <el-col :xs="24" :sm="12" :md="8">
+          <div class="qc-audit-preview-item">
+            <div class="qc-audit-preview-label">目标流量</div>
+            <div class="qc-audit-preview-value">
+              {{ formData.targetFlowLpm }} L/min
+              <el-icon class="qc-audit-icon-cyan"><Odometer /></el-icon>
             </div>
           </div>
+        </el-col>
+      </el-row>
 
-          <!-- 读取时间间隔 -->
-          <div class="tw:w-full sm:tw:w-1/2 md:tw:w-1/5 tw:px-3 tw:mb-4">
-            <div class="tw:p-3 tw:bg-gray-50 tw:rounded-lg tw:h-full">
-              <p class="tw:text-sm tw:text-gray-500">读取时间间隔</p>
-              <p class="tw:text-lg tw:font-medium tw:text-gray-800">
-                {{ formData.readDataSpan }} 秒
-                <el-icon class="tw:text-purple-500 tw:ml-2">
-                  <QuartzWatch />
-                </el-icon>
-              </p>
-            </div>
-          </div>
-
-          <!-- 气体浓度 -->
-          <div class="tw:w-full sm:tw:w-1/2 md:tw:w-1/5 tw:px-3 tw:mb-4">
-            <div class="tw:p-3 tw:bg-gray-50 tw:rounded-lg tw:h-full">
-              <p class="tw:text-sm tw:text-gray-500">气体浓度</p>
-              <p class="tw:text-lg tw:font-medium tw:text-gray-800">
-                {{ getDisplayConcentration() }}
-                <el-progress
-                  :percentage="getConcentrationPercentage()"
-                  :color="getProgressColor(getConcentrationPercentage())"
-                  :stroke-width="10"
-                  class="tw:mt-2 tw:w-full"
-                />
-              </p>
-            </div>
-          </div>
-
-          <!-- 标气入口 -->
-          <div class="tw:w-full sm:tw:w-1/2 md:tw:w-1/5 tw:px-3 tw:mb-4">
-            <div class="tw:p-3 tw:bg-gray-50 tw:rounded-lg tw:h-full">
-              <p class="tw:text-sm tw:text-gray-500">标气入口</p>
-              <p class="tw:text-lg tw:font-medium tw:text-gray-800">
-                {{ formData.stdGasInPortName }}
-              </p>
-            </div>
-          </div>
-
-          <!-- 目标流量 -->
-          <div class="tw:w-full sm:tw:w-1/2 md:tw:w-1/5 tw:px-3 tw:mb-4">
-            <div class="tw:p-3 tw:bg-gray-50 tw:rounded-lg tw:h-full">
-              <p class="tw:text-sm tw:text-gray-500">目标流量</p>
-              <p class="tw:text-lg tw:font-medium tw:text-gray-800">
-                {{ formData.targetFlowLpm }} L/min
-                <el-icon class="tw:text-cyan-500 tw:ml-2">
-                  <Odometer />
-                </el-icon>
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div class="tw:p-4 tw:mt-4 tw:bg-blue-50 tw:rounded-lg">
-          <el-icon class="tw:text-blue-500">
-            <InfoFilled />
-          </el-icon>
-          <span class="tw:ml-2 tw:text-blue-700">请确认参数设置，点击下方按钮开始质控检查</span>
-          <div class="tw:flex tw:justify-end tw:mt-4">
-            <el-button
-              type="primary"
-              size="large"
-              class="tw:px-8"
-              @click="startCheck"
-            >
-              <el-icon class="tw:mr-2">
-                <VideoPlay />
-              </el-icon>
-              确认并开始
-            </el-button>
-          </div>
-        </div>
-      </el-card>
-    </div>
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="请确认参数设置，点击下方按钮开始质控检查"
+      />
+      <div class="qc-audit-execute-bar">
+        <el-button type="primary" @click="startCheck">
+          <el-icon class="qc-audit-btn-icon"><VideoPlay /></el-icon>
+          确认并开始
+        </el-button>
+      </div>
+    </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
-import { ElMessage, ElLoading} from 'element-plus';
+import { ref, reactive, onMounted, nextTick } from 'vue';
+import { ElMessage, ElLoading } from 'element-plus';
 import {
-  Setting, Edit, Check, Refresh, Document, Timer,
-  QuartzWatch, DataAnalysis, InfoFilled, VideoPlay, Odometer
+  Refresh, Timer, DataAnalysis, QuartzWatch, VideoPlay, Odometer
 } from '@element-plus/icons-vue';
-import {executeAuditSpanCheck} from "@/api/quality_control/audit_span_check";
+import { executeAuditSpanCheck } from '@/api/quality_control/audit_span_check';
 
 // 表单数据
 const formData = reactive({
@@ -324,6 +246,9 @@ const formData = reactive({
 
 // 表单引用
 const formRef = ref(null);
+
+// 预览卡片引用：确认配置后平滑滚动定位用
+const previewCardRef = ref(null);
 
 // 标气入口选项
 const stdGasInPortOptions = [
@@ -375,17 +300,12 @@ const onGasTypeChange = () => {
   formRef.value.clearValidate('genGasConc');
 };
 
-// 获取浓度单位
-const getConcentrationUnit = () => {
-  return formData.gas === 'CO' ? 'ppm' : 'ppb';
-};
-
 // 获取浓度最大值
 const getMaxConcentration = () => {
   return formData.gas === 'CO' ? 50 : 0.5; // CO为50ppm，其他为0.5ppm(500ppb)
 };
 
-// 获取浓度显示值
+// 获取浓度显示值（ppm 折算为 ppb 展示，非 CO 气体以 ppb 为惯用单位）
 const getDisplayConcentration = () => {
   return formData.gas === 'CO'
     ? `${formData.genGasConc} ppm`
@@ -408,18 +328,18 @@ const getConcentrationStep = () => {
   return formData.gas === 'CO' ? 0.1 : 0.001; // CO步长0.1ppm，其他0.001ppm(1ppb)
 };
 
-// 表单提交
+// 表单提交（此处仅校验并展示预览，真正执行在预览区「确认并开始」）
 const submitForm = () => {
   formRef.value.validate((valid) => {
     if (valid) {
       showPreview.value = true;
-      // 滚动到预览区域
-      setTimeout(() => {
-        const previewCard = document.querySelector('.el-card:nth-child(2)');
-        if (previewCard) {
-          previewCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // 预览卡片由 v-if 渲染，nextTick 后 DOM 就绪再平滑滚动到位
+      nextTick(() => {
+        const previewEl = previewCardRef.value && previewCardRef.value.$el;
+        if (previewEl) {
+          previewEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
-      }, 300);
+      });
     } else {
       console.log('表单验证失败');
       return false;
@@ -445,12 +365,7 @@ const startCheck = async () => {
       background: 'rgba(0, 0, 0, 0.05)'
     });
 
-    // formData.gas,
-    // formData.genGasTime,
-    // formData.readDataCount,
-    // formData.readDataSpan,
-    // formData.genGasConc // 始终以ppm为单位传递
-    // 调用实际的API接口（注意：这里传递的是ppm单位的值）
+    // 调用执行接口；浓度字段始终以 ppm 为单位提交，由后端负责 ppb 折算
     const response = await executeAuditSpanCheck(formData);
 
     console.log('API响应:', response);
@@ -498,20 +413,12 @@ const startCheck = async () => {
   }
 };
 
-// 手动验证数值范围
+// 手动验证数值范围：el-form 无 setFieldsError API（原实现越界时必抛 TypeError），
+// 直接触发该字段已声明的规则校验——范围与提示文案与 rules 完全同源，越界自动红字，合规自动清除
 const validateRange = (field) => {
-  const value = formData[field];
-  const rule = rules[field][1];
-
-  if (rule && value !== undefined && value !== null) {
-    if (value < rule.min || (rule.max !== undefined && value > rule.max)) {
-      formRef.value.setFieldsError({
-        [field]: `${rule.message}`
-      });
-    } else {
-      formRef.value.clearValidate(field);
-    }
-  }
+  formRef.value?.validateField(field).catch(() => {
+    // 校验不通过走 el-form 自身红字提示，这里只拦 Promise 拒绝避免未处理异常
+  });
 };
 
 // 获取气体标签类型
@@ -558,45 +465,88 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* 自定义样式 */
-.q-control-page {
-  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+/* 数值输入统一宽度，单位后缀紧随其后（ruoyi 默认尺寸表单） */
+.qc-audit-select {
+  width: 320px;
 }
 
-/* 表单元素样式优化 */
-.el-form-item__label {
+.qc-audit-number {
+  width: 200px;
+}
+
+.qc-audit-unit {
+  margin-left: 8px;
+  color: var(--el-text-color-secondary);
+}
+
+/* 预览卡片与表单卡片的间距 */
+.qc-audit-preview-card {
+  margin-top: 16px;
+}
+
+/* 预览项小卡：浅底圆角（原 tailwind 装饰的 scoped CSS 等价实现） */
+.qc-audit-preview-item {
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+  height: 100%;
+}
+
+.qc-audit-preview-label {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.qc-audit-preview-value {
+  margin-top: 4px;
+  font-size: 16px;
   font-weight: 500;
-  color: #334155;
+  color: var(--el-text-color-primary);
+  display: flex;
+  align-items: center;
 }
 
-.el-input-number {
-  max-width: 200px;
+/* 浓度项值与进度条上下排布 */
+.qc-audit-preview-value--stack {
+  display: block;
 }
 
-/* 卡片悬停效果 */
-.el-card {
-  transition: all 0.3s ease;
+.qc-audit-preview-value--stack .el-progress {
+  margin-top: 8px;
 }
 
-.el-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+.qc-audit-preview-value .el-tag {
+  margin-left: 8px;
 }
 
-/* 按钮样式优化 */
-.el-button {
-  border-radius: 0.5rem;
-  font-weight: 500;
+.qc-audit-preview-value .el-icon {
+  margin-left: 8px;
 }
 
-/* 响应式布局 */
-@media (max-width: 768px) {
-  .el-form-item__content {
-    margin-left: 0 !important;
-  }
+/* 执行入口右对齐，按钮内图标与文字间距 */
+.qc-audit-execute-bar {
+  margin-top: 16px;
+  text-align: right;
+}
 
-  .el-input-number {
-    max-width: 100%;
-  }
+.qc-audit-btn-icon {
+  margin-right: 6px;
+}
+
+/* 预览项装饰配色（沿用原 tailwind 色板值） */
+.qc-audit-icon-blue {
+  color: #3b82f6;
+}
+
+.qc-audit-icon-green {
+  color: #22c55e;
+}
+
+.qc-audit-icon-purple {
+  color: #a855f7;
+}
+
+.qc-audit-icon-cyan {
+  color: #06b6d4;
 }
 </style>

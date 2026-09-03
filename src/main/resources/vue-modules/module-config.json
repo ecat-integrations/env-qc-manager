@@ -15,7 +15,7 @@
           "component": "Layout",
           "alwaysShow": true,
           "meta": {
-            "title": "质控查询",
+            "title": "质控管理",
             "icon": "education",
             "noCache": false,
             "link": null
@@ -126,29 +126,8 @@
               "hidden": false,
               "component": "views/quality_control/plan",
               "meta": {
-                "title": "质控任务计划",
+                "title": "任务管理",
                 "icon": "list",
-                "noCache": false,
-                "link": null
-              }
-            },
-            {
-              "name": "gas_setting",
-              "path": "gas_setting",
-              "hidden": false,
-              "component": "views/GasSetting",
-              "permissions": [
-                "quality_control:records:list"
-              ],
-              "buttons": [
-                {
-                  "title": "保存钢瓶气",
-                  "perms": "quality_control:records:add"
-                }
-              ],
-              "meta": {
-                "title": "钢瓶气设置",
-                "icon": "edit",
                 "noCache": false,
                 "link": null
               }

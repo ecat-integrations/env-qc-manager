@@ -65,6 +65,14 @@
       <version>3.1.0</version>
       <scope>provided</scope>
     </dependency>
+    <!-- ADM 数据 SDK：质控过程展示数据源（adm_data_sample 秒级曲线/最新行 + 参数目录）。
+         provided 同 JVM 由 core 动态加载（同本 pom 其它 integration 依赖写法）；只 import ADM jar 的 api 契约包。 -->
+    <dependency>
+      <groupId>com.ecat</groupId>
+      <artifactId>integration-env-air-device-manager</artifactId>
+      <version>3.1.0</version>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>com.ecat</groupId>
       <artifactId>ecat-core</artifactId>

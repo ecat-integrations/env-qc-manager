@@ -216,11 +216,11 @@ const submitting = ref(false);
 
 /** 质控类型闭集（与 QualityControlTypeEnum name 对齐） */
 const QC_TYPE_OPTIONS = [
-  { value: 'zero_check', label: '零点校准' },
-  { value: 'span_check', label: '跨度校准' },
+  { value: 'zero_check', label: '零点检查' },
+  { value: 'span_check', label: '跨度检查' },
   { value: 'multi_check', label: '多点检查' },
   { value: 'precision_check', label: '精密度检查' },
-  { value: 'accuracy_check', label: '准确度校准' },
+  { value: 'accuracy_check', label: '准确度检查' },
   { value: 'conversion_check', label: '转换率检查' },
   { value: 'audit_span_check', label: '人工核查' },
   { value: 'multi_zero_check', label: '多仪器零点质控' }

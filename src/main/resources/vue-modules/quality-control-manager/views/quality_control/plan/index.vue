@@ -44,27 +44,27 @@
     </el-row>
 
     <el-table v-loading="loading" :data="planList">
-      <el-table-column label="计划名称" align="center" prop="planName" min-width="140" show-overflow-tooltip />
+      <el-table-column label="计划名称" align="center" prop="planName" min-width="200" show-overflow-tooltip />
       <el-table-column label="质控类型" align="center" prop="qcType" width="110">
         <template #default="scope">
           <span>{{ qcTypeLabel(scope.row.qcType) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="仪器" align="center" prop="instruments" width="110">
+      <el-table-column label="仪器" align="center" prop="instruments" width="120">
         <template #default="scope">
           <span>{{ instrumentsLabel(scope.row.instruments) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="调度摘要" align="center" prop="scheduleSummary" min-width="180" show-overflow-tooltip />
+      <el-table-column label="调度摘要" align="center" prop="scheduleSummary" min-width="260" show-overflow-tooltip />
       <el-table-column label="状态" align="center" prop="status" width="90">
         <template #default="scope">
           <el-tag :type="statusTagType(scope.row.status)">{{ statusLabel(scope.row.status) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="下次触发时间" align="center" prop="nextFireTime" width="160" />
-      <el-table-column label="上次触发时间" align="center" prop="lastFireTime" width="160" />
-      <el-table-column label="创建人" align="center" prop="createdBy" width="100" />
-      <el-table-column label="操作" align="center" min-width="240" class-name="small-padding fixed-width">
+      <el-table-column label="下次触发时间" align="center" prop="nextFireTime" width="170" />
+      <el-table-column label="上次触发时间" align="center" prop="lastFireTime" width="170" />
+      <el-table-column label="创建人" align="center" prop="createdBy" width="110" />
+      <el-table-column label="操作" align="center" width="230" class-name="small-padding fixed-width">
         <template #default="scope">
           <template v-if="scope.row.status === 'ACTIVE'">
             <el-button link type="warning" @click="handleStatus(scope.row, 'pause')">暂停</el-button>
@@ -111,11 +111,11 @@ const { proxy } = getCurrentInstance();
 
 /** 质控类型闭集（QualityControlTypeEnum name ↔ 中文标签，FR-01-27） */
 const QC_TYPE_OPTIONS = [
-  { value: 'zero_check', label: '零点校准' },
-  { value: 'span_check', label: '跨度校准' },
+  { value: 'zero_check', label: '零点检查' },
+  { value: 'span_check', label: '跨度检查' },
   { value: 'multi_check', label: '多点检查' },
   { value: 'precision_check', label: '精密度检查' },
-  { value: 'accuracy_check', label: '准确度校准' },
+  { value: 'accuracy_check', label: '准确度检查' },
   { value: 'conversion_check', label: '转换率检查' },
   { value: 'audit_span_check', label: '人工核查' },
   { value: 'multi_zero_check', label: '多仪器零点质控' }

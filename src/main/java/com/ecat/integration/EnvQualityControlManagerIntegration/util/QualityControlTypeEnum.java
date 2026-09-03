@@ -8,11 +8,12 @@ import java.util.stream.Collectors;
 
 /** 质控类型 */
 public enum QualityControlTypeEnum {
-    ZERO_CHECK("0", "zero_check", "air.monitor.calibration.zero_check", "零点校准"),
-    SPAN_CHECK("1", "span_check", "air.monitor.calibration.span_check", "跨度校准"),
+    // 展示名用户拍板（2026-09 质控术语统一）：校准→检查；code/name/className 是协议与落库契约，绝不随展示名改
+    ZERO_CHECK("0", "zero_check", "air.monitor.calibration.zero_check", "零点检查"),
+    SPAN_CHECK("1", "span_check", "air.monitor.calibration.span_check", "跨度检查"),
     MULTI_CHECK("2", "multi_check", "air.monitor.calibration.multi_check", "多点检查"),
     PRECISION_CHECK("3", "precision_check", "air.monitor.calibration.precision_check", "精密度检查"),
-    ACCURACY_CHECK("4", "accuracy_check", "air.monitor.calibration.accuracy_check", "准确度校准"),
+    ACCURACY_CHECK("4", "accuracy_check", "air.monitor.calibration.accuracy_check", "准确度检查"),
     CONVERSION_CHECK("5", "conversion_check", "air.monitor.calibration.conversion_check", "转换率检查"),
     AUDIT_SPAN_CHECK("6", "audit_span_check", "air.monitor.calibration.audit-span-check", "人工核查"),
     /**
@@ -43,6 +44,21 @@ public enum QualityControlTypeEnum {
 
     public static Set<String> getAllQualityControlTypeNameSet() {
         return Arrays.stream(values()).map(QualityControlTypeEnum::getName).collect(Collectors.toSet());
+    }
+
+    /**
+     * 按落库 code（qcm_record.quality_control_type 存数字码）查枚举。
+     *
+     * @param code 数字码
+     * @return 枚举；未知 code 返回 null，由调用方决定回退形态（如导出透传原值），此处不做猜测默认
+     */
+    public static QualityControlTypeEnum fromCode(String code) {
+        for (QualityControlTypeEnum e : values()) {
+            if (e.code.equals(code)) {
+                return e;
+            }
+        }
+        return null;
     }
 
     /**

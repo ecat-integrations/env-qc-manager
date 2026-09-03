@@ -169,10 +169,18 @@ public class QcmRecord {
     /** 查询窗：end_time 止 */
     private Instant endEndTime;
 
+    /** 查询窗：start_time 起（records 页「开始时间」daterange 经 params 通道提交） */
+    private Instant beginStartTime;
+
+    /** 查询窗：start_time 止 */
+    private Instant endStartTime;
+
     /**
-     * 兼容旧 REST 契约的查询串通道（旧前端以 {@code params[beginEndTime]=...&params[endEndTime]=...}
-     * 提交时间窗）。仅识别 beginEndTime/endEndTime 两键并解析为 Instant 写入直字段；
-     * 其余键值原样留存但不参与 SQL。严格模式：格式非法抛 IllegalArgumentException，不猜默认值。
+     * 兼容旧 REST 契约的查询串通道（前端以 {@code params[beginEndTime]=...&params[endEndTime]=...}
+     * 或 {@code params[beginStartTime]=...&params[endStartTime]=...} 提交时间窗）。
+     * 识别 beginEndTime/endEndTime（end_time 窗）与 beginStartTime/endStartTime（start_time 窗）
+     * 四键并解析为 Instant 写入直字段；其余键值原样留存但不参与 SQL。
+     * 严格模式：格式非法抛 IllegalArgumentException，不猜默认值。
      */
     private Map<String, Object> params;
 
@@ -199,17 +207,37 @@ public class QcmRecord {
     }
 
     public void setParams(Map<String, Object> params) {
+        // 仅存原始 map：Spring 对 params[key] 的查询绑定会自动生长 Map 并直接塞值，
+        // setParams 只在生长时被以空 map 调用一次，之后逐键绕过本 setter——解析逻辑放这里永远跑不到。
+        // 时间窗解析由 controller 入口显式调 {@link #resolveQueryWindows()} 完成。
         this.params = params;
+    }
+
+    /**
+     * 把 params 通道的时间窗串解析为 Instant 直字段（beginEndTime/endEndTime 走 end_time 窗、
+     * beginStartTime/endStartTime 走 start_time 窗）。controller 在 list/export 入口调用。
+     *
+     * @throws IllegalArgumentException 时间格式非法（严格模式，不猜默认值）
+     */
+    public void resolveQueryWindows() {
         if (params == null) {
             return;
         }
         Object begin = params.get("beginEndTime");
         Object end = params.get("endEndTime");
+        Object beginStart = params.get("beginStartTime");
+        Object endStart = params.get("endStartTime");
         if (begin != null) {
             this.beginEndTime = parseQueryWindow("beginEndTime", begin.toString());
         }
         if (end != null) {
             this.endEndTime = parseQueryWindow("endEndTime", end.toString());
+        }
+        if (beginStart != null) {
+            this.beginStartTime = parseQueryWindow("beginStartTime", beginStart.toString());
+        }
+        if (endStart != null) {
+            this.endStartTime = parseQueryWindow("endStartTime", endStart.toString());
         }
     }
 }

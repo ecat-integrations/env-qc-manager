@@ -15,6 +15,7 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.service.QcResult
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.BatchResult;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.QcExecutionRequest;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.TriggerSource;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.CylinderArchiveSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.FlowDefaults;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDeviceReportSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
@@ -125,19 +126,28 @@ public class EnvQualityControlCustomTask extends Task implements QcResultFormatt
 
         List<Map<String, Object>> keySnap = Collections.emptyList();
         String stdGasSnap = "";
+        String stdGasUnitSnap = "";
         if (qcRecordIdForSnapshot >= 0) {
             String gasName = params != null ? (String) params.get("gas") : null;
             keySnap = buildKeyParametersSnapshotAtComplete(core, gasName);
+            // 标气快照走钢瓶档案链成对取浓度+单位（与 ResultSnapshotWriter 冻结列同一条好链；
+            // 旧 readStandardGasCylinderConcentration 裸串无单位，execution_log 消费方无法判定口径）
             if (core != null && gasName != null && !gasName.isEmpty()) {
                 try {
-                    stdGasSnap = LogicDeviceReportSupport.readStandardGasCylinderConcentration(core, gasName);
+                    CylinderArchiveSupport.GasTrace trace =
+                            CylinderArchiveSupport.readArchive(core, ParameterEnum.valueOf(gasName).getCode());
+                    if (trace != null && trace.concentration != null) {
+                        stdGasSnap = trace.concentration.toPlainString();
+                        stdGasUnitSnap = trace.concentrationUnit != null ? trace.concentrationUnit.trim() : "";
+                    }
                 } catch (Exception e) {
                     log.debug("stdGasConcentration snapshot skipped: {}", e.getMessage());
                 }
             }
         }
 
-        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, resultContentList, result, keySnap, stdGasSnap);
+        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, resultContentList, result, keySnap,
+                stdGasSnap, stdGasUnitSnap);
     }
 
     private List<Map<String, Object>> buildKeyParametersSnapshotAtComplete(EcatCore core, String gasParameterName) {

@@ -34,15 +34,6 @@ public class DtoValidationTest {
         assertEquals(java.util.Collections.singleton("id不能为空"), msgs);
     }
 
-    @Test
-    public void gasSetting_blankValueAndId_rejected() {
-        GasSettingAddDto dto = new GasSettingAddDto();
-        dto.setId(" ");
-        dto.setValue("");
-        Set<String> msgs = messages(validator.validate(dto));
-        assertTrue(msgs.contains("id不能为空"));
-        assertTrue(msgs.contains("value不能为空"));
-    }
 
     @Test
     public void auditSpanCheck_missingAndOutOfRangeFields_rejected() {

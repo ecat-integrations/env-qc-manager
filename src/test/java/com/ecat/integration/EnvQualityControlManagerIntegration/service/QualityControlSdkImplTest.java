@@ -4,9 +4,11 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.api.QualityContr
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.ResultFilter;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkBatchState;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkExecutionResult;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkPlanSetting;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkRecordDetail;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkTriggerReply;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkTriggerRequest;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecordKeyParam;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecordPhase;
@@ -54,6 +56,7 @@ class QualityControlSdkImplTest {
     private QcmRecordPhaseMapper phaseMapper;
     private QcmRecordKeyParamMapper keyParamMapper;
     private QcmRecordPointMapper pointMapper;
+    private IQcmPlanService planService;
     private QualityControlSdkImpl sdk;
 
     @BeforeEach
@@ -64,8 +67,9 @@ class QualityControlSdkImplTest {
         phaseMapper = mock(QcmRecordPhaseMapper.class);
         keyParamMapper = mock(QcmRecordKeyParamMapper.class);
         pointMapper = mock(QcmRecordPointMapper.class);
+        planService = mock(IQcmPlanService.class);
         sdk = new QualityControlSdkImpl(orchestrator, recordService, recordMapper,
-                new PlanParamValidator(), phaseMapper, keyParamMapper, pointMapper);
+                new PlanParamValidator(), phaseMapper, keyParamMapper, pointMapper, planService);
     }
 
     private static SdkTriggerRequest validSpanRequest() {
@@ -479,5 +483,171 @@ class QualityControlSdkImplTest {
         record.setExecutionStatus(status);
         record.setStartTime(Instant.now());
         return record;
+    }
+
+    // ===== queryPlans（质控计划当前设置） =====
+
+    @Test
+    void queryPlans_mapsScheduleAndInstrumentsForActivePlan() {
+        QcmPlan plan = plan(7L, "ACTIVE", "WEEKLY", "{\"hour\":9,\"minute\":30,\"weekdays\":[1,3,5]}");
+        plan.setQcType("span_check");
+        plan.setInstruments("[\"SO2\",\"NO2\"]");
+        when(planService.selectList(any())).thenReturn(Collections.singletonList(plan));
+
+        List<SdkPlanSetting> result = sdk.queryPlans(null);
+
+        assertEquals(1, result.size());
+        SdkPlanSetting s = result.get(0);
+        assertEquals(7L, s.getPlanId());
+        assertEquals("span_check", s.getQcType());
+        assertEquals(Arrays.asList("SO2", "NO2"), s.getInstruments());
+        assertEquals("WEEKLY", s.getScheduleType());
+        assertEquals(9, s.getHour());
+        assertEquals(30, s.getMinute());
+        assertTrue(s.getWeekdays().containsAll(Arrays.asList(1, 3, 5)));
+        assertEquals("ACTIVE", s.getStatus());
+        assertTrue(s.isEnabled());
+    }
+
+    @Test
+    void queryPlans_withoutStatusFilterExcludesFinishedAndMapsEnabled() {
+        QcmPlan active = plan(1L, "ACTIVE", "DAILY", "{\"hour\":1,\"minute\":0}");
+        QcmPlan paused = plan(2L, "PAUSED", "DAILY", "{\"hour\":2,\"minute\":0}");
+        QcmPlan finished = plan(3L, "FINISHED", "ONCE", "{\"onceAt\":\"2026-01-01T00:00:00Z\"}");
+        when(planService.selectList(any())).thenReturn(Arrays.asList(active, paused, finished));
+
+        List<SdkPlanSetting> result = sdk.queryPlans(null);
+
+        assertEquals(2, result.size());
+        assertEquals(1L, result.get(0).getPlanId());
+        assertTrue(result.get(0).isEnabled());
+        assertEquals(2L, result.get(1).getPlanId());
+        assertFalse(result.get(1).isEnabled());
+    }
+
+    @Test
+    void queryPlans_withStatusFilterPassesThroughAndSkipsBadSchedule() {
+        QcmPlan good = plan(1L, "ACTIVE", "DAILY", "{\"hour\":8,\"minute\":0}");
+        // WEEKLY 缺 weekdays → ScheduleSpec 构造抛，toPlanSetting 跳过不整批失败
+        QcmPlan bad = plan(2L, "ACTIVE", "WEEKLY", "{\"hour\":8,\"minute\":0}");
+        when(planService.selectList(any())).thenReturn(Arrays.asList(good, bad));
+
+        List<SdkPlanSetting> result = sdk.queryPlans("ACTIVE");
+
+        assertEquals(1, result.size());
+        assertEquals(1L, result.get(0).getPlanId());
+        ArgumentCaptor<QcmPlan> captor = ArgumentCaptor.forClass(QcmPlan.class);
+        verify(planService).selectList(captor.capture());
+        assertEquals("ACTIVE", captor.getValue().getStatus());
+    }
+
+    @Test
+    void queryPlans_nullServiceResultReturnsEmpty() {
+        when(planService.selectList(any())).thenReturn(null);
+
+        assertTrue(sdk.queryPlans("ACTIVE").isEmpty());
+    }
+
+    @Test
+    void queryPlans_blankStatusFilterTreatedAsNoFilterAndExcludesFinished() {
+        QcmPlan active = plan(1L, "ACTIVE", "DAILY", "{\"hour\":1,\"minute\":0}");
+        QcmPlan finished = plan(2L, "FINISHED", "ONCE", "{\"onceAt\":\"2026-01-01T00:00:00Z\"}");
+        when(planService.selectList(any())).thenReturn(Arrays.asList(active, finished));
+
+        List<SdkPlanSetting> result = sdk.queryPlans("   ");
+
+        assertEquals(1, result.size());
+        assertEquals(1L, result.get(0).getPlanId());
+        ArgumentCaptor<QcmPlan> captor = ArgumentCaptor.forClass(QcmPlan.class);
+        verify(planService).selectList(captor.capture());
+        assertNull(captor.getValue().getStatus());
+    }
+
+    @Test
+    void queryPlans_explicitFinishedFilterReturnsFinishedDisabled() {
+        QcmPlan finished = plan(5L, "FINISHED", "ONCE", "{\"onceAt\":\"2026-01-01T00:00:00Z\"}");
+        when(planService.selectList(any())).thenReturn(Collections.singletonList(finished));
+
+        List<SdkPlanSetting> result = sdk.queryPlans("FINISHED");
+
+        assertEquals(1, result.size());
+        assertEquals(5L, result.get(0).getPlanId());
+        assertEquals("FINISHED", result.get(0).getStatus());
+        assertFalse(result.get(0).isEnabled());
+    }
+
+    @Test
+    void queryPlans_mapsMonthlySchedule() {
+        QcmPlan plan = plan(9L, "ACTIVE", "MONTHLY", "{\"hour\":6,\"minute\":15,\"monthDays\":[1,15,31]}");
+        when(planService.selectList(any())).thenReturn(Collections.singletonList(plan));
+
+        SdkPlanSetting s = sdk.queryPlans(null).get(0);
+
+        assertEquals("MONTHLY", s.getScheduleType());
+        assertEquals(6, s.getHour());
+        assertEquals(15, s.getMinute());
+        assertTrue(s.getMonthDays().containsAll(Arrays.asList(1, 15, 31)));
+        assertNull(s.getWeekdays());
+        assertNull(s.getOnceAt());
+    }
+
+    @Test
+    void queryPlans_mapsOnceSchedule() {
+        QcmPlan plan = plan(10L, "ACTIVE", "ONCE", "{\"onceAt\":\"2026-01-02T03:04:05Z\"}");
+        when(planService.selectList(any())).thenReturn(Collections.singletonList(plan));
+
+        SdkPlanSetting s = sdk.queryPlans(null).get(0);
+
+        assertEquals("ONCE", s.getScheduleType());
+        assertEquals(Instant.parse("2026-01-02T03:04:05Z"), s.getOnceAt());
+        assertNull(s.getWeekdays());
+        assertNull(s.getMonthDays());
+    }
+
+    @Test
+    void queryPlans_instrumentsBlankNullOrInvalidJsonYieldsEmptyList() {
+        QcmPlan nullInstr = plan(1L, "ACTIVE", "DAILY", "{\"hour\":1,\"minute\":0}");
+        nullInstr.setInstruments(null);
+        QcmPlan blankInstr = plan(2L, "ACTIVE", "DAILY", "{\"hour\":1,\"minute\":0}");
+        blankInstr.setInstruments("   ");
+        QcmPlan invalidInstr = plan(3L, "ACTIVE", "DAILY", "{\"hour\":1,\"minute\":0}");
+        invalidInstr.setInstruments("not-a-json");
+        when(planService.selectList(any())).thenReturn(Arrays.asList(nullInstr, blankInstr, invalidInstr));
+
+        List<SdkPlanSetting> result = sdk.queryPlans(null);
+
+        assertEquals(3, result.size());
+        assertTrue(result.get(0).getInstruments().isEmpty());
+        assertTrue(result.get(1).getInstruments().isEmpty());
+        assertTrue(result.get(2).getInstruments().isEmpty());
+    }
+
+    @Test
+    void queryPlans_nullPlanIdMapsToZero() {
+        QcmPlan plan = plan(1L, "ACTIVE", "DAILY", "{\"hour\":1,\"minute\":0}");
+        plan.setId(null);
+        when(planService.selectList(any())).thenReturn(Collections.singletonList(plan));
+
+        assertEquals(0L, sdk.queryPlans(null).get(0).getPlanId());
+    }
+
+    @Test
+    void queryPlans_invalidScheduleConfigJsonSkipsPlan() {
+        QcmPlan bad = plan(1L, "ACTIVE", "DAILY", "{not-json}");
+        when(planService.selectList(any())).thenReturn(Collections.singletonList(bad));
+
+        assertTrue(sdk.queryPlans(null).isEmpty());
+    }
+
+    private static QcmPlan plan(long id, String status, String scheduleType, String scheduleConfig) {
+        QcmPlan p = new QcmPlan();
+        p.setId(id);
+        p.setPlanName("plan-" + id);
+        p.setQcType("zero_check");
+        p.setInstruments("[\"CO\"]");
+        p.setScheduleType(scheduleType);
+        p.setScheduleConfig(scheduleConfig);
+        p.setStatus(status);
+        return p;
     }
 }

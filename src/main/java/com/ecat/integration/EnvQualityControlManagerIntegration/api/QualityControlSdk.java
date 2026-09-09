@@ -60,4 +60,15 @@ public interface QualityControlSdk {
      * @throws IllegalArgumentException 记录不存在
      */
     SdkExecutionResult getExecutionResult(long recordId);
+
+    /**
+     * 查询质控计划的当前设置（「质控任务当前配置」类上报用）：返回中性调度/检测项字段，
+     * 协议字段名映射（Time/Days/Pollutant/TaskType 等）由调用方负责，SDK 不掺协议语义。
+     *
+     * <p>调度配置解析失败的个别计划会被跳过（不整批失败）；无匹配时返回空列表。</p>
+     *
+     * @param statusFilter 计划状态过滤（ACTIVE/PAUSED/FINISHED，精确）；为空/空白时返回全部
+     *                     非 FINISHED 计划（ACTIVE+PAUSED——已终结的一次性计划不属「当前设置」）
+     */
+    List<SdkPlanSetting> queryPlans(String statusFilter);
 }

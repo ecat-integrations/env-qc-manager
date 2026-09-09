@@ -4,10 +4,12 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.api.QualityContr
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.ResultFilter;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkBatchState;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkExecutionResult;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkPlanSetting;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkRecordDetail;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkTriggerReply;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkTriggerRequest;
 import com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto.PlanSaveDto;
+import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecordKeyParam;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecordPhase;
@@ -16,11 +18,16 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecord
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordMapper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordPhaseMapper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordPointMapper;
+import com.ecat.integration.EnvQualityControlManagerIntegration.schedule.ScheduleSpec;
+import com.ecat.integration.EnvQualityControlManagerIntegration.schedule.ScheduleSpecs;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.BatchResult;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.QcExecutionRequest;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.TriggerSource;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ExecutionStatusEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.JsonUtils;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -45,6 +52,11 @@ import java.util.Map;
 @Service
 public class QualityControlSdkImpl implements QualityControlSdk {
 
+    private static final Logger log = LoggerFactory.getLogger(QualityControlSdkImpl.class);
+
+    /** instruments JSON 数组串解析用（与 qcm 内部一致用 Jackson）。 */
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     /** queryResults 结果行数上限（防大窗全量拉取）；探测查询取上限+1，超限抛 IAE 提示收窄。 */
     static final int QUERY_RESULT_LIMIT = 500;
 
@@ -55,6 +67,7 @@ public class QualityControlSdkImpl implements QualityControlSdk {
     private final QcmRecordPhaseMapper phaseMapper;
     private final QcmRecordKeyParamMapper keyParamMapper;
     private final QcmRecordPointMapper pointMapper;
+    private final IQcmPlanService planService;
 
     @Autowired
     public QualityControlSdkImpl(QcmExecutionOrchestrator orchestrator,
@@ -63,7 +76,8 @@ public class QualityControlSdkImpl implements QualityControlSdk {
                                  PlanParamValidator validator,
                                  QcmRecordPhaseMapper phaseMapper,
                                  QcmRecordKeyParamMapper keyParamMapper,
-                                 QcmRecordPointMapper pointMapper) {
+                                 QcmRecordPointMapper pointMapper,
+                                 IQcmPlanService planService) {
         this.orchestrator = orchestrator;
         this.recordService = recordService;
         this.recordMapper = recordMapper;
@@ -71,6 +85,7 @@ public class QualityControlSdkImpl implements QualityControlSdk {
         this.phaseMapper = phaseMapper;
         this.keyParamMapper = keyParamMapper;
         this.pointMapper = pointMapper;
+        this.planService = planService;
     }
 
     @Override
@@ -235,6 +250,73 @@ public class QualityControlSdkImpl implements QualityControlSdk {
             throw new IllegalArgumentException("记录不存在: id=" + recordId);
         }
         return assemble(record);
+    }
+
+    @Override
+    public List<SdkPlanSetting> queryPlans(String statusFilter) {
+        boolean filterGiven = statusFilter != null && !statusFilter.trim().isEmpty();
+        QcmPlan query = new QcmPlan();
+        if (filterGiven) {
+            query.setStatus(statusFilter.trim());
+        }
+        List<QcmPlan> plans = planService.selectList(query);
+        List<SdkPlanSetting> out = new ArrayList<>();
+        if (plans == null) {
+            return out;
+        }
+        for (QcmPlan plan : plans) {
+            // 未给状态过滤时排除 FINISHED（已终结的一次性计划不属「当前设置」）
+            if (!filterGiven && "FINISHED".equals(plan.getStatus())) {
+                continue;
+            }
+            SdkPlanSetting setting = toPlanSetting(plan);
+            if (setting != null) {
+                out.add(setting);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * QcmPlan → SdkPlanSetting：scheduleConfig 经 {@link ScheduleSpecs} 解析出调度语义，
+     * instruments 解析 JSON 数组。调度配置非法的计划返回 null（调用方跳过，不整批失败）。
+     */
+    private SdkPlanSetting toPlanSetting(QcmPlan plan) {
+        ScheduleSpec spec;
+        try {
+            spec = ScheduleSpecs.fromConfig(plan.getScheduleType(), plan.getScheduleConfig(),
+                    plan.getPlanStartTime(), plan.getPlanEndTime());
+        } catch (Exception e) {
+            log.warn("计划 {} 调度配置解析失败，queryPlans 跳过该计划：{}", plan.getId(), e.getMessage());
+            return null;
+        }
+        return SdkPlanSetting.builder()
+                .planId(plan.getId() == null ? 0L : plan.getId())
+                .planName(plan.getPlanName())
+                .qcType(plan.getQcType())
+                .instruments(parseInstruments(plan.getInstruments()))
+                .scheduleType(plan.getScheduleType())
+                .hour(spec.getHour())
+                .minute(spec.getMinute())
+                .weekdays(spec.getWeekdays())
+                .monthDays(spec.getMonthDays())
+                .onceAt(spec.getOnceAt())
+                .status(plan.getStatus())
+                .enabled("ACTIVE".equals(plan.getStatus()))
+                .build();
+    }
+
+    /** instruments JSON 数组串 → List&lt;String&gt;；空/非法返回空列表（如实呈现，不伪造）。 */
+    private static List<String> parseInstruments(String instrumentsJson) {
+        if (instrumentsJson == null || instrumentsJson.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        try {
+            return MAPPER.readValue(instrumentsJson,
+                    MAPPER.getTypeFactory().constructCollectionType(List.class, String.class));
+        } catch (Exception e) {
+            return Collections.emptyList();
+        }
     }
 
     /** 五层组装（§4.0）：事件/结论层取 qcm_record 列，过程/工况层取三子表，判定层取列+point 子表。 */

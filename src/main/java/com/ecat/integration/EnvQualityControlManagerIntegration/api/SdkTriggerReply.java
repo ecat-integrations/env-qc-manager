@@ -14,13 +14,13 @@ import java.util.List;
 @Builder
 public class SdkTriggerReply {
 
-    /** 是否受理（拒绝含互斥闸冲突——该场景记录已写 FAILED 终态留痕） */
+    /** 是否受理（拒绝含互斥闸冲突、参数完整但非法/排队不支持——这些场景记录均已写 FAILED 终态留痕） */
     boolean accepted;
 
-    /** 批次标识（本次触发产生的 N 条记录共享；QUEUE_NOT_SUPPORTED/INVALID_PARAM 时为 null） */
+    /** 批次标识（本次触发产生的 N 条记录共享；仅请求为空/残缺（参数不可解析）或操作者缺失时为 null） */
     String batchId;
 
-    /** 批次内记录 id 列表（受理与 BUSY_CONFLICT 拒绝时非空） */
+    /** 批次内记录 id 列表（受理与留痕拒绝时非空） */
     List<Long> recordIds;
 
     /** 触发请求标识（§4.0.1：受理→轮询→结果全程同一标识；受理与留痕拒绝时非空） */

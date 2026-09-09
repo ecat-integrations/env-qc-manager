@@ -90,7 +90,7 @@ class ResultSnapshotWriterTest {
         Instant s1 = Instant.ofEpochMilli(1_700_000_060_000L);
         writer.freezeResultSnapshot(55L, "air.monitor.calibration.zero_check",
                 fullJudgement(), Collections.emptyList(), Collections.emptyList(),
-                s0, s1, 1_700_000_000_123L, "SO2");
+                s0, s1, 1_700_000_000_123L, "SO2", null);
 
         ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
         verify(recordMapper).updateResultSnapshot(captor.capture());
@@ -113,10 +113,24 @@ class ResultSnapshotWriterTest {
         assertEquals("qcm-orchestrator", row.getUpdatedBy());
     }
 
+    /**
+     * 终态归属（行内留痕矩阵 §7）：停止行传 displayOperator → 冻结行 updated_by=操作者；
+     * 传 null → 维持系统账号惯例（上方用例）。冻结晚于通用 update，归属必须在此层定型。
+     */
+    @Test
+    void terminalActor_stoppedRowCarriesOperator() {
+        writer.freezeResultSnapshot(31L, "air.monitor.calibration.span_check",
+                Collections.emptyMap(), Collections.emptyList(), Collections.emptyList(),
+                null, null, 1L, "SO2", "scada@10.0.0.1:5025");
+        ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
+        verify(recordMapper).updateResultSnapshot(captor.capture());
+        assertEquals("scada@10.0.0.1:5025", captor.getValue().getUpdatedBy());
+    }
+
     @Test
     void missingKeys_stayNull_noGuessing() {
         writer.freezeResultSnapshot(1L, "air.monitor.calibration.span_check",
-                Collections.emptyMap(), null, null, null, null, 42L, null);
+                Collections.emptyMap(), null, null, null, null, 42L, null, null);
         ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
         verify(recordMapper).updateResultSnapshot(captor.capture());
         QcmRecord row = captor.getValue();
@@ -144,7 +158,7 @@ class ResultSnapshotWriterTest {
                 new KeyParamSnapshot("主浓度", "102.5 ppb", "ppb", "80~120"),
                 new KeyParamSnapshot("流量", "1.02 L/min", "L/min", "0.9~1.1"));
         writer.freezeResultSnapshot(7L, "air.monitor.calibration.zero_check",
-                Collections.emptyMap(), phases, keyParams, null, null, 1L, "SO2");
+                Collections.emptyMap(), phases, keyParams, null, null, 1L, "SO2", null);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<QcmRecordPhase>> phaseCaptor = ArgumentCaptor.forClass((Class) List.class);
@@ -180,7 +194,7 @@ class ResultSnapshotWriterTest {
         judgement.put("stdValues", Arrays.asList(0f, 100f, 200f));
         judgement.put("deviceValues", Arrays.asList(0.5f, 101f, 199f));
         writer.freezeResultSnapshot(9L, "air.monitor.calibration.multi_check",
-                judgement, Collections.emptyList(), Collections.emptyList(), null, null, 1L, "CO");
+                judgement, Collections.emptyList(), Collections.emptyList(), null, null, 1L, "CO", null);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<QcmRecordPoint>> captor = ArgumentCaptor.forClass((Class) List.class);
@@ -204,7 +218,7 @@ class ResultSnapshotWriterTest {
         Map<String, Object> judgement = new LinkedHashMap<>();
         judgement.put("deviceValues", Arrays.asList(10.1f, 10.2f));
         writer.freezeResultSnapshot(10L, "air.monitor.calibration.precision_check",
-                judgement, Collections.emptyList(), Collections.emptyList(), null, null, 1L, "CO");
+                judgement, Collections.emptyList(), Collections.emptyList(), null, null, 1L, "CO", null);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<QcmRecordPoint>> captor = ArgumentCaptor.forClass((Class) List.class);
@@ -223,7 +237,7 @@ class ResultSnapshotWriterTest {
         judgement.put("deviceValues", Collections.singletonList(1f));
         try {
             writer.freezeResultSnapshot(11L, "x", judgement,
-                    Collections.emptyList(), Collections.emptyList(), null, null, 1L, "SO2");
+                    Collections.emptyList(), Collections.emptyList(), null, null, 1L, "SO2", null);
             throw new AssertionError("长度不等应硬抛");
         } catch (IllegalArgumentException expected) {
             assertTrue(expected.getMessage().contains("stdValues/deviceValues"));
@@ -241,7 +255,7 @@ class ResultSnapshotWriterTest {
 
             writer.freezeResultSnapshot(21L, "air.monitor.calibration.span_check",
                     fullJudgement(), Collections.emptyList(), Collections.emptyList(),
-                    null, null, 1L, "1");
+                    null, null, 1L, "1", null);
         }
         ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
         verify(recordMapper).updateResultSnapshot(captor.capture());
@@ -260,7 +274,7 @@ class ResultSnapshotWriterTest {
 
             writer.freezeResultSnapshot(22L, "air.monitor.calibration.span_check",
                     fullJudgement(), Collections.emptyList(), Collections.emptyList(),
-                    null, null, 1L, "3");
+                    null, null, 1L, "3", null);
         }
         ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
         verify(recordMapper).updateResultSnapshot(captor.capture());
@@ -276,7 +290,7 @@ class ResultSnapshotWriterTest {
     void freezeMethod_isTransactional() throws Exception {
         Method m = ResultSnapshotWriter.class.getMethod("freezeResultSnapshot",
                 long.class, String.class, Map.class, List.class, List.class,
-                Instant.class, Instant.class, long.class, String.class);
+                Instant.class, Instant.class, long.class, String.class, String.class);
         Transactional tx = m.getAnnotation(Transactional.class);
         assertNotNull(tx, "freezeResultSnapshot 必须 @Transactional");
     }
@@ -292,19 +306,19 @@ class ResultSnapshotWriterTest {
 
     private void fullScale_frozen_body() {
         writer.freezeResultSnapshot(21L, "air.monitor.calibration.span_check",
-                Collections.emptyMap(), null, null, null, null, 1L, "1"); // SO2 code
+                Collections.emptyMap(), null, null, null, null, 1L, "1", null); // SO2 code
         ArgumentCaptor<QcmRecord> captor1 = ArgumentCaptor.forClass(QcmRecord.class);
         verify(recordMapper, Mockito.times(1)).updateResultSnapshot(captor1.capture());
         assertEquals(new BigDecimal("500"), captor1.getValue().getFullScale());
 
         writer.freezeResultSnapshot(22L, "air.monitor.calibration.span_check",
-                Collections.emptyMap(), null, null, null, null, 1L, "4"); // CO code
+                Collections.emptyMap(), null, null, null, null, 1L, "4", null); // CO code
         ArgumentCaptor<QcmRecord> captor2 = ArgumentCaptor.forClass(QcmRecord.class);
         verify(recordMapper, Mockito.times(2)).updateResultSnapshot(captor2.capture());
         assertEquals(new BigDecimal("50000"), captor2.getValue().getFullScale());
 
         writer.freezeResultSnapshot(23L, "air.monitor.calibration.span_check",
-                Collections.emptyMap(), null, null, null, null, 1L, null);
+                Collections.emptyMap(), null, null, null, null, 1L, null, null);
         ArgumentCaptor<QcmRecord> captor3 = ArgumentCaptor.forClass(QcmRecord.class);
         verify(recordMapper, Mockito.times(3)).updateResultSnapshot(captor3.capture());
         assertNull(captor3.getValue().getFullScale());
@@ -325,7 +339,7 @@ class ResultSnapshotWriterTest {
             support.when(() -> LogicDeviceReportSupport.resolveAnalyzerPhysicalDeviceId(core, "SO2"))
                     .thenReturn("dev-so2-1");
             writer.freezeResultSnapshot(31L, "air.monitor.calibration.span_check",
-                    Collections.emptyMap(), null, null, null, null, 1L, "1");
+                    Collections.emptyMap(), null, null, null, null, 1L, "1", null);
         }
         ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
         verify(recordMapper).updateResultSnapshot(captor.capture());
@@ -341,7 +355,7 @@ class ResultSnapshotWriterTest {
             support.when(() -> LogicDeviceReportSupport.resolveAnalyzerPhysicalDeviceId(core, "CO"))
                     .thenReturn(null);
             writer.freezeResultSnapshot(32L, "air.monitor.calibration.span_check",
-                    Collections.emptyMap(), null, null, null, null, 1L, "4");
+                    Collections.emptyMap(), null, null, null, null, 1L, "4", null);
         }
         ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
         verify(recordMapper).updateResultSnapshot(captor.capture());
@@ -355,7 +369,7 @@ class ResultSnapshotWriterTest {
         try (MockedStatic<CylinderArchiveSupport> support = Mockito.mockStatic(CylinderArchiveSupport.class)) {
             support.when(() -> CylinderArchiveSupport.readArchive(core, "4")).thenReturn(null);
             writer.freezeResultSnapshot(42L, "air.monitor.calibration.span_check",
-                    Collections.emptyMap(), null, null, null, null, 1L, "4");
+                    Collections.emptyMap(), null, null, null, null, 1L, "4", null);
             support.verify(() -> CylinderArchiveSupport.readArchive(core, "4"));
         }
         verify(recordMapper).updateResultSnapshot(any(QcmRecord.class));

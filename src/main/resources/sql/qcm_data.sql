@@ -34,6 +34,10 @@
 --   ALTER TABLE qcm_record ADD COLUMN IF NOT EXISTS flow_type varchar(100);
 --   ALTER TABLE qcm_record ADD COLUMN IF NOT EXISTS flow_execution_ref varchar(100);
 --   -- 增列后重跑本文件即可带上 COMMENT / 子表 / 索引（均 IF NOT EXISTS 幂等）。
+--   -- 4) SDK 停止执行留痕的列宽扩展（幂等可重跑；varchar 扩宽不破坏存量行）：
+--   --    触发与停止都写 displayOperator，PLATFORM 形态 name@ip[:port]（含 IPv6）可超 50。
+--   ALTER TABLE qcm_record ALTER COLUMN trigger_user TYPE varchar(100);
+--   ALTER TABLE qcm_record ALTER COLUMN updated_by   TYPE varchar(100);
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -104,7 +108,7 @@ CREATE TABLE IF NOT EXISTS qcm_record (
     execution_status     int4         NOT NULL,
     execution_log        text,
     result_evaluation    text,
-    trigger_user         varchar(50)  NOT NULL,
+    trigger_user         varchar(100) NOT NULL,
     failure_reason       varchar(50),
     record_snapshot      jsonb,
     -- 判定标量（完成时冻结；standard_value/monitoring_data/calculated_value 为原表激活列）
@@ -130,7 +134,7 @@ CREATE TABLE IF NOT EXISTS qcm_record (
     flow_type            varchar(100),
     flow_execution_ref   varchar(100),
     created_by           varchar(50)  NOT NULL,
-    updated_by           varchar(50)  NOT NULL,
+    updated_by           varchar(100) NOT NULL,
     create_time          timestamptz  NOT NULL DEFAULT now(),
     update_time          timestamptz  NOT NULL DEFAULT now()
 );
@@ -168,11 +172,11 @@ COMMENT ON COLUMN qcm_record.flow_execution_ref IS '排障关联标识（编排�
 COMMENT ON COLUMN qcm_record.execution_status IS '执行状态（ExecutionStatusEnum int4 编码）';
 COMMENT ON COLUMN qcm_record.execution_log IS '执行日志文本（含 phaseTimelines 阶段时间线，现状机制沿用）';
 COMMENT ON COLUMN qcm_record.result_evaluation IS '结果评定';
-COMMENT ON COLUMN qcm_record.trigger_user IS '触发者：MANUAL=用户名 / SCHEDULED=system / REMOTE=sourceName';
+COMMENT ON COLUMN qcm_record.trigger_user IS '触发者 displayOperator：一般形态=操作者名（用户名/system/集成名），PLATFORM 形态=name@ip[:port]；varchar(100) 为容纳平台网络端点';
 COMMENT ON COLUMN qcm_record.failure_reason IS '结构化失败原因枚举（FR-02-23）；普通失败仍走 execution_log';
 COMMENT ON COLUMN qcm_record.record_snapshot IS '触发时的计划配置快照（名称/类型/仪器/参数摘要）；计划删除后记录仍可溯源';
 COMMENT ON COLUMN qcm_record.created_by IS '创建人';
-COMMENT ON COLUMN qcm_record.updated_by IS '更新人';
+COMMENT ON COLUMN qcm_record.updated_by IS '更新人 displayOperator：一般形态=操作者名，PLATFORM 形态=name@ip[:port]（停止/触发留痕统一口径）；varchar(100) 为容纳平台网络端点';
 COMMENT ON COLUMN qcm_record.create_time IS '创建时间';
 COMMENT ON COLUMN qcm_record.update_time IS '更新时间';
 

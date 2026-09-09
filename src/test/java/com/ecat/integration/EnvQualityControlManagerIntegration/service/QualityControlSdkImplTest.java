@@ -4,8 +4,13 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.api.QualityContr
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.ResultFilter;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkBatchState;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkExecutionResult;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkOperator;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkOperatorSource;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkPlanSetting;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkRecordDetail;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkRunningExecution;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkStopReply;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkStopRequest;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkTriggerReply;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkTriggerRequest;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan;
@@ -19,7 +24,9 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecord
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordPointMapper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.BatchResult;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.QcExecutionRequest;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.StopOutcome;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.TriggerSource;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.JsonUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -30,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -38,7 +46,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -72,14 +84,39 @@ class QualityControlSdkImplTest {
                 new PlanParamValidator(), phaseMapper, keyParamMapper, pointMapper, planService);
     }
 
-    private static SdkTriggerRequest validSpanRequest() {
+    private static SdkOperator sdkLocalOperator(String name) {
+        return SdkOperator.builder().sourceType(SdkOperatorSource.SDK_LOCAL).name(name).build();
+    }
+
+    private static SdkTriggerRequest spanRequestWithOperator(SdkOperator operator) {
         return SdkTriggerRequest.builder()
                 .qcType("span_check")
                 .instruments(Collections.singletonList("SO2"))
                 .concentrationPpb(BigDecimal.valueOf(400))
-                .sourceName("lims-system")
+                .operator(operator)
                 .allowQueue(false)
                 .build();
+    }
+
+    private static SdkTriggerRequest validSpanRequest() {
+        return spanRequestWithOperator(sdkLocalOperator("lims-system"));
+    }
+
+    /** 拒绝留痕桩：persistRejectedBatch 返回带批次标识的 REJECTED_PRE_TRIGGER（模拟编排器建行回执）。 */
+    private void stubRejectedTrace() {
+        when(orchestrator.persistRejectedBatch(any(), any(), anyString(), anyString(), anyString()))
+                .thenAnswer(inv -> BatchResult.rejectedPreTrigger("batch-reject",
+                        Collections.singletonList(91L), "req-reject", inv.getArgument(3, String.class)));
+    }
+
+    /** 经编排器第三参（triggerUser=displayOperator）观测来源拼平结果；同用例多次触发取末次捕获。 */
+    private String triggerAndCaptureTriggerUser(SdkOperator operator) {
+        when(orchestrator.triggerExecution(any(), eq(TriggerSource.REMOTE), anyString()))
+                .thenReturn(BatchResult.accepted("batch-op", Collections.singletonList(11L)));
+        sdk.trigger(spanRequestWithOperator(operator));
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(orchestrator, atLeastOnce()).triggerExecution(any(), eq(TriggerSource.REMOTE), captor.capture());
+        return captor.getValue();
     }
 
     @Test
@@ -110,17 +147,63 @@ class QualityControlSdkImplTest {
         assertEquals(Collections.singletonList("SO2"), req.getInstruments());
         assertEquals(0, BigDecimal.valueOf(400).compareTo(req.getConcentrationPpb()));
         assertNotNull(req.getPlanSnapshotJson());
-        assertTrue(req.getPlanSnapshotJson().contains("REMOTE_SDK"));
-        assertTrue(req.getPlanSnapshotJson().contains("lims-system"));
+        // 快照带操作者结构化留痕（来源契约 §6）：形态/标识原样进快照，拼平结果只落 trigger_user 列
+        Map<String, Object> snapshot = JsonUtils.parseMap(req.getPlanSnapshotJson(), String.class, Object.class);
+        assertEquals("REMOTE_SDK", snapshot.get("source"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> operatorSnapshot = (Map<String, Object>) snapshot.get("operator");
+        assertEquals("SDK_LOCAL", operatorSnapshot.get("sourceType"));
+        assertEquals("lims-system", operatorSnapshot.get("name"));
+        assertNull(operatorSnapshot.get("ip"));
+        assertNull(operatorSnapshot.get("port"));
     }
 
     @Test
-    void triggerWithAllowQueueRejectedWithoutTouchingOrchestrator() {
+    void triggerSnapshotKeepsPlatformOperatorNetworkFields() {
+        when(orchestrator.triggerExecution(any(), eq(TriggerSource.REMOTE), eq("scada@10.0.0.1:5025")))
+                .thenReturn(BatchResult.accepted("batch-1", Collections.singletonList(11L)));
+
+        sdk.trigger(spanRequestWithOperator(SdkOperator.builder()
+                .sourceType(SdkOperatorSource.PLATFORM).name("scada").ip("10.0.0.1").port(5025).build()));
+
+        ArgumentCaptor<QcExecutionRequest> captor = ArgumentCaptor.forClass(QcExecutionRequest.class);
+        verify(orchestrator).triggerExecution(captor.capture(), eq(TriggerSource.REMOTE), eq("scada@10.0.0.1:5025"));
+        Map<String, Object> snapshot =
+                JsonUtils.parseMap(captor.getValue().getPlanSnapshotJson(), String.class, Object.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> operatorSnapshot = (Map<String, Object>) snapshot.get("operator");
+        assertEquals("PLATFORM", operatorSnapshot.get("sourceType"));
+        assertEquals("scada", operatorSnapshot.get("name"));
+        assertEquals("10.0.0.1", operatorSnapshot.get("ip"));
+        assertEquals(5025, operatorSnapshot.get("port"));
+    }
+
+    @Test
+    void displayOperatorFlattenedPerOperatorForm() {
+        // PLATFORM：name@ip[:port]
+        assertEquals("scada@10.0.0.1:5025", triggerAndCaptureTriggerUser(SdkOperator.builder()
+                .sourceType(SdkOperatorSource.PLATFORM).name("scada").ip("10.0.0.1").port(5025).build()));
+        assertEquals("scada@10.0.0.1", triggerAndCaptureTriggerUser(SdkOperator.builder()
+                .sourceType(SdkOperatorSource.PLATFORM).name("scada").ip("10.0.0.1").build()));
+        // PLATFORM 缺 ip：退化为仅 name（网络边界漏填不伪造对端）
+        assertEquals("scada", triggerAndCaptureTriggerUser(SdkOperator.builder()
+                .sourceType(SdkOperatorSource.PLATFORM).name("scada").build()));
+        // 其余形态：仅 name
+        assertEquals("system", triggerAndCaptureTriggerUser(SdkOperator.builder()
+                .sourceType(SdkOperatorSource.SCHEDULE).name("system").build()));
+        assertEquals("adm_user", triggerAndCaptureTriggerUser(SdkOperator.builder()
+                .sourceType(SdkOperatorSource.REST_USER).name("adm_user").build()));
+        assertEquals("lims-system", triggerAndCaptureTriggerUser(sdkLocalOperator("lims-system")));
+    }
+
+    @Test
+    void triggerWithAllowQueueRejectedButTracedWhenParamsComplete() {
+        stubRejectedTrace();
         SdkTriggerRequest request = SdkTriggerRequest.builder()
                 .qcType("span_check")
                 .instruments(Collections.singletonList("SO2"))
                 .concentrationPpb(BigDecimal.valueOf(400))
-                .sourceName("lims-system")
+                .operator(sdkLocalOperator("lims-system"))
                 .allowQueue(true)
                 .build();
 
@@ -128,39 +211,100 @@ class QualityControlSdkImplTest {
 
         assertFalse(reply.isAccepted());
         assertEquals(QualityControlSdk.REASON_QUEUE_NOT_SUPPORTED, reply.getReason());
-        assertNull(reply.getBatchId());
+        // 回执不哑拒：批次标识随留痕行回带
+        assertEquals("batch-reject", reply.getBatchId());
+        assertEquals(Collections.singletonList(91L), reply.getRecordIds());
+        assertEquals("req-reject", reply.getTriggerRequestId());
+        // 触发前拒绝不经互斥闸路径，走留痕建行
         verify(orchestrator, never()).triggerExecution(any(), any(), any());
+        verify(orchestrator).persistRejectedBatch(any(), eq(TriggerSource.REMOTE), eq("lims-system"),
+                eq(QualityControlSdk.REASON_QUEUE_NOT_SUPPORTED), anyString());
     }
 
     @Test
-    void triggerWithBlankSourceNameRejectedInvalidParam() {
-        SdkTriggerReply reply = sdk.trigger(SdkTriggerRequest.builder()
-                .qcType("span_check")
-                .instruments(Collections.singletonList("SO2"))
-                .concentrationPpb(BigDecimal.valueOf(400))
-                .sourceName("  ")
-                .allowQueue(false)
-                .build());
+    void triggerWithOperatorMissingRejectedInvalidParamWithoutTrace() {
+        SdkTriggerReply nullOperator = sdk.trigger(spanRequestWithOperator(null));
 
-        assertFalse(reply.isAccepted());
-        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, reply.getReason());
-        assertTrue(reply.getMessage().contains("sourceName"));
+        assertFalse(nullOperator.isAccepted());
+        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, nullOperator.getReason());
+        assertTrue(nullOperator.getMessage().contains("operator"));
+        assertNull(nullOperator.getBatchId());
         verify(orchestrator, never()).triggerExecution(any(), any(), any());
+
+        SdkTriggerReply blankName = sdk.trigger(spanRequestWithOperator(sdkLocalOperator("  ")));
+
+        assertFalse(blankName.isAccepted());
+        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, blankName.getReason());
+        verify(orchestrator, never()).triggerExecution(any(), any(), any());
+        // 无来源的触发尝试不可归属（trigger_user NOT NULL 不塞假值）：不留痕
+        verify(orchestrator, never()).persistRejectedBatch(any(), any(), any(), any(), any());
     }
 
     @Test
-    void triggerWithMissingConcentrationRejectedBySharedValidatorRules() {
-        // span_check 必填标气浓度（与计划保存同一校验器，FR-03-17）
+    void triggerWithMissingConcentrationRejectedBySharedValidatorRulesAndTraced() {
+        stubRejectedTrace();
+        // span_check 必填标气浓度（与计划保存同一校验器，FR-03-17）；qcType/instruments 可解析 → 建行留痕
         SdkTriggerReply reply = sdk.trigger(SdkTriggerRequest.builder()
                 .qcType("span_check")
                 .instruments(Collections.singletonList("SO2"))
-                .sourceName("lims-system")
+                .operator(sdkLocalOperator("lims-system"))
                 .allowQueue(false)
                 .build());
 
         assertFalse(reply.isAccepted());
         assertEquals(QualityControlSdk.REASON_INVALID_PARAM, reply.getReason());
         assertTrue(reply.getMessage().contains("标气浓度"));
+        assertEquals("batch-reject", reply.getBatchId());
+        verify(orchestrator).persistRejectedBatch(any(), eq(TriggerSource.REMOTE), eq("lims-system"),
+                eq(QualityControlSdk.REASON_INVALID_PARAM), anyString());
+        verify(orchestrator, never()).triggerExecution(any(), any(), any());
+    }
+
+    @Test
+    void triggerWithUnparseableParamsRejectedWithoutTrace() {
+        // 残缺请求（§7 边界1）：五个 NOT NULL 业务列填不出，reply 拒绝不建行
+        SdkTriggerReply unknownQcType = sdk.trigger(SdkTriggerRequest.builder()
+                .qcType("not_a_type")
+                .instruments(Collections.singletonList("SO2"))
+                .operator(sdkLocalOperator("lims-system"))
+                .allowQueue(false)
+                .build());
+        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, unknownQcType.getReason());
+        assertTrue(unknownQcType.getMessage().contains("不支持的质控类型"));
+        assertNull(unknownQcType.getBatchId());
+
+        SdkTriggerReply unknownInstrument = sdk.trigger(SdkTriggerRequest.builder()
+                .qcType("span_check")
+                .instruments(Collections.singletonList("XXX"))
+                .operator(sdkLocalOperator("lims-system"))
+                .allowQueue(false)
+                .build());
+        assertNull(unknownInstrument.getBatchId());
+
+        SdkTriggerReply noInstrument = sdk.trigger(SdkTriggerRequest.builder()
+                .qcType("span_check")
+                .operator(sdkLocalOperator("lims-system"))
+                .allowQueue(false)
+                .build());
+        assertNull(noInstrument.getBatchId());
+
+        verify(orchestrator, never()).persistRejectedBatch(any(), any(), any(), any(), any());
+        verify(orchestrator, never()).triggerExecution(any(), any(), any());
+    }
+
+    @Test
+    void triggerWithAllowQueueAndUnparseableParamsRejectedWithoutTrace() {
+        SdkTriggerReply reply = sdk.trigger(SdkTriggerRequest.builder()
+                .qcType("not_a_type")
+                .instruments(Collections.singletonList("SO2"))
+                .operator(sdkLocalOperator("lims-system"))
+                .allowQueue(true)
+                .build());
+
+        assertFalse(reply.isAccepted());
+        assertEquals(QualityControlSdk.REASON_QUEUE_NOT_SUPPORTED, reply.getReason());
+        assertNull(reply.getBatchId());
+        verify(orchestrator, never()).persistRejectedBatch(any(), any(), any(), any(), any());
         verify(orchestrator, never()).triggerExecution(any(), any(), any());
     }
 
@@ -649,5 +793,163 @@ class QualityControlSdkImplTest {
         p.setScheduleConfig(scheduleConfig);
         p.setStatus(status);
         return p;
+    }
+
+    // ===== stop / queryRunning（§5） =====
+
+    private static SdkStopRequest stopRequest(Long recordId, String batchId, String triggerRequestId,
+                                              boolean allRunning, SdkOperator operator) {
+        return SdkStopRequest.builder()
+                .recordId(recordId)
+                .batchId(batchId)
+                .triggerRequestId(triggerRequestId)
+                .allRunning(allRunning)
+                .operator(operator)
+                .build();
+    }
+
+    /** 批次上下文桩：stop/queryRunning 的业务字段都按 batchId 读记录行组装。 */
+    private void stubBatchRows(String batchId, QcmRecord... rows) {
+        when(recordMapper.selectByBatchId(batchId)).thenReturn(Arrays.asList(rows));
+    }
+
+    @Test
+    void stopAcceptedCarriesBatchContextAndDisplayOperator() {
+        QcmRecord first = record(11L, 1);
+        first.setQualityControlType("span_check");
+        QcmRecord second = record(12L, 1);
+        second.setQualityControlType("span_check");
+        stubBatchRows("batch-s1", first, second);
+        when(orchestrator.stopExecution(eq(11L), isNull(), isNull(), eq(false), eq("scada@10.0.0.1:5025")))
+                .thenReturn(StopOutcome.initiated("质控记录已中止", "batch-s1", Arrays.asList(11L, 12L)));
+
+        SdkStopReply reply = sdk.stop(stopRequest(11L, null, null, false,
+                SdkOperator.builder().sourceType(SdkOperatorSource.PLATFORM)
+                        .name("scada").ip("10.0.0.1").port(5025).build()));
+
+        assertTrue(reply.isAccepted());
+        assertEquals(QualityControlSdk.REASON_STOP_INITIATED, reply.getReason());
+        assertEquals("batch-s1", reply.getBatchId());
+        assertEquals(Arrays.asList(11L, 12L), reply.getRecordIds());
+        assertEquals("span_check", reply.getQcType());
+        assertEquals(Arrays.asList("SO2", "SO2"), reply.getInstruments());
+        assertNotNull(reply.getStartTime());
+        assertTrue(reply.getMessage().contains("质控记录已中止"));
+        assertTrue(reply.getMessage().contains("queryExecution"));
+    }
+
+    @Test
+    void stopAlreadyTerminalRejectedWithBatchContext() {
+        QcmRecord settled = record(21L, 2);
+        settled.setQualityControlType("span_check");
+        stubBatchRows("batch-s2", settled);
+        when(orchestrator.stopExecution(isNull(), eq("batch-s2"), isNull(), eq(false), eq("lims-system")))
+                .thenReturn(StopOutcome.alreadySettled("批次已结束，无需中止", "batch-s2", Collections.singletonList(21L)));
+
+        SdkStopReply reply = sdk.stop(stopRequest(null, "batch-s2 ", null, false, sdkLocalOperator("lims-system")));
+
+        assertFalse(reply.isAccepted());
+        assertEquals(QualityControlSdk.REASON_ALREADY_TERMINAL, reply.getReason());
+        assertEquals("批次已结束，无需中止", reply.getMessage());
+        // 幂等拒绝同样回带批次定位：调用方可辨「停的是哪个批次、为何没停」
+        assertEquals("batch-s2", reply.getBatchId());
+        assertEquals(Collections.singletonList(21L), reply.getRecordIds());
+        assertEquals("span_check", reply.getQcType());
+    }
+
+    @Test
+    void stopNothingRunningAndNotFoundHaveNoBatchContext() {
+        when(orchestrator.stopExecution(isNull(), isNull(), isNull(), eq(true), eq("lims-system")))
+                .thenReturn(StopOutcome.nothingRunning("当前没有运行中的质控执行"));
+        SdkStopReply nothing = sdk.stop(stopRequest(null, null, null, true, sdkLocalOperator("lims-system")));
+        assertFalse(nothing.isAccepted());
+        assertEquals(QualityControlSdk.REASON_NOTHING_RUNNING, nothing.getReason());
+        assertNull(nothing.getBatchId());
+        assertNull(nothing.getRecordIds());
+        assertNull(nothing.getQcType());
+
+        when(orchestrator.stopExecution(eq(99L), isNull(), isNull(), eq(false), eq("lims-system")))
+                .thenReturn(StopOutcome.notFound("质控记录不存在"));
+        SdkStopReply missing = sdk.stop(stopRequest(99L, null, null, false, sdkLocalOperator("lims-system")));
+        assertFalse(missing.isAccepted());
+        assertEquals(QualityControlSdk.REASON_RECORD_NOT_FOUND, missing.getReason());
+        assertNull(missing.getBatchId());
+    }
+
+    @Test
+    void stopMissingOrBlankOperatorRejectedWithoutOrchestratorCall() {
+        SdkStopReply noOperator = sdk.stop(stopRequest(11L, null, null, false, null));
+        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, noOperator.getReason());
+        assertFalse(noOperator.isAccepted());
+
+        SdkStopReply blankName = sdk.stop(stopRequest(11L, null, null, false,
+                SdkOperator.builder().sourceType(SdkOperatorSource.SDK_LOCAL).name("  ").build()));
+        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, blankName.getReason());
+
+        SdkStopReply nullRequest = sdk.stop(null);
+        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, nullRequest.getReason());
+
+        verify(orchestrator, never()).stopExecution(any(), any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    void stopAddressingConflictMappedFromOrchestrator() {
+        // 寻址唯一真相在编排器：多键同传由其判 INVALID_PARAM，SDK 面只做词汇翻译
+        when(orchestrator.stopExecution(any(), any(), any(), anyBoolean(), anyString()))
+                .thenReturn(StopOutcome.invalidParam("寻址字段必须且只能提供一个：recordId/batchId/triggerRequestId/allRunning"));
+
+        SdkStopReply reply = sdk.stop(stopRequest(11L, "batch-1", null, false, sdkLocalOperator("lims-system")));
+
+        assertFalse(reply.isAccepted());
+        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, reply.getReason());
+        assertNull(reply.getBatchId());
+    }
+
+    @Test
+    void stopTriggerRequestIdHandleForwardedTrimmed() {
+        stubBatchRows("batch-s3", record(31L, 4));
+        when(orchestrator.stopExecution(isNull(), isNull(), eq("req-3"), eq(false), eq("lims-system")))
+                .thenReturn(StopOutcome.alreadySettled("批次正在终止，无需重复中止", "batch-s3",
+                        Collections.singletonList(31L)));
+
+        SdkStopReply reply = sdk.stop(stopRequest(null, null, " req-3 ", false, sdkLocalOperator("lims-system")));
+
+        assertFalse(reply.isAccepted());
+        assertEquals(QualityControlSdk.REASON_ALREADY_TERMINAL, reply.getReason());
+        assertEquals("批次正在终止，无需重复中止", reply.getMessage());
+    }
+
+    @Test
+    void queryRunningIdleReturnsEmptyList() {
+        when(orchestrator.runningBatchId()).thenReturn(null);
+        assertTrue(sdk.queryRunning().isEmpty());
+    }
+
+    @Test
+    void queryRunningMapsRunningBatchRowToExecution() {
+        when(orchestrator.runningBatchId()).thenReturn("batch-r");
+        QcmRecord first = record(41L, 1);
+        first.setBatchId("batch-r");
+        first.setQualityControlType("span_check");
+        first.setTriggerRequestId("req-r");
+        first.setTaskType(TriggerSource.REMOTE.getCode());
+        first.setTriggerUser("scada@10.0.0.1:5025");
+        QcmRecord second = record(42L, 1);
+        second.setBatchId("batch-r");
+        second.setParameter("NO2");
+        stubBatchRows("batch-r", first, second);
+
+        List<SdkRunningExecution> running = sdk.queryRunning();
+
+        assertEquals(1, running.size());
+        SdkRunningExecution execution = running.get(0);
+        assertEquals("batch-r", execution.getBatchId());
+        assertEquals(Arrays.asList(41L, 42L), execution.getRecordIds());
+        assertEquals("req-r", execution.getTriggerRequestId());
+        assertEquals("span_check", execution.getQcType());
+        // 多仪器批次的受检仪器列表 = 批次各行 parameter 去重前顺序聚合
+        assertEquals(Arrays.asList("SO2", "NO2"), execution.getInstruments());
+        assertEquals("REMOTE", execution.getTriggerSource());
+        assertEquals("scada@10.0.0.1:5025", execution.getTriggerUser());
     }
 }

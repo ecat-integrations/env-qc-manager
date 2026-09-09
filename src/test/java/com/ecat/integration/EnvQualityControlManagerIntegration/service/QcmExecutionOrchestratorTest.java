@@ -5,38 +5,54 @@ import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.integration.EnvCalibrationComposerIntegration.AbstractCalibrationFlow;
 import com.ecat.integration.EnvCalibrationComposerIntegration.EnvCalibrationComposerIntegration;
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorResultBase;
+import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorStoppedException;
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorType;
 import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseExecutionRecord;
+import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseInfo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.EnvQualityControlManagerIntegration;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmPlanMapper;
+import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordKeyParamMapper;
+import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordMapper;
+import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordPhaseMapper;
+import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordPointMapper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.BatchResult;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.QcExecutionRequest;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.StopOutcome;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.TriggerSource;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ExecutionStatusEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -51,6 +67,7 @@ class QcmExecutionOrchestratorTest {
 
     private IQcmRecordService recordService;
     private QcmPlanMapper planMapper;
+    private QcmRecordMapper recordMapper;
     private EcatCore core;
     private IntegrationRegistry registry;
     private EnvCalibrationComposerIntegration composer;
@@ -63,6 +80,7 @@ class QcmExecutionOrchestratorTest {
     void setUp() {
         recordService = mock(IQcmRecordService.class);
         planMapper = mock(QcmPlanMapper.class);
+        recordMapper = mock(QcmRecordMapper.class);
         core = mock(EcatCore.class);
         registry = mock(IntegrationRegistry.class);
         composer = mock(EnvCalibrationComposerIntegration.class);
@@ -77,7 +95,7 @@ class QcmExecutionOrchestratorTest {
         when(formatter.formatStub(any(), any(), any(), anyString(), org.mockito.ArgumentMatchers.anyLong()))
                 .thenReturn("{}");
         snapshotWriter = mock(ResultSnapshotWriter.class);
-        orchestrator = new QcmExecutionOrchestrator(recordService, planMapper, core, snapshotWriter);
+        orchestrator = new QcmExecutionOrchestrator(recordService, planMapper, recordMapper, core, snapshotWriter);
         orchestrator.setFormatters(Collections.singletonList(formatter));
         // 模拟 insertBatch 的 useGeneratedKeys id 回填（生产由 DB 驱动回填）
         when(recordService.insertQcmRecordBatch(any(List.class))).thenAnswer(inv -> {
@@ -472,7 +490,8 @@ class QcmExecutionOrchestratorTest {
         verify(snapshotWriter).freezeResultSnapshot(eq(100L), eq("air.monitor.calibration.zero_check"),
                 judgementCaptor.capture(), any(List.class), any(List.class),
                 eq(Instant.ofEpochMilli(1700000000000L)), eq(Instant.ofEpochMilli(1700000100000L)),
-                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString());
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                isNull());
         Map<String, Object> judgement = judgementCaptor.getValue();
         assertEquals(100.5, ((Number) judgement.get("stdValue")).doubleValue(), 1e-9);
         assertEquals(Boolean.TRUE, judgement.get("isPass"));
@@ -497,7 +516,7 @@ class QcmExecutionOrchestratorTest {
         org.mockito.ArgumentCaptor<Long> millisCaptor = org.mockito.ArgumentCaptor.forClass(Long.class);
         verify(snapshotWriter).freezeResultSnapshot(eq(100L), anyString(), any(Map.class),
                 any(List.class), any(List.class), isNull(), isNull(), millisCaptor.capture(),
-                org.mockito.ArgumentMatchers.anyString());
+                org.mockito.ArgumentMatchers.anyString(), isNull());
         assertTrue(millisCaptor.getValue() >= before && millisCaptor.getValue() <= after,
                 "flowStartMillis 应取受理时刻");
     }
@@ -509,6 +528,436 @@ class QcmExecutionOrchestratorTest {
         verify(snapshotWriter, never()).freezeResultSnapshot(org.mockito.ArgumentMatchers.anyLong(),
                 anyString(), any(Map.class), any(List.class), any(List.class),
                 isNull(), isNull(), org.mockito.ArgumentMatchers.anyLong(),
-                org.mockito.ArgumentMatchers.any());
+                org.mockito.ArgumentMatchers.any(), isNull());
+    }
+
+    // ---------- persistRejectedBatch（行内留痕矩阵：触发前拒绝也建 FAILED 留痕行） ----------
+
+    @Test
+    void persistRejectedBatch_writesFailedTraceRowsForWholeBatch() {
+        QcExecutionRequest req = QcExecutionRequest.builder()
+                .qcType("multi_check")
+                .instruments(Arrays.asList("SO2", "NO2"))
+                .planSnapshotJson("{\"source\":\"REMOTE_SDK\",\"operator\":{\"name\":\"scada\"}}")
+                .build();
+
+        BatchResult result = orchestrator.persistRejectedBatch(req, TriggerSource.REMOTE,
+                "scada@10.0.0.1:5025", "INVALID_PARAM", "标气浓度必填");
+
+        assertEquals(BatchResult.Status.REJECTED_PRE_TRIGGER, result.getStatus());
+        assertEquals("INVALID_PARAM", result.getFailureReason());
+        assertNotNull(result.getBatchId());
+        assertNotNull(result.getTriggerRequestId());
+        List<QcmRecord> inserted = captureInsertedBatch(2);
+        assertEquals(2, result.getRecordIds().size());
+        for (QcmRecord record : inserted) {
+            assertEquals(result.getBatchId(), record.getBatchId());
+            assertEquals(result.getTriggerRequestId(), record.getTriggerRequestId());
+            assertEquals(TriggerSource.REMOTE.getCode(), record.getTaskType());
+            assertEquals("scada@10.0.0.1:5025", record.getTriggerUser());
+            assertEquals("scada@10.0.0.1:5025", record.getUpdatedBy());
+            assertEquals(QualityControlTypeEnum.MULTI_CHECK.getCode(), record.getQualityControlType());
+            assertEquals("{\"source\":\"REMOTE_SDK\",\"operator\":{\"name\":\"scada\"}}",
+                    record.getRecordSnapshot());
+        }
+        assertEquals(ParameterEnum.SO2.getCode(), inserted.get(0).getParameter());
+        assertEquals(ParameterEnum.NO2.getCode(), inserted.get(1).getParameter());
+
+        // 批次立即收敛 FAILED 终态（每行一次落库，逐字段错误进 result_evaluation）
+        ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
+        verify(recordService, times(2)).updateQcmRecord(captor.capture());
+        for (QcmRecord record : captor.getAllValues()) {
+            assertEquals(ExecutionStatusEnum.FAILED.getCode().intValue(), record.getExecutionStatus());
+            assertEquals("INVALID_PARAM", record.getFailureReason());
+            assertEquals("标气浓度必填", record.getResultEvaluation());
+            assertEquals("标气浓度必填", record.getExecutionLog());
+            assertNotNull(record.getEndTime());
+        }
+    }
+
+    @Test
+    void persistRejectedBatch_neverTouchesMutexGateOrComposer() {
+        QcExecutionRequest req = singleInstrumentRequest().build();
+        orchestrator.persistRejectedBatch(req, TriggerSource.REMOTE, "lims-system",
+                "QUEUE_NOT_SUPPORTED", "SDK 触发不支持排队");
+
+        verify(composer, never()).isRunning();
+        verify(composer, never()).execute(any(ExecutorType.class), anyString(), any(Map.class));
+        // 只写库不启动执行：executorMap 不挂 flow，计划推进也不参与（planId=null）
+        assertTrue(entry.executorMap.isEmpty());
+        verify(planMapper, never()).updateLastFireTime(any(), any(Instant.class), anyString());
+        verify(snapshotWriter, never()).freezeResultSnapshot(org.mockito.ArgumentMatchers.anyLong(),
+                anyString(), any(Map.class), any(List.class), any(List.class),
+                isNull(), isNull(), org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(), isNull());
+    }
+
+    @Test
+    void persistRejectedBatch_blankIdentityArgsRejectedBeforeAnyWrite() {
+        QcExecutionRequest req = singleInstrumentRequest().build();
+        assertThrows(IllegalArgumentException.class, () -> orchestrator.persistRejectedBatch(
+                null, TriggerSource.REMOTE, "lims-system", "INVALID_PARAM", "m"));
+        assertThrows(IllegalArgumentException.class, () -> orchestrator.persistRejectedBatch(
+                req, TriggerSource.REMOTE, " ", "INVALID_PARAM", "m"));
+        assertThrows(IllegalArgumentException.class, () -> orchestrator.persistRejectedBatch(
+                req, TriggerSource.REMOTE, "lims-system", " ", "m"));
+        verify(recordService, never()).insertQcmRecordBatch(any(List.class));
+        verify(recordService, never()).updateQcmRecord(any());
+    }
+
+    // ---------- 统一停止入口（§8 上移；REST/SDK 两面共用） ----------
+
+    /** 中止入口轻量行（selectStopTarget* 三列：id/batch_id/execution_status）。 */
+    private QcmRecord liteTarget(long id, String batchId, int executionStatus) {
+        QcmRecord target = new QcmRecord();
+        target.setId(id);
+        target.setBatchId(batchId);
+        target.setExecutionStatus(executionStatus);
+        return target;
+    }
+
+    private void stubStopWrites(String batchId, int markedRows) {
+        when(recordMapper.markStopInProgressClearEndTime(anyLong(), anyInt(), any(Instant.class), anyString()))
+                .thenReturn(markedRows);
+    }
+
+    @Test
+    void stopExecution_requiresExactlyOneAddressingKey() {
+        StopOutcome empty = orchestrator.stopExecution(null, null, null, false, "tester");
+        assertEquals(StopOutcome.Status.INVALID_PARAM, empty.getStatus());
+        StopOutcome multi = orchestrator.stopExecution(11L, "batch-1", null, false, "tester");
+        assertEquals(StopOutcome.Status.INVALID_PARAM, multi.getStatus());
+        // 寻址不合法不触碰任何停止写路径
+        verify(recordMapper, never()).markStopInProgressClearEndTime(
+                anyLong(), anyInt(), any(Instant.class), anyString());
+        verify(recordMapper, never()).terminateByBatchId(anyString(), anyInt(), anyString(), any(Instant.class), anyString());
+    }
+
+    @Test
+    void stopExecution_blankOperatorRejectedBeforeAnyLookup() {
+        assertThrows(IllegalArgumentException.class,
+                () -> orchestrator.stopExecution(11L, null, null, false, " "));
+        verify(recordMapper, never()).selectStopTargetById(anyLong());
+    }
+
+    @Test
+    void stopExecution_byRecordId_stopsFlowOnceMarksWholeBatchAndClearsMap() {
+        when(recordMapper.selectStopTargetById(11L)).thenReturn(liteTarget(11L, "batch-1",
+                ExecutionStatusEnum.RUNNING.getCode().intValue()));
+        when(recordMapper.selectBatchRowIds("batch-1")).thenReturn(Arrays.asList(11L, 12L, 13L));
+        AbstractCalibrationFlow flow = mock(AbstractCalibrationFlow.class);
+        // 同批 N 行共享同一 flow，句柄可能只挂在其中一行上
+        entry.executorMap.put(12L, flow);
+        stubStopWrites("batch-1", 1);
+
+        StopOutcome outcome = orchestrator.stopExecution(11L, null, null, false, "tester");
+
+        assertEquals(StopOutcome.Status.INITIATED, outcome.getStatus());
+        assertEquals("质控记录已中止", outcome.getMessage());
+        assertEquals("batch-1", outcome.getBatchId());
+        assertEquals(Arrays.asList(11L, 12L, 13L), outcome.getRecordIds());
+        // flow 恰好停一次；批次全部行置 STOPPING；句柄不残留
+        verify(flow, times(1)).stop();
+        verify(recordMapper, times(3)).markStopInProgressClearEndTime(anyLong(),
+                eq(ExecutionStatusEnum.STOPPING.getCode().intValue()), any(Instant.class), eq("tester"));
+        assertTrue(entry.executorMap.isEmpty());
+    }
+
+    @Test
+    void stopExecution_stopsFlowBeforeClearingExecutorMap_defect2() {
+        when(recordMapper.selectStopTargetById(11L)).thenReturn(liteTarget(11L, "batch-1",
+                ExecutionStatusEnum.RUNNING.getCode().intValue()));
+        when(recordMapper.selectBatchRowIds("batch-1")).thenReturn(Collections.singletonList(11L));
+        AbstractCalibrationFlow flow = mock(AbstractCalibrationFlow.class);
+        entry.executorMap.put(11L, flow);
+        stubStopWrites("batch-1", 1);
+        // 缺陷#2 根治点：停止回调在 flow.stop() 内从 executorMap 取 flow 解析阶段时间线，
+        // 断言 stop 被调用那一刻句柄仍在 map 上（先停后清）——回调拿得到 flow 才有时间线
+        AtomicBoolean flowVisibleAtStop = new AtomicBoolean(false);
+        doAnswer(inv -> {
+            flowVisibleAtStop.set(entry.executorMap.containsKey(11L));
+            return null;
+        }).when(flow).stop();
+
+        orchestrator.stopExecution(11L, null, null, false, "tester");
+
+        assertTrue(flowVisibleAtStop.get(), "flow.stop() 时执行器句柄必须仍在 map（先停后清）");
+        assertTrue(entry.executorMap.isEmpty());
+    }
+
+    @Test
+    void stopExecution_resolvesBatchAndTriggerRequestHandles() {
+        when(recordMapper.selectStopTargetByBatchId("batch-2")).thenReturn(liteTarget(21L, "batch-2",
+                ExecutionStatusEnum.RUNNING.getCode().intValue()));
+        when(recordMapper.selectStopTargetByTriggerRequestId("req-3")).thenReturn(liteTarget(31L, "batch-3",
+                ExecutionStatusEnum.RUNNING.getCode().intValue()));
+        when(recordMapper.selectBatchRowIds(anyString())).thenReturn(Collections.singletonList(21L));
+        stubStopWrites("batch-2", 1);
+        AbstractCalibrationFlow flow = mock(AbstractCalibrationFlow.class);
+        entry.executorMap.put(21L, flow);
+
+        assertEquals(StopOutcome.Status.INITIATED,
+                orchestrator.stopExecution(null, "batch-2", null, false, "tester").getStatus());
+        verify(recordMapper, never()).selectStopTargetById(anyLong());
+
+        // 触发请求句柄寻址：同一受理的 N 行共享 trigger_request_id，任取一行定位批次
+        when(recordMapper.selectBatchRowIds("batch-3")).thenReturn(Collections.singletonList(31L));
+        entry.executorMap.put(31L, flow);
+        StopOutcome byRequest = orchestrator.stopExecution(null, null, "req-3", false, "tester");
+        assertEquals(StopOutcome.Status.INITIATED, byRequest.getStatus());
+        assertEquals("batch-3", byRequest.getBatchId());
+    }
+
+    @Test
+    void stopExecution_allRunningStopsCurrentRunningBatch_idleReportsNothingRunning() {
+        // 单飞语义：executorMap 非空即当前唯一运行批次，任一行反查定位批次
+        when(recordMapper.selectStopTargetById(anyLong())).thenReturn(liteTarget(11L, "batch-1",
+                ExecutionStatusEnum.RUNNING.getCode().intValue()));
+        when(recordMapper.selectBatchRowIds("batch-1")).thenReturn(Arrays.asList(11L, 12L));
+        AbstractCalibrationFlow flow = mock(AbstractCalibrationFlow.class);
+        entry.executorMap.put(12L, flow);
+        stubStopWrites("batch-1", 2);
+
+        StopOutcome allRunning = orchestrator.stopExecution(null, null, null, true, "tester");
+        assertEquals(StopOutcome.Status.INITIATED, allRunning.getStatus());
+        assertEquals("batch-1", allRunning.getBatchId());
+
+        // 全停且无运行：非故障语义 NOTHING_RUNNING，不触碰任何写路径
+        entry.executorMap.clear();
+        StopOutcome idle = orchestrator.stopExecution(null, null, null, true, "tester");
+        assertEquals(StopOutcome.Status.NOTHING_RUNNING, idle.getStatus());
+        assertNull(idle.getBatchId());
+        verify(recordMapper, never()).terminateByBatchId(anyString(), anyInt(), anyString(), any(Instant.class), anyString());
+    }
+
+    @Test
+    void stopExecution_unknownHandleReportsNotFound() {
+        when(recordMapper.selectStopTargetById(99L)).thenReturn(null);
+        when(recordMapper.selectStopTargetByBatchId("nope")).thenReturn(null);
+
+        StopOutcome byRecord = orchestrator.stopExecution(99L, null, null, false, "tester");
+        assertEquals(StopOutcome.Status.NOT_FOUND, byRecord.getStatus());
+        assertEquals("质控记录不存在", byRecord.getMessage());
+        StopOutcome byBatch = orchestrator.stopExecution(null, "nope", null, false, "tester");
+        assertEquals(StopOutcome.Status.NOT_FOUND, byBatch.getStatus());
+        assertEquals("批次不存在", byBatch.getMessage());
+    }
+
+    /**
+     * 停止终态文案带操作者（缺陷 #3），且走 composer 的真实被停通道：
+     * composer 把停止异常经 handle 转成 isException 结果对象完成 future（「流程被用户手动终止」原文案），
+     * 编排器据此换算「流程被 {displayOperator} 手动终止」；执行失败同通道落库，不得被冒名改写。
+     */
+    @Test
+    void stopExecution_stampsOperatorIntoStoppedTerminalViaComposerResultPath() {
+        AbstractCalibrationFlow flow = mock(AbstractCalibrationFlow.class);
+        stubIdleAndRunningFlow();
+        when(composer.getRunningExecutor()).thenReturn(flow);
+        CompletableFuture<ExecutorResultBase> future = new CompletableFuture<>();
+        when(composer.execute(any(ExecutorType.class), anyString(), any(Map.class))).thenReturn(future);
+        BatchResult accepted = orchestrator.triggerExecution(
+                singleInstrumentRequest().build(), TriggerSource.REMOTE, "sdk");
+        List<QcmRecord> inserted = captureInsertedBatch(1);
+        long recordId = accepted.getRecordIds().get(0);
+        String batchId = inserted.get(0).getBatchId();
+        when(recordMapper.selectStopTargetById(recordId)).thenReturn(liteTarget(recordId, batchId,
+                ExecutionStatusEnum.RUNNING.getCode().intValue()));
+        when(recordMapper.selectBatchRowIds(batchId)).thenReturn(Collections.singletonList(recordId));
+        stubStopWrites(batchId, 1);
+        // composer 真实行为：stop() 完成 future；此处让回调在 flow.stop() 内同步触发，
+        // 同时验证暂存先于 stop 写入（回调读得到停止者）
+        doAnswer(inv -> {
+            ExecutorResultBase stopped = new ExecutorResultBase(false, true);
+            stopped.setErrorMessage(QcmExecutionOrchestrator.COMPOSER_STOP_EVALUATION);
+            stopped.setPhaseRecords(Collections.singletonList(
+                    new PhaseExecutionRecord("p1", "阶段一", Instant.now(), Instant.now(), 10)));
+            future.complete(stopped);
+            return null;
+        }).when(flow).stop();
+
+        StopOutcome outcome = orchestrator.stopExecution(recordId, null, null, false, "scada@10.0.0.1:5025");
+
+        assertEquals(StopOutcome.Status.INITIATED, outcome.getStatus());
+        ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
+        // 第一次是启动前 RUNNING 标记，第二次是被停终态
+        verify(recordService, times(2)).updateQcmRecord(captor.capture());
+        QcmRecord terminal = captor.getAllValues().get(1);
+        assertEquals(ExecutionStatusEnum.FAILED.getCode().intValue(), terminal.getExecutionStatus());
+        assertEquals("流程被 scada@10.0.0.1:5025 手动终止", terminal.getResultEvaluation());
+        // 行内留痕矩阵 §7：updated_by 同落 displayOperator——创建期旧 updatedBy 不得经回调回写覆盖
+        assertEquals("scada@10.0.0.1:5025", terminal.getUpdatedBy());
+        // 消费完即清：同一批次无第二次停止者可读
+        verify(recordMapper, times(1)).markStopInProgressClearEndTime(
+                eq(recordId), anyInt(), any(Instant.class), eq("scada@10.0.0.1:5025"));
+    }
+
+    /**
+     * 快照冻结晚于通用 update：冻结若仍写系统账号（SNAPSHOT_ACTOR），停止者 updated_by 会在
+     * updateQcmRecord 之后被覆写回去（浏览器回归 2026-09-09 实证：result_evaluation 正确带操作者
+     * 而 updated_by=qcm-orchestrator）。行内留痕矩阵 §7：停止行终态归属=操作者，须贯通冻结层。
+     */
+    @Test
+    void stopExecution_freezeLayerKeepsStopOperatorAsUpdatedBy() {
+        ResultSnapshotWriter realWriter = new ResultSnapshotWriter(recordMapper,
+                mock(QcmRecordPhaseMapper.class), mock(QcmRecordKeyParamMapper.class),
+                mock(QcmRecordPointMapper.class), core);
+        QcmExecutionOrchestrator wired = new QcmExecutionOrchestrator(
+                recordService, planMapper, recordMapper, core, realWriter);
+        wired.setFormatters(Collections.singletonList(formatter));
+
+        AbstractCalibrationFlow flow = mock(AbstractCalibrationFlow.class);
+        stubIdleAndRunningFlow();
+        when(composer.getRunningExecutor()).thenReturn(flow);
+        CompletableFuture<ExecutorResultBase> future = new CompletableFuture<>();
+        when(composer.execute(any(ExecutorType.class), anyString(), any(Map.class))).thenReturn(future);
+        BatchResult accepted = wired.triggerExecution(
+                singleInstrumentRequest().build(), TriggerSource.REMOTE, "sdk");
+        List<QcmRecord> inserted = captureInsertedBatch(1);
+        long recordId = accepted.getRecordIds().get(0);
+        String batchId = inserted.get(0).getBatchId();
+        when(recordMapper.selectStopTargetById(recordId)).thenReturn(liteTarget(recordId, batchId,
+                ExecutionStatusEnum.RUNNING.getCode().intValue()));
+        when(recordMapper.selectBatchRowIds(batchId)).thenReturn(Collections.singletonList(recordId));
+        stubStopWrites(batchId, 1);
+        doAnswer(inv -> {
+            ExecutorResultBase stopped = new ExecutorResultBase(false, true);
+            stopped.setErrorMessage(QcmExecutionOrchestrator.COMPOSER_STOP_EVALUATION);
+            future.complete(stopped);
+            return null;
+        }).when(flow).stop();
+
+        wired.stopExecution(recordId, null, null, false, "scada@10.0.0.1:5025");
+
+        ArgumentCaptor<QcmRecord> freezeCaptor = ArgumentCaptor.forClass(QcmRecord.class);
+        verify(recordMapper, times(1)).updateResultSnapshot(freezeCaptor.capture());
+        assertEquals("scada@10.0.0.1:5025", freezeCaptor.getValue().getUpdatedBy());
+    }
+
+    /** 同通道的普通执行失败（errorMessage 非 composer 停止文案）不得被冒名成「被停」。 */
+    @Test
+    void stopExecution_genuineFailureNotRenamedByStagedOperator() {
+        AbstractCalibrationFlow flow = mock(AbstractCalibrationFlow.class);
+        stubIdleAndRunningFlow();
+        when(composer.getRunningExecutor()).thenReturn(flow);
+        CompletableFuture<ExecutorResultBase> future = new CompletableFuture<>();
+        when(composer.execute(any(ExecutorType.class), anyString(), any(Map.class))).thenReturn(future);
+        BatchResult accepted = orchestrator.triggerExecution(
+                singleInstrumentRequest().build(), TriggerSource.REMOTE, "sdk");
+        List<QcmRecord> inserted = captureInsertedBatch(1);
+        long recordId = accepted.getRecordIds().get(0);
+        String batchId = inserted.get(0).getBatchId();
+        when(recordMapper.selectStopTargetById(recordId)).thenReturn(liteTarget(recordId, batchId,
+                ExecutionStatusEnum.RUNNING.getCode().intValue()));
+        when(recordMapper.selectBatchRowIds(batchId)).thenReturn(Collections.singletonList(recordId));
+        stubStopWrites(batchId, 1);
+        doAnswer(inv -> {
+            ExecutorResultBase failure = new ExecutorResultBase(false, true);
+            failure.setErrorMessage("zero check aborted by device");
+            future.complete(failure);
+            return null;
+        }).when(flow).stop();
+
+        orchestrator.stopExecution(recordId, null, null, false, "tester");
+
+        ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
+        verify(recordService, times(2)).updateQcmRecord(captor.capture());
+        assertEquals("zero check aborted by device", captor.getAllValues().get(1).getResultEvaluation());
+    }
+
+    /**
+     * 异常通道（future 以 ExecutorStoppedException 完成）同样带停止者留痕，
+     * 且阶段时间线取自仍在 map 上的 flow（缺陷 #2 的回调侧证据）。
+     */
+    @Test
+    void stopExecution_stoppedExceptionCallbackKeepsPhaseTimelineAndOperator() {
+        AbstractCalibrationFlow flow = mock(AbstractCalibrationFlow.class);
+        when(flow.getExecutorPhases()).thenReturn(Collections.singletonList(
+                new PhaseInfo("p1", "阶段一", 10)));
+        stubIdleAndRunningFlow();
+        when(composer.getRunningExecutor()).thenReturn(flow);
+        CompletableFuture<ExecutorResultBase> future = new CompletableFuture<>();
+        when(composer.execute(any(ExecutorType.class), anyString(), any(Map.class))).thenReturn(future);
+        BatchResult accepted = orchestrator.triggerExecution(
+                singleInstrumentRequest().build(), TriggerSource.REMOTE, "sdk");
+        List<QcmRecord> inserted = captureInsertedBatch(1);
+        long recordId = accepted.getRecordIds().get(0);
+        String batchId = inserted.get(0).getBatchId();
+        when(recordMapper.selectStopTargetById(recordId)).thenReturn(liteTarget(recordId, batchId,
+                ExecutionStatusEnum.RUNNING.getCode().intValue()));
+        when(recordMapper.selectBatchRowIds(batchId)).thenReturn(Collections.singletonList(recordId));
+        stubStopWrites(batchId, 1);
+        doAnswer(inv -> {
+            future.completeExceptionally(new ExecutorStoppedException("ZeroCheckFlow", "SO2"));
+            return null;
+        }).when(flow).stop();
+
+        orchestrator.stopExecution(recordId, null, null, false, "tester");
+
+        ArgumentCaptor<ExecutorResultBase> stubCaptor = ArgumentCaptor.forClass(ExecutorResultBase.class);
+        verify(formatter, times(1)).formatStub(any(), any(), stubCaptor.capture(), anyString(),
+                org.mockito.ArgumentMatchers.anyLong());
+        assertEquals("流程被 tester 手动终止", stubCaptor.getValue().getErrorMessage());
+        assertEquals(1, stubCaptor.getValue().getPhaseRecords().size());
+        ArgumentCaptor<QcmRecord> recordCaptor = ArgumentCaptor.forClass(QcmRecord.class);
+        verify(recordService, times(2)).updateQcmRecord(recordCaptor.capture());
+        assertEquals("流程被 tester 手动终止", recordCaptor.getAllValues().get(1).getResultEvaluation());
+        // 行内留痕矩阵 §7：异常通道同样 updated_by 落 displayOperator
+        assertEquals("tester", recordCaptor.getAllValues().get(1).getUpdatedBy());
+    }
+
+    /** 未受理的停止（守卫 0 行=回调已先行收敛）不残留停止者暂存：后续终态文案不得再被改写。 */
+    @Test
+    void stopExecution_rejectedStopDoesNotLeaveStagedOperator() {
+        when(recordMapper.selectStopTargetById(51L)).thenReturn(liteTarget(51L, "batch-51",
+                ExecutionStatusEnum.FAILED.getCode().intValue()));
+        when(recordMapper.selectBatchRowIds("batch-51")).thenReturn(Collections.singletonList(51L));
+        AbstractCalibrationFlow flow = mock(AbstractCalibrationFlow.class);
+        entry.executorMap.put(51L, flow);
+        stubStopWrites("batch-51", 0);
+
+        StopOutcome outcome = orchestrator.stopExecution(51L, null, null, false, "late-comer");
+
+        assertEquals(StopOutcome.Status.ALREADY_SETTLED, outcome.getStatus());
+        assertEquals("批次已结束，无需中止", outcome.getMessage());
+        verify(flow, times(1)).stop();
+        verify(recordMapper, never()).terminateByBatchId(anyString(), anyInt(), anyString(), any(Instant.class), anyString());
+        verify(recordMapper, never()).terminateById(anyLong(), anyInt(), anyString(), any(Instant.class), anyString());
+    }
+
+    /** 无 batch_id 的历史行 + 运行 flow：停止照常受理，updated_by 仍留操作者（暂存槽位跳过，无 null key）。 */
+    @Test
+    void stopExecution_legacyRowWithoutBatchIdStillInitiates() {
+        when(recordMapper.selectStopTargetById(71L)).thenReturn(liteTarget(71L, null,
+                ExecutionStatusEnum.RUNNING.getCode().intValue()));
+        AbstractCalibrationFlow flow = mock(AbstractCalibrationFlow.class);
+        entry.executorMap.put(71L, flow);
+        when(recordMapper.markStopInProgressClearEndTime(eq(71L), anyInt(), any(Instant.class), eq("tester")))
+                .thenReturn(1);
+
+        StopOutcome outcome = orchestrator.stopExecution(71L, null, null, false, "tester");
+
+        assertEquals(StopOutcome.Status.INITIATED, outcome.getStatus());
+        assertNull(outcome.getBatchId());
+        verify(flow, times(1)).stop();
+        verify(recordMapper).markStopInProgressClearEndTime(eq(71L),
+                eq(ExecutionStatusEnum.STOPPING.getCode().intValue()), any(Instant.class), eq("tester"));
+        verify(recordMapper, never()).terminateById(anyLong(), anyInt(), anyString(), any(Instant.class), anyString());
+    }
+
+    @Test
+    void runningBatchId_resolvesRunningBatchOrNullWhenIdle() {
+        assertNull(orchestrator.runningBatchId());
+        when(recordMapper.selectStopTargetById(anyLong())).thenReturn(liteTarget(11L, "batch-1",
+                ExecutionStatusEnum.RUNNING.getCode().intValue()));
+        entry.executorMap.put(11L, mock(AbstractCalibrationFlow.class));
+        assertEquals("batch-1", orchestrator.runningBatchId());
+    }
+
+    /** 运行中批次行不存在属执行状态自洽被破坏：硬抛暴露，不以「无运行」掩盖。 */
+    @Test
+    void runningBatchId_missingRowForRunningFlowThrows() {
+        when(recordMapper.selectStopTargetById(anyLong())).thenReturn(null);
+        entry.executorMap.put(11L, mock(AbstractCalibrationFlow.class));
+        assertThrows(IllegalStateException.class, () -> orchestrator.runningBatchId());
     }
 }

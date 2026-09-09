@@ -33,8 +33,9 @@ public class SdkTriggerRequest {
     /** 阶段时长覆盖（稀疏；key 白名单与计划参数表 14 键同词汇，值正整数秒） */
     Map<String, Number> durationOverrides;
 
-    /** 触发来源名（必填；落 qcm_record.trigger_user，拒绝时留痕可溯源） */
-    String sourceName;
+    /** 触发操作者（必填且 name 必填，来源契约 §6）：存储侧拼平 displayOperator
+     *  落 qcm_record.trigger_user，拒绝时留痕可溯源 */
+    SdkOperator operator;
 
     /** 是否允许排队等待（必填；当前不支持排队，true 直接拒绝 QUEUE_NOT_SUPPORTED，FR-03-07） */
     boolean allowQueue;

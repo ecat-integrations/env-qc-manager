@@ -126,6 +126,18 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         select id, batch_id, execution_status from qcm_record where id = #{id}
     </select>
 
+    <!-- 中止入口轻量查询（批次句柄寻址，SDK stop batchId）：同一批次取首行即定位，三列同上不加载大字段 -->
+    <select id="selectStopTargetByBatchId" parameterType="String" resultMap="QcmRecordResult">
+        select id, batch_id, execution_status from qcm_record where batch_id = #{batchId} order by id asc limit 1
+    </select>
+
+    <!-- 中止入口轻量查询（触发请求句柄寻址，SDK stop triggerRequestId）：一次受理的 N 行共享
+         trigger_request_id，取首行即定位批次；三列同上，防大字段加载（G-PERF-6 同纪律） -->
+    <select id="selectStopTargetByTriggerRequestId" parameterType="String" resultMap="QcmRecordResult">
+        select id, batch_id, execution_status from qcm_record
+        where trigger_request_id = #{triggerRequestId} order by id asc limit 1
+    </select>
+
     <select id="selectBatchRowIds" parameterType="String" resultType="Long">
         select id from qcm_record where batch_id = #{batchId} order by id asc
     </select>
@@ -309,6 +321,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where id = #{id}
     </update>
 
+    <!-- 状态守卫 AND execution_status IN (0,1)：只允许 WAITING/RUNNING 被置 STOPING。
+         挡住两类已终态行改写：① 已 SUCCESS/FAILED 批次被 stop 覆盖 end_time/result_evaluation（幂等缺失）；
+         ② 回调刚落终态、executorMap 未清空的竞态窗口内 stop 把终态行改挂 STOPING 且再无回调收敛（永久挂死）。
+         STOPPING(4) 同样排除：已在中止中的行再置一次 STOPING 无意义。0 行受影响=批次已结算，调用方据此回执不改库。 -->
     <update id="markStopInProgressClearEndTime">
         update qcm_record
         set execution_status = #{executionStatus},
@@ -316,9 +332,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             update_time = #{updateTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
             updated_by = #{updatedBy}
         where id = #{id}
+          and execution_status in (0, 1)
     </update>
 
-    <!-- 单行直接收敛终止（G-BUG-2）：无运行执行器时中止不再置 STOPING 挂死 -->
+    <!-- 单行直接收敛终止（G-BUG-2）：无运行执行器时中止不再置 STOPING 挂死。
+         状态守卫同 markStopInProgress：已终态行（SUCCESS/FAILED）的 end_time/result_evaluation 是执行事实，stop 不得覆盖 -->
     <update id="terminateById">
         update qcm_record
         set execution_status = #{executionStatus},
@@ -327,9 +345,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             update_time = #{endTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
             updated_by = #{updatedBy}
         where id = #{id}
+          and execution_status in (0, 1)
     </update>
 
-    <!-- 批次 set-based 终止（FR-02-20） -->
+    <!-- 批次 set-based 终止（FR-02-20）。状态守卫同 terminateById：幂等停止对已终态批次 0 行受影响 -->
     <update id="terminateByBatchId">
         update qcm_record
         set execution_status = #{executionStatus},
@@ -338,6 +357,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             update_time = #{endTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
             updated_by = #{updatedBy}
         where batch_id = #{batchId}
+          and execution_status in (0, 1)
     </update>
 
     <!-- 更新executionStatus为1/4的记录，将其executionStatus置为传入参数，将resultEvaluation置为传入参数，并可选增加创建时间条件 -->

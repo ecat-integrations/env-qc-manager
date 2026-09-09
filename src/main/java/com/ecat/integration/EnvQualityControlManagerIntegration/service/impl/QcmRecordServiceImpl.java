@@ -4,20 +4,16 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
-import java.util.Collections;
 
-import com.ecat.core.EcatCore;
-import com.ecat.integration.EnvCalibrationComposerIntegration.AbstractCalibrationFlow;
-import com.ecat.integration.EnvQualityControlManagerIntegration.EnvQualityControlManagerIntegration;
-import com.ecat.integration.EnvQualityControlManagerIntegration.util.ExecutionStatusEnum;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordMapper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmRecordService;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.QcmExecutionOrchestrator;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.StopOutcome;
 
 import static com.ruoyi.common.utils.SecurityUtils.getUsername;
 
@@ -32,17 +28,25 @@ public class QcmRecordServiceImpl implements IQcmRecordService
 {
     @Autowired
     private QcmRecordMapper qcmRecordMapper;
-    protected final Logger log = LoggerFactory.getLogger(this.getClass());
+
+    /**
+     * 停止决策核心在编排器（设计 §8 上移，REST 与 SDK 共用）。本服务与编排器互相依赖：
+     * 编排器构造注入本服务做回调落库，本服务又引用编排器——构造器边使环无法靠单侧字段注入解开
+     * （编排器先被创建时，其构造参数解析先于自身实例化，本服务拿不到编排器早期引用，
+     * 容器抛 BeanCurrentlyInCreationException）。@Lazy 注入代理，首次调用才解析目标，
+     * 与两个 bean 的创建顺序无关，环稳定解开。
+     */
     @Autowired
-    private EcatCore core;
+    @Lazy
+    private QcmExecutionOrchestrator orchestrator;
 
     public QcmRecordServiceImpl() {
     }
 
     /** Spring 用法走字段注入 + 默认构造；本构造仅供单测直接装配 mock。 */
-    public QcmRecordServiceImpl(QcmRecordMapper qcmRecordMapper, EcatCore core) {
+    public QcmRecordServiceImpl(QcmRecordMapper qcmRecordMapper, QcmExecutionOrchestrator orchestrator) {
         this.qcmRecordMapper = qcmRecordMapper;
-        this.core = core;
+        this.orchestrator = orchestrator;
     }
 
     /**
@@ -130,63 +134,20 @@ public class QcmRecordServiceImpl implements IQcmRecordService
         return qcmRecordMapper.update(qcmRecord);
     }
      /**
-     * 中止质控记录（FR-02-19/20/21，G-BUG-2/G-PERF-6）：
-     * 存在性判断走轻量列查询（id/batch_id/execution_status，不整行加载 execution_log 大字段）；
-     * 批次内含运行中 flow → flow.stop() 一次 + 批次全部行置 STOPING（终止终态由编排器回调落库）；
-     * 无运行执行器（已结束/异常残留）→ 不再置 STOPING 挂死，直接 set-based 收敛到终止终态。
+     * 中止质控记录（FR-02-19/20/21）薄壳：批次定位、flow.stop、守卫 SQL 幂等、无执行器收敛等
+     * 停止决策全部在 {@link QcmExecutionOrchestrator#stopExecution}（设计 §8 上移，REST 与 SDK 共用），
+     * 本层只补 REST 侧来源（登录账号）并把统一结果翻成既有 Map 形态（code=200 受理 / 400 拒绝）。
      *
      * @param id 质控记录主键
-     * @return 结果
+     * @return 结果（code=200 已受理中止；code=400 记录不存在或批次已结算无需中止）
      */
     @Override
     public Map<String, Object> stopQcmRecord(Long id)
     {
+        StopOutcome outcome = orchestrator.stopExecution(id, null, null, false, getUsername());
         Map<String, Object> result = new HashMap<>();
-        QcmRecord target = qcmRecordMapper.selectStopTargetById(id);
-        if(target == null){
-            result.put("code", 400);
-            result.put("msg", "质控记录不存在");
-            return result;
-        }
-        EnvQualityControlManagerIntegration integration = (EnvQualityControlManagerIntegration) core.getIntegrationRegistry().getIntegration("integration-env-qc-manager");
-        Map<Long, AbstractCalibrationFlow> executorMap = integration.executorMap;
-        List<Long> rowIds = target.getBatchId() != null
-                ? qcmRecordMapper.selectBatchRowIds(target.getBatchId())
-                : Collections.singletonList(id);
-        log.info("stopQcmRecord:id={},batchId={},rows={},executorMap={}",
-                id, target.getBatchId(), rowIds.size(), executorMap.size());
-        Instant now = Instant.now();
-        String updatedBy = getUsername();
-        AbstractCalibrationFlow flow = null;
-        for (Long rowId : rowIds) {
-            AbstractCalibrationFlow candidate = executorMap.remove(rowId);
-            if (candidate != null) {
-                flow = candidate;
-            }
-        }
-        if (flow != null) {
-            flow.stop();
-            log.info("stopQcmRecord:开启终止成功");
-            for (Long rowId : rowIds) {
-                qcmRecordMapper.markStopInProgressClearEndTime(
-                        rowId, ExecutionStatusEnum.STOPPING.getCode().intValue(), now, updatedBy);
-            }
-            result.put("code", 200);
-            result.put("msg", "质控记录已中止");
-            return result;
-        }
-        // G-BUG-2 收敛修复：记录不在 executorMap（已结束/异常残留）→ 直接置终止终态，不留 STOPING 挂死
-        log.warn("stopQcmRecord:id={} 无运行执行器，直接收敛为终止终态", id);
-        String evaluation = "质控已中止（无运行执行器，直接收敛）";
-        if (target.getBatchId() != null) {
-            qcmRecordMapper.terminateByBatchId(target.getBatchId(),
-                    ExecutionStatusEnum.FAILED.getCode().intValue(), evaluation, now, updatedBy);
-        } else {
-            qcmRecordMapper.terminateById(id,
-                    ExecutionStatusEnum.FAILED.getCode().intValue(), evaluation, now, updatedBy);
-        }
-        result.put("code", 200);
-        result.put("msg", evaluation);
+        result.put("code", outcome.getStatus() == StopOutcome.Status.INITIATED ? 200 : 400);
+        result.put("msg", outcome.getMessage());
         return result;
     }
 

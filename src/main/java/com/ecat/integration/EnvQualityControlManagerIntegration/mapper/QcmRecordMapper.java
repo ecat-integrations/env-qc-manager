@@ -26,6 +26,19 @@ public interface QcmRecordMapper {
     QcmRecord selectStopTargetById(Long id);
 
     /**
+     * 中止入口的存在性/批次定位查询（批次句柄寻址，SDK stop batchId）：取批次首行同样的三列，
+     * 不整行加载大字段；无该批次返回 null。
+     */
+    QcmRecord selectStopTargetByBatchId(String batchId);
+
+    /**
+     * 中止入口的存在性/批次定位查询（触发请求句柄寻址，SDK stop triggerRequestId）：
+     * 同一受理的 N 行共享 trigger_request_id，取首行即定位批次；列集与
+     * {@link #selectStopTargetById(Long)} 一致（轻量三列），无匹配返回 null。
+     */
+    QcmRecord selectStopTargetByTriggerRequestId(String triggerRequestId);
+
+    /**
      * 按批次标识查记录 id 列表（批次终止的逐行落库目标；升序与 selectByBatchId 一致）。
      */
     List<Long> selectBatchRowIds(String batchId);

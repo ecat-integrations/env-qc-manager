@@ -76,7 +76,7 @@ public class QcmRecord {
     /** 结果评定 */
     private String resultEvaluation;
 
-    /** 触发者：MANUAL=用户名 / SCHEDULED=system / REMOTE=sourceName */
+    /** 触发者：MANUAL=用户名 / SCHEDULED=system / REMOTE=displayOperator（PLATFORM 形态为 name@ip[:port]） */
     private String triggerUser;
 
     /** 结构化失败原因枚举（FR-02-23）；普通失败仍走 execution_log */

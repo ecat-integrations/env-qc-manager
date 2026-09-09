@@ -75,13 +75,16 @@ public class ResultSnapshotWriter {
      * @param flowStartEpochMillis  flow 启动时刻毫秒（编排器受理时捕获），用于 flow_execution_ref
      * @param gasCode               气体代码（qcm_record.parameter；§4.2 标气溯源：冻结时读
      *                               qcm_gas_info 当前配置，触发时刻的配置即溯源真相；无行/未录入如实 null）
+     * @param terminalActor         终态归属操作者：停止行传 displayOperator（行内留痕矩阵 §7，
+     *                               防止冻结晚于通用 update 把停止者覆写回系统账号）；普通完成行传 null
+     *                               → 维持 SNAPSHOT_ACTOR 既有惯例
      */
     @Transactional
     public void freezeResultSnapshot(long recordId, String executorTypeClassName,
                                      Map<String, Object> judgementMap, List<PhaseSnapshot> phases,
                                      List<KeyParamSnapshot> keyParams,
                                      Instant samplingStart, Instant samplingEnd,
-                                     long flowStartEpochMillis, String gasCode) {
+                                     long flowStartEpochMillis, String gasCode, String terminalActor) {
         QcmRecord row = new QcmRecord();
         row.setId(recordId);
         row.setStandardValue(decimalOrNull(judgementMap, "stdValue"));
@@ -118,7 +121,7 @@ public class ResultSnapshotWriter {
         row.setFlowType(executorTypeClassName);
         row.setFlowExecutionRef(recordId + "@" + flowStartEpochMillis);
         row.setUpdateTime(Instant.now());
-        row.setUpdatedBy(SNAPSHOT_ACTOR);
+        row.setUpdatedBy(terminalActor != null && !terminalActor.isEmpty() ? terminalActor : SNAPSHOT_ACTOR);
         recordMapper.updateResultSnapshot(row);
 
         if (phases != null && !phases.isEmpty()) {

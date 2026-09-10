@@ -9,6 +9,8 @@ import java.util.List;
 /**
  * 批次执行状态（FR-03-11/12 轮询出参）：批次终态 = 全部记录终态
  * （成功/失败；等待中/执行中/手动中止中均为非终态）。
+ *
+ * @author coffee
  */
 @Value
 @Builder

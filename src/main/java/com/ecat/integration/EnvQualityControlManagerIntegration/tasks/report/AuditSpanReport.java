@@ -14,6 +14,8 @@ import java.time.LocalDate;
 /**
  * AuditSpanReport
  * 用于生成 人工核查 记录表
+ *
+ * @author coffee
  */
 @Data
 public class AuditSpanReport extends QcmReport {

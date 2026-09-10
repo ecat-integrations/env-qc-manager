@@ -12,6 +12,8 @@ import java.util.Map;
  *
  * <p>qcType 为 {@code QualityControlTypeEnum.name}（snake_case，与 qcm_plan.qc_type 同词汇）；
  * 单仪器类型 instruments 恒长度 1（2.4 Validator / ScheduleSpecs 已保证，编排器不重复判类型×仪器矩阵）。</p>
+ *
+ * @author coffee
  */
 @Value
 @Builder

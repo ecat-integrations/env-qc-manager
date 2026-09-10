@@ -21,6 +21,8 @@ import java.util.Set;
  *
  * <p>有效期窗口 planStartTime/planEndTime 为闭区间：候选 &lt; planStart 直接跳过，
  * 候选 &gt; planEnd 不再触发；两者可空表示该侧无界。</p>
+ *
+ * @author coffee
  */
 @Value
 public class ScheduleSpec {

@@ -13,6 +13,8 @@ import java.time.LocalDate;
  * TransferAndTraceReport
  * 用于生成 xxx校准设备量值传递与溯源记录表
  * 目前就是 臭氧校准设备量值传递记录表
+ *
+ * @author coffee
  */
 @Data
 public class TransferAndTraceReport extends QcmReport {

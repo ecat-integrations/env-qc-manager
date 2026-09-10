@@ -8,6 +8,8 @@ import java.util.function.BiFunction;
  * 导出分批取数：用「每页一条 SQL」替代单条全量 SQL，避免一次载入全表（含大字段行）撑爆内存。
  * <p>调用方在 loader 内自行设置分页（如 PageHelper.startPage），本类只负责循环与聚合：
  * 按页拉取直到某页不足 pageSize 即止。聚合结果为全部行（导出需要整表），但任一时刻仅一页在途。</p>
+ *
+ * @author coffee
  */
 public final class PagedExportSupport {
 

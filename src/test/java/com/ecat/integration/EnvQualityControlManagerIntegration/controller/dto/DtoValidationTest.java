@@ -14,6 +14,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * controller 入参 DTO 的 bean 校验注解行为单测（校验失败路径与 ruoyi 全局异常前的字段级 message 一致）。
+ *
+ * @author coffee
  */
 public class DtoValidationTest {
 

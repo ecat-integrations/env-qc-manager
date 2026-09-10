@@ -14,6 +14,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /**
  * mapper XML 注入守卫：全模块 mapper 禁用 ${params.} 字符串拼接（审计 S2，验收红线 RED-2）。
+ *
+ * @author coffee
  */
 class MapperXmlInjectionGuardTest {
 

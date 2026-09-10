@@ -6,7 +6,10 @@ import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** 质控参数（与分析仪逻辑入口对应） */
+/** 质控参数（与分析仪逻辑入口对应）
+ *
+ * @author coffee
+ */
 public enum ParameterEnum {
     SO2("1", "SO2"),
     NO2("2", "NO2"),

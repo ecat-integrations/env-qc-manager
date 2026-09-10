@@ -56,6 +56,8 @@ import java.util.Map;
  * 数据面读强类型列+三子表组装五层结构（§4.0），零 JSON 解析、零 live 查询。
  * 本类为动态 jar 单例（DynamicJarLoader 只注册 @Service/@RestController，用 @Component 会 NoSuchBeanDefinition），
  * 且方法签名不引用任何 composer 类型（Spring 内省在 ruoyi 类加载器下解析签名会 CNFE）。</p>
+ *
+ * @author coffee
  */
 @Service
 public class QualityControlSdkImpl implements QualityControlSdk {

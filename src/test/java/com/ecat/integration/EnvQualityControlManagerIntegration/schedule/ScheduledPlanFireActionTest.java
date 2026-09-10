@@ -22,7 +22,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** Step 4 装配用例：plan 行 → QcExecutionRequest 字段全量搬运。 */
+/** Step 4 装配用例：plan 行 → QcExecutionRequest 字段全量搬运。
+ *
+ * @author coffee
+ */
 class ScheduledPlanFireActionTest {
 
     private QcmPlanMapper planMapper;

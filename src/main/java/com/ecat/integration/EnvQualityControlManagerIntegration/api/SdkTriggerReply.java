@@ -9,6 +9,8 @@ import java.util.List;
  * SDK 触发回复（FR-03-10 毫秒级受理/拒绝）。
  * accepted=true 时 batchId/recordIds 非空；拒绝时 reason 为
  * {@link QualityControlSdk#REASON_BUSY_CONFLICT} 等四类结构化原因之一。
+ *
+ * @author coffee
  */
 @Value
 @Builder

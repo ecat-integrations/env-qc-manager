@@ -10,6 +10,8 @@ import java.util.List;
  * SDK 停止回复（§5）：受理即异步（accepted=true 表示已发起停止+STOPPING 置位，
  * 设备恢复与终态落库异步完成，终态经 queryExecution 轮询）。回执不哑停——
  * 即使 accepted=false 也回带目标批次标识与参数，调用方可辨「停了什么/为何没停」。
+ *
+ * @author coffee
  */
 @Value
 @Builder

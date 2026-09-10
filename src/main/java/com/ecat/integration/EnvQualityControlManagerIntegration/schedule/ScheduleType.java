@@ -8,6 +8,8 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.schedule;
  *   <li>MONTHLY：每月选中日（monthDays，1..31；当月无该日则跳过该月）固定时刻触发</li>
  *   <li>ONCE：一次性指定时刻（onceAt）触发</li>
  * </ul>
+ *
+ * @author coffee
  */
 public enum ScheduleType {
     DAILY, WEEKLY, MONTHLY, ONCE

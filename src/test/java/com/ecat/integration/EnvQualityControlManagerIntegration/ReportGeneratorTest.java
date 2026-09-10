@@ -32,6 +32,8 @@ import static org.mockito.Mockito.*;
  * 测试质控报告生成的基础功能
  * 
  * @version 1.0
+ *
+ * @author coffee
  */
 @ExtendWith(MockitoExtension.class)
 class ReportGeneratorTest {

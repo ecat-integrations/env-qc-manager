@@ -17,6 +17,8 @@ import java.util.Set;
  *
  * <p>调度字段与 qcm 内部 ScheduleSpec 同构：DAILY 用 hour/minute；WEEKLY 另用 weekdays
  * （1=周一..7=周日）；MONTHLY 另用 monthDays（1..31）；ONCE 用 onceAt。未涉及的集合为 null。</p>
+ *
+ * @author coffee
  */
 @Value
 @Builder

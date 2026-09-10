@@ -8,6 +8,8 @@ import lombok.Value;
  * 调用方传入事实而非让 SDK 探测。存储侧拼平为 displayOperator
  * （PLATFORM 且 ip 非空 = {@code name@ip[:port]}，其余形态 = {@code name}）落
  * qcm_record.trigger_user / updated_by。
+ *
+ * @author coffee
  */
 @Value
 @Builder

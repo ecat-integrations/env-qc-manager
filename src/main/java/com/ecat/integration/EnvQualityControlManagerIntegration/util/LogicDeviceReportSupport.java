@@ -27,6 +27,8 @@ import java.util.Map;
  * 质控报表侧：通过 {@link com.ecat.core.EcatCore#getDeviceRegistry()} 读取逻辑设备属性；
  * 入口 ID 见 {@link com.ecat.integration.EnvQualityControlManagerIntegration.logic.LogicDeviceBindingIds}。
  * 关键参数行的属性 ID 来自逻辑设备 {@link LogicDevice#getAttrDefs()} / {@link LogicAttributeDefine#getAttrId()}。
+ *
+ * @author coffee
  */
 public final class LogicDeviceReportSupport {
 

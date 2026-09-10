@@ -10,6 +10,8 @@ import java.util.regex.Pattern;
 
 /**
  * JSON 解析与序列化工具（质控模块共用）。
+ *
+ * @author coffee
  */
 public final class JsonUtils {
 

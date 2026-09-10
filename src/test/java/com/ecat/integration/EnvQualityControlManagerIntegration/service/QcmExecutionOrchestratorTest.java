@@ -62,6 +62,8 @@ import static org.mockito.Mockito.when;
 /**
  * 统一触发编排器确定性用例：mock composer/registry/TaskExecutor，零 sleep——
  * future 用手动完成的 CompletableFuture 驱动回调，同步路径直接断言落库参数。
+ *
+ * @author coffee
  */
 class QcmExecutionOrchestratorTest {
 

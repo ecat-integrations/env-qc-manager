@@ -10,6 +10,8 @@ import java.time.Instant;
  * 全部可选，但至少须提供一个——全空过滤等价全表扫，实现侧直接拒绝。
  *
  * <p>时间窗按 {@code qcm_record.start_time} 过滤，边界含（&gt;= begin 且 &lt;= end）。</p>
+ *
+ * @author coffee
  */
 @Value
 @Builder

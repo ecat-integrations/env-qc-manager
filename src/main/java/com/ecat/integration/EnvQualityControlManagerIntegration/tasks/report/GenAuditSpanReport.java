@@ -31,6 +31,8 @@ import static com.ecat.integration.EnvQualityControlManagerIntegration.util.Qual
  * GenAuditSpanReport
  * <p>生成人工零跨核查记录表：同一气体同批的全部人工核查记录聚合到一张报告。</p>
  * @version 1.0
+ *
+ * @author coffee
  */
 public class GenAuditSpanReport extends ReportGenerator {
 

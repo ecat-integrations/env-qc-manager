@@ -19,6 +19,8 @@ import java.util.Optional;
  *   <li>MONTHLY 当月无选中日（如 31 日遇 9 月）自然跳过该月。</li>
  *   <li>未知/缺失 type 抛 {@link IllegalArgumentException}（严格模式，不猜默认）。</li>
  * </ul>
+ *
+ * @author coffee
  */
 public final class ScheduleCalculator {
 

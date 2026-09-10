@@ -14,6 +14,8 @@ import java.time.LocalDate;
 /**
  * MultiCheckReport
  * 用于生成 xxx仪器多点校准记录表
+ *
+ * @author coffee
  */
 @Data
 public class MultiCheckReport extends QcmReport {

@@ -42,6 +42,8 @@ import static org.mockito.Mockito.when;
  * 捕获型同线程 executor（schedule 只记录 runnable+delay 供手动 run）、Mockito mock mapper/provider。
  *
  * <p>基准 now = 2026-08-21T10:00:00+08:00（Asia/Shanghai，DAILY 10:00 当点触发场景）。</p>
+ *
+ * @author coffee
  */
 class QcmPlanSchedulerTest {
 

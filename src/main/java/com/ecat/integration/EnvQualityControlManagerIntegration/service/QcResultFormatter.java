@@ -9,6 +9,8 @@ import java.util.Map;
  * 执行结果 → execution_log JSON 的格式化缝（编排器回调用）：
  * 两套 constructResult 语义（标准质控/人工核查）暂不合并（5.2 再收口 R2），
  * 编排器按 qualityControlType code 路由到对应实现。
+ *
+ * @author coffee
  */
 public interface QcResultFormatter {
 

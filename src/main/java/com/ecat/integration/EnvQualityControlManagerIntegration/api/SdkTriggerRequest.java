@@ -10,6 +10,8 @@ import java.util.Map;
 /**
  * SDK 触发请求（FR-03-01..09 参数域）。字段语义与计划参数表一致，
  * 合法性由 qcm 内部同一校验器判定（FR-03-17），非法逐字段报错不静默修正。
+ *
+ * @author coffee
  */
 @Value
 @Builder

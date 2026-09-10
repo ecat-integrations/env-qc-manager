@@ -43,6 +43,8 @@ import java.util.Set;
  * qualityControlType/parameter/targetFlowLpm），组 {@link QcExecutionRequest} 交
  * {@link QcmExecutionOrchestrator} 统一编排；同时以 {@link QcResultFormatter} 身份向编排器
  * 提供本类 constructResult 的结果格式化能力（5.2 再合并人工核查版）。
+ *
+ * @author coffee
  */
 public class EnvQualityControlTask extends Task implements QcResultFormatter {
 

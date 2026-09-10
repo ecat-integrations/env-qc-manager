@@ -4,6 +4,8 @@ import com.ruoyi.common.utils.SecurityUtils;
 
 /**
  * 本集成内读取当前登录用户名（RuoYi {@code user_name}），无登录上下文时返回空串。
+ *
+ * @author coffee
  */
 public final class QcCurrentUser {
 

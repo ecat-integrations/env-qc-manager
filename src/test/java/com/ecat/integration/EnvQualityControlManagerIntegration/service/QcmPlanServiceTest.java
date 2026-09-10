@@ -42,6 +42,8 @@ import static org.mockito.Mockito.when;
 /**
  * 计划服务状态机 / 保存重算 / 立即执行共用装配 / 预估只读 用例：
  * mapper/scheduler/orchestrator 全 mock，固定时钟，零 sleep。
+ *
+ * @author coffee
  */
 class QcmPlanServiceTest {
 

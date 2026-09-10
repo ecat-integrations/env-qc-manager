@@ -26,6 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 2) updateResultSnapshot 的 SET 列 = 设计要求的快照全集，且每个 #{prop} 均为 QcmRecord 真实字段
  *    （静态解析 XML，等价于 mock 验证 SQL 参数传递——MyBatis 单 POJO 参数按属性名取值，
  *    属性名不存在运行时才炸，此处在编译期前静态拦截）。
+ *
+ * @author coffee
  */
 class QcmRecordSnapshotMapperTest {
 

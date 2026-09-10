@@ -11,6 +11,8 @@ import java.util.List;
  * FAILED+EXECUTOR_TYPE_NOT_READY 终态留痕，与 BUSY 同构，FR-02-14 中间态）；
  * REJECTED_PRE_TRIGGER=触发前拒绝留痕（参数完整但非法/排队不支持，未经互斥闸与 composer，
  * N 条记录已写 FAILED 终态留痕，行内留痕矩阵 §7）。
+ *
+ * @author coffee
  */
 @Value
 public class BatchResult {

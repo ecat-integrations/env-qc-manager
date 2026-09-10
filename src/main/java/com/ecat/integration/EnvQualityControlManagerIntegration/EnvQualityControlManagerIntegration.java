@@ -16,6 +16,9 @@ import org.slf4j.LoggerFactory;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.EnvQualityControlCustomTask;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.EnvQualityControlGenReportTask;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.EnvQualityControlTask;
+/**
+ * @author coffee
+ */
 
 public class EnvQualityControlManagerIntegration extends IntegrationBase  implements IIntegrationTaskManagement {
 

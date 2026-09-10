@@ -14,6 +14,8 @@ import java.time.LocalDate;
 /**
  * AccuracyReport
  * 用于生成 xxx仪器准确度审核记录表
+ *
+ * @author coffee
  */
 @Data
 public class AccuracyReport extends QcmReport {

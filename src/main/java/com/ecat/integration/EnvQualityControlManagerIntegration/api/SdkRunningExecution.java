@@ -10,6 +10,8 @@ import java.util.List;
  * 当前运行中的质控执行快照（§5 queryRunning 返回项）：单飞语义下至多 1 项，
  * 列表形态防未来并发策略变化。外部「先看在跑什么再停」的入口——
  * 其 batchId/recordIds/triggerRequestId 即 SdkStopRequest 的三个寻址句柄。
+ *
+ * @author coffee
  */
 @Value
 @Builder

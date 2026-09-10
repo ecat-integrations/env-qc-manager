@@ -32,6 +32,8 @@ import static org.mockito.Mockito.*;
  * 测试仪器多点校准记录表生成
  * 
  * @version 1.0
+ *
+ * @author coffee
  */
 @ExtendWith(MockitoExtension.class)
 class GenMultiCheckReportTest {

@@ -22,6 +22,8 @@ import java.math.BigDecimal;
  * <p>槽映射按 qcm {@link ParameterEnum} 数字代码：SO2→so2、NO2→nox（NOx 分析仪跨度
  * 校准用 NO 标气，用户定案）、CO→co、O3→无槽（臭氧发生器产生非钢瓶供应，瓶号/来源
  * 如实为空是正确语义）。</p>
+ *
+ * @author coffee
  */
 @Slf4j
 public final class CylinderArchiveSupport {

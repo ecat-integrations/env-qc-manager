@@ -24,6 +24,8 @@ import static com.ecat.integration.EnvQualityControlManagerIntegration.util.Qual
  *   <li>对称地：若「最后一次通过的跨度」之后当日无零点，则可用该跨度与当日其开始时间之前的最近一次零点。</li>
  *   <li>再退化：在含零与含跨的配对中最大化「通过」条数，并列取时间较晚；仅单边则返回一条。</li>
  * </ul>
+ *
+ * @author coffee
  */
 public final class ZeroSpanDayPairSelector {
 

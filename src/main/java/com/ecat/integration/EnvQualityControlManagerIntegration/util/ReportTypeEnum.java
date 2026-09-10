@@ -6,7 +6,10 @@ import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** 报告类型 */
+/** 报告类型
+ *
+ * @author coffee
+ */
 public enum ReportTypeEnum {
     ZERO_SPAN("1", "zero_span", "零点和跨度检查", "ReportD2"),
     MULTI("2", "multi", "多点检查", "ReportD3"),

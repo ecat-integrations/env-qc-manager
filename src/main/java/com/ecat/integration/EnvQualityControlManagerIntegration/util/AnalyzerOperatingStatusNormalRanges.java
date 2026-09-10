@@ -5,6 +5,8 @@ import java.util.Locale;
 /**
  * 分析仪「运行状况检查」类报表中关键参数的参考正常范围（多厂商汇总，第一版文案）。
  * <p>用于填充关键参数行的 {@code tRange}（正常范围）列；与 {@link ParameterEnum} 气体及逻辑设备展示名 {@code tName} 做启发式匹配。</p>
+ *
+ * @author coffee
  */
 public final class AnalyzerOperatingStatusNormalRanges {
 

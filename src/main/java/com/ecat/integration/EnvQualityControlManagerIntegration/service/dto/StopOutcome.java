@@ -9,6 +9,8 @@ import java.util.List;
  * REST 取 status+message 映射 200/400+msg，SDK 取 status 映射 REASON_* 词汇、
  * batchId/recordIds 作回执定位（批次业务字段由 SDK 面按 batchId 读记录行补齐）。
  * message 与既有 REST 停止文案逐字一致（B 已立的语义，两面不得分叉）。
+ *
+ * @author coffee
  */
 @Value
 public class StopOutcome {

@@ -14,6 +14,8 @@ import java.util.Set;
  * <p>应用场景：调度器每轮 fire/misfire 后重算 next_fire_time 时，把 qcm_plan 行的
  * schedule_config 字符串解析回 spec 交给 {@link ScheduleCalculator}。解析失败抛
  * {@link IllegalArgumentException}（严格模式，不猜默认值）。</p>
+ *
+ * @author coffee
  */
 public final class ScheduleSpecs {
 

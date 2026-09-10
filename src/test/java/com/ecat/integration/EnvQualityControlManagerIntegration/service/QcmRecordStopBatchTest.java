@@ -45,6 +45,8 @@ import static org.mockito.Mockito.when;
  * 停止决策核心在 {@link QcmExecutionOrchestrator}（§8 上移，REST/SDK 共用），本套件走 REST 薄壳
  * （{@code QcmRecordServiceImpl.stopQcmRecord}）串起真实编排器，mock 目标同批迁移到编排器层，
  * 用例与断言语义与上移前一致。
+ *
+ * @author coffee
  */
 class QcmRecordStopBatchTest {
 

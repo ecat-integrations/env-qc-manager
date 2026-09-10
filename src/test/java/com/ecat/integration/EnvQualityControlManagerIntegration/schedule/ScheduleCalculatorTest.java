@@ -18,6 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * 调度纯函数边界用例验收（AC-A2）：时区注入 Asia/Shanghai，无 IO 无 sleep。
  * 基准 after = 2026-08-21T09:30:15+08:00（含秒，验证同分钟不触发与秒归零）。
+ *
+ * @author coffee
  */
 class ScheduleCalculatorTest {
 

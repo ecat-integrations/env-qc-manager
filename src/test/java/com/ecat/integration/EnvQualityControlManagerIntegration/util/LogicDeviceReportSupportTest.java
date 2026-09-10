@@ -34,6 +34,8 @@ import static org.mockito.Mockito.when;
  * （构建侧 {@code isKeyParameterAttrForReport} 仅收工况 + 行级 {@code removePrimaryGasConcentrationRows}
  * 剔除历史残留）；快照仅含工况行（流量/压力/温度），非浓度工况行不受影响。
  * 目标单位取值逻辑保留为防御路径，供任何残留浓度行兜底。</p>
+ *
+ * @author coffee
  */
 class LogicDeviceReportSupportTest {
 

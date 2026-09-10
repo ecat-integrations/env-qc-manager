@@ -16,6 +16,8 @@ import java.util.Objects;
 /**
  * 质控记录「执行阶段」视图：运行中合并 {@link AbstractCalibrationFlow} 的 {@link PhaseInfo}，
  * 已结束时使用 execution_log 根级 {@link QualityControlExecutionLogHelper#QC_PHASE_TIMELINES_KEY}。
+ *
+ * @author coffee
  */
 public final class QualityControlExecutionPhasePayload {
 

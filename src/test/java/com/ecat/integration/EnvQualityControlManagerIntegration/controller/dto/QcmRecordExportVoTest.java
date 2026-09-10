@@ -14,6 +14,8 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord
 
 /**
  * 质控记录导出 VO 拷贝与 Instant 预格式化（Asia/Shanghai）单测。
+ *
+ * @author coffee
  */
 public class QcmRecordExportVoTest {
 

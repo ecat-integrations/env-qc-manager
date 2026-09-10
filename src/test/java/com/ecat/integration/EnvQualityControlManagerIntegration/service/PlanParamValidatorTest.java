@@ -19,6 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * PlanParamValidator 规则表逐条用例（FR-01-30 全表 + FR-01-27 矩阵）：
  * 每规则合法/非法各一；固定时钟保证 ONCE 时序判定确定性。
+ *
+ * @author coffee
  */
 class PlanParamValidatorTest {
 

@@ -37,6 +37,8 @@ import static org.mockito.Mockito.when;
  * 多通道 series（NOx 三通道 isMain 判定）/ 仅执行中生成曲线 / CO↔其余目标单位 full key 构造 /
  * 单位全 key→短名转换 / ADM 未加载与目录零参数的 reason 通道 / markLine 单位换算。
  * 严格模式：SDK 拿不到必须 reason 显式说明，不静默兜底。
+ *
+ * @author coffee
  */
 class QcLiveProcessPayloadTest {
 

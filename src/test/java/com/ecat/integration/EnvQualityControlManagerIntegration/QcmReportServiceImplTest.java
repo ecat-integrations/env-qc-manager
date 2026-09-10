@@ -19,6 +19,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * 列表瘦身（AC-C6）：列表路径不做 content JSON 反序列化/修补；详情路径负责解析 content。
+ *
+ * @author coffee
  */
 @ExtendWith(MockitoExtension.class)
 class QcmReportServiceImplTest {

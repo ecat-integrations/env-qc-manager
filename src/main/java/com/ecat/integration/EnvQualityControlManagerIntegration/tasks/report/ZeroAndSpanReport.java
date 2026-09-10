@@ -14,6 +14,8 @@ import java.time.LocalDate;
 /**
  * ZeroAndSpanReport
  * 用于生成 xxx仪器运行状况检查记录表
+ *
+ * @author coffee
  */
 @Data
 public class ZeroAndSpanReport extends QcmReport {

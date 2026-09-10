@@ -46,6 +46,8 @@ import static org.mockito.Mockito.mockStatic;
 /**
  * 完成时快照冻结写入器用例（§4.0）：判定标量 → qcm_record 强类型列逐字段映射；
  * 缺失键如实 null（严格模式）；多点序列 → qcm_record_point 行数与 seq 对齐。
+ *
+ * @author coffee
  */
 class ResultSnapshotWriterTest {
 

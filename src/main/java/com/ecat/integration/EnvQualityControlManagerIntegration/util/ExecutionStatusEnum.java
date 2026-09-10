@@ -2,7 +2,10 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.util;
 
 import lombok.Getter;
 
-/** 质控记录执行状态 */
+/** 质控记录执行状态
+ *
+ * @author coffee
+ */
 public enum ExecutionStatusEnum {
     WAITING(0L, "等待中"),
     RUNNING(1L, "执行中"),

@@ -11,6 +11,8 @@ import java.util.Map;
 /**
  * 单条记录报告级明细（D15 清单逐字段，FR-03-14/15）：外部仅凭本对象即可生成质控报告，
  * 含 execution_log 解析出的阶段时间线与触发时参数快照。
+ *
+ * @author coffee
  */
 @Value
 @Builder

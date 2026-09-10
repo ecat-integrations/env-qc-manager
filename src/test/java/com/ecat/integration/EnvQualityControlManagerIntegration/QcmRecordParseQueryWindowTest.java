@@ -15,6 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * 查询时间窗桥接（params[end_time 窗]/params[start_time 窗] → 直字段 Instant）解析测试。
+ *
+ * @author coffee
  */
 class QcmRecordParseQueryWindowTest {
 

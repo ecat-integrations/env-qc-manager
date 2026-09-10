@@ -17,6 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * api 包零依赖守卫（AC-B7）：对外 SDK 契约包只允许 java.* 与 lombok.*（编译期注解）依赖，
  * 任何 qcm 内部/Spring/ruoyi/composer import 都会让外部类加载器可见性破裂。
+ *
+ * @author coffee
  */
 class SdkApiZeroDependencyGuardTest {
 

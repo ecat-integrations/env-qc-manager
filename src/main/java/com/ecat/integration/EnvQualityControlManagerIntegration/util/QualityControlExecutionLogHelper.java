@@ -22,6 +22,8 @@ import java.util.Map;
 /**
  * 质控执行日志 JSON：统一 {@code params}、{@code result}（指标体）、{@code statusMap}（执行器状态），
  * 并与历史「扁平」结构兼容解析。
+ *
+ * @author coffee
  */
 public final class QualityControlExecutionLogHelper {
 

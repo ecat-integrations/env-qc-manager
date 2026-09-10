@@ -26,6 +26,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * AC-C7 导出分批防回归：mock 分页返回 2 页，断言分批查询次数与聚合正确性。
+ *
+ * @author coffee
  */
 @ExtendWith(MockitoExtension.class)
 class QcmExportBatchTest {

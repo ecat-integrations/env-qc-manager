@@ -33,6 +33,8 @@ import static org.mockito.Mockito.when;
 /**
  * AC-C8 设备查询预取防回归：一次 generate() 的设备注册表查询次数 ≤ 涉及气体参数个数
  * （预取前为逐记录 N+1：每条记录各查一次）。
+ *
+ * @author coffee
  */
 @ExtendWith(MockitoExtension.class)
 class ReportGeneratorPrefetchTest {

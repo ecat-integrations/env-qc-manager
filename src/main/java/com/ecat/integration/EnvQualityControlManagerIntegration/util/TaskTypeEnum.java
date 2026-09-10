@@ -6,7 +6,10 @@ import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** 质控任务类型（records 页「触发来源」词汇，展示名与 dict quality_control_task_type 标签对齐） */
+/** 质控任务类型（records 页「触发来源」词汇，展示名与 dict quality_control_task_type 标签对齐）
+ *
+ * @author coffee
+ */
 public enum TaskTypeEnum {
     AUTO("0", "计划触发"),
     MANUAL("1", "手动触发"),

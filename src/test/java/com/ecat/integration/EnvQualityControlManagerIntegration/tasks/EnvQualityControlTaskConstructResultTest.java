@@ -27,6 +27,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * 校验 {@link EnvQualityControlTask#constructResult} 各质控类型分支互不串数据。
+ *
+ * @author coffee
  */
 class EnvQualityControlTaskConstructResultTest {
 

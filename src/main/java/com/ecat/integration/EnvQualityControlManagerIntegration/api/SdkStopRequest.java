@@ -6,6 +6,8 @@ import lombok.Value;
 /**
  * SDK 停止请求（§5）：批次粒度停止——单飞语义下一个批次一个 flow，寻址到批内任一行即停整批。
  * 寻址三选一（即 SdkTriggerReply 回给外部的三个句柄）或 allRunning；四个寻址位全空=INVALID_PARAM。
+ *
+ * @author coffee
  */
 @Value
 @Builder

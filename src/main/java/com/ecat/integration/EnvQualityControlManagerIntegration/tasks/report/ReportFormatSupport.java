@@ -25,6 +25,8 @@ import java.util.Map;
  * 报表静态格式化工具集（G-STRUCT-3：自 ReportGenerator 拆出）。
  * <p>仅收无状态纯函数：单位后缀、数值/列表安全转换、关键参数快照合并与补全、备注构建。
  * 与报表子类同包 {@code tasks.report}，历史访问级别为基类 protected static。</p>
+ *
+ * @author coffee
  */
 public final class ReportFormatSupport {
 

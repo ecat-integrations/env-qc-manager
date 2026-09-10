@@ -4,6 +4,8 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.util;
  * 校准/质控 flow 参数默认值（G-STD-4 魔法值收口）。
  * <p>同一数值曾散落在编排器（跨度浓度）、人工核查任务（默认流量）与 QcCustomServiceImpl 三处，
  * 收口为单一常量源，避免三处漂移。</p>
+ *
+ * @author coffee
  */
 public final class FlowDefaults {
 

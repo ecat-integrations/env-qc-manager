@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
  * 装配执行请求，交统一编排器执行。
  *
  * <p>plan 不存在/已 FINISHED → log.warn 返回（不 throw，不惊扰调度器状态机）。</p>
+ *
+ * @author coffee
  */
 @Service
 public class ScheduledPlanFireAction implements PlanFireAction {

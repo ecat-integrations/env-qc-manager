@@ -13,6 +13,9 @@ import java.util.List;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum.SPAN_CHECK;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum.ZERO_CHECK;
 import static org.junit.jupiter.api.Assertions.*;
+/**
+ * @author coffee
+ */
 
 class ZeroSpanDayPairSelectorTest {
 

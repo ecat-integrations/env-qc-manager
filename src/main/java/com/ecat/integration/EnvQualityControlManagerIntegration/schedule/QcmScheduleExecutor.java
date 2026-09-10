@@ -26,6 +26,8 @@ import com.ecat.core.Utils.Mdc.MdcScheduledExecutorService;
  * <p>所有权契约（{@link Resolution#ownsExecutor()}）：自持池由调用方拥有——
  * {@code QcmPlanScheduler.shutdown()}（@PreDestroy）经 {@link #shutdownPool()} 关停并清缓存；
  * 关停后再取用懒重建新池（重建有 INFO 日志，非静默兜底），动态重载/测试复用同 JVM 不滞留死池。
+ *
+ * @author coffee
  */
 final class QcmScheduleExecutor {
 

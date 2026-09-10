@@ -6,6 +6,8 @@ import lombok.Getter;
 /**
  * 质控执行触发源（FR-02-01）：SCHEDULED(调度器)/MANUAL(页面立即执行)/REMOTE(SDK) 三源殊途同归，
  * code 与 {@link TaskTypeEnum} 任务类型编码对齐（qcm_record.task_type 落该 code）。
+ *
+ * @author coffee
  */
 public enum TriggerSource {
 

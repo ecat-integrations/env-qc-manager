@@ -59,6 +59,8 @@ import static org.mockito.Mockito.when;
 /**
  * 对外 SDK 实现确定性用例：mock 编排器/记录服务/mapper，校验器用真实实例
  * （证明 FR-03-17 复用：拒绝口径与计划保存同源）。
+ *
+ * @author coffee
  */
 class QualityControlSdkImplTest {
 

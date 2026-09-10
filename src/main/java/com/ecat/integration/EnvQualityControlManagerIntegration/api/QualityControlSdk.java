@@ -11,6 +11,8 @@ import java.util.List;
  *
  * <p>获取方式：{@code core.getIntegrationRegistry().getIntegration("integration-env-qc-manager")
  * .getQualityControlSdk()}。</p>
+ *
+ * @author coffee
  */
 public interface QualityControlSdk {
 

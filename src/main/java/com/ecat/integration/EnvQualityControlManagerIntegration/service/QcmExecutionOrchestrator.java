@@ -53,6 +53,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *       返回 REJECTED_BUSY_CONFLICT（D10 三类来源都写记录）；</li>
  *   <li>future 异常回调不再向 future 重抛（G-BUG-4）——一律落库终态 FAILED + execution_log 留因。</li>
  * </ul>
+ *
+ * @author coffee
  */
 @Service
 public class QcmExecutionOrchestrator {

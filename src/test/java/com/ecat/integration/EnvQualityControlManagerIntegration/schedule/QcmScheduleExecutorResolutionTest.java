@@ -26,6 +26,8 @@ import com.ecat.core.Task.TaskManager;
  *
  * <p>验证手法：断言任务体运行线程名（任务在哪条线程执行 = 哪个调度器承载，不可伪造）。
  * 同步方式：轮询 {@code future.isDone()} 到事件发生（验证「已发生」），不用 sleep。
+ *
+ * @author coffee
  */
 class QcmScheduleExecutorResolutionTest {
 

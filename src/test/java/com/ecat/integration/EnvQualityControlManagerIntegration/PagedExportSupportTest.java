@@ -13,6 +13,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 导出分批取数（AC-C7）：mock 分页返回验证「按页查询 + 聚合正确 + 短页即止」。
+ *
+ * @author coffee
  */
 class PagedExportSupportTest {
 

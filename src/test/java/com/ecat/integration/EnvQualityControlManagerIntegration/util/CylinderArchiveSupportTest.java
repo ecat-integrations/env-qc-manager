@@ -25,6 +25,8 @@ import static org.mockito.Mockito.when;
 /**
  * 钢瓶档案读写用例（方案 A 2026-08-23）：槽映射闭集（NO2→nox 用户定案 / O3 无槽）、
  * AttrState 单次读取、转写走 setDisplayValue 同通道。
+ *
+ * @author coffee
  */
 class CylinderArchiveSupportTest {
 

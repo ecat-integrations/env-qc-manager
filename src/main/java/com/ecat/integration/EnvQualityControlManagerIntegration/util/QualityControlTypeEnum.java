@@ -6,7 +6,10 @@ import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** 质控类型 */
+/** 质控类型
+ *
+ * @author coffee
+ */
 public enum QualityControlTypeEnum {
     // 展示名用户拍板（2026-09 质控术语统一）：校准→检查；code/name/className 是协议与落库契约，绝不随展示名改
     ZERO_CHECK("0", "zero_check", "air.monitor.calibration.zero_check", "零点检查"),

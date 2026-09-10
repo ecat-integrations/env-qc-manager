@@ -5,6 +5,8 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.schedule;
  *
  * <p>应用场景：调度器 fire 时调用；编排器（质控任务编排/重试）由后续任务提供实现并注册为 Spring bean，
  * 调度器经 ObjectProvider 按存在性发现——无实现时不假装执行成功，仅 warn 并推进状态机。</p>
+ *
+ * @author coffee
  */
 @FunctionalInterface
 public interface PlanFireAction {

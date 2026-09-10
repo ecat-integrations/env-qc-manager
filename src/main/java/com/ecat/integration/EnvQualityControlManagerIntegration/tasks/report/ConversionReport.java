@@ -15,6 +15,8 @@ import java.time.LocalDate;
  * ConversionReport
  * 用于生成 xxx分析仪转换效率测试记录表
  * 目前就是 氮氧化物分析仪转换效率测试记录表
+ *
+ * @author coffee
  */
 @Data
 public class ConversionReport extends QcmReport {

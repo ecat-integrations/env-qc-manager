@@ -9,6 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * schedule_config JSON → ScheduleSpec 解析边界（严格模式：坏输入抛 IAE 不猜默认）。
+ *
+ * @author coffee
  */
 class ScheduleSpecsTest {
 

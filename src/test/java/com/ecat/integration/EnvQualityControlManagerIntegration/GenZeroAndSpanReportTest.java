@@ -32,6 +32,8 @@ import static org.mockito.Mockito.*;
  * 测试仪器运行状况检查/校准记录表（零跨报告）生成
  * 
  * @version 1.0
+ *
+ * @author coffee
  */
 @ExtendWith(MockitoExtension.class)
 class GenZeroAndSpanReportTest {

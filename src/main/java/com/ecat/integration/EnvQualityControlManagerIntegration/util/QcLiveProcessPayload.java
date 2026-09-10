@@ -51,6 +51,8 @@ import java.util.Objects;
  * <p><b>秒级历史曲线</b>：{@link AirDeviceDataSdk#queryRawSeries}——stat 聚合最细只到分钟桶，
  * 秒级序列只有 raw 表有（分析仪约 5.7 秒/行）；窗口 = 任务开始−5min（通标气前基线段）到 now，
  * 仅执行中（executionStatus∈{0,1}）生成，已完成记录 series 如实 null（历史回放走冻结数据）。</p>
+ *
+ * @author coffee
  */
 @Slf4j
 public final class QcLiveProcessPayload {

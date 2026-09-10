@@ -46,6 +46,8 @@ import java.util.concurrent.TimeUnit;
  *       任务体走 planMapper PostgreSQL 阻塞 IO，按业务池边界 IO 禁入，不收编 core；ownsExecutor
  *       恒 true，由本类 shutdown() 经 shutdownPool() 关停并清缓存；注入的测试 executor 不关）。</li>
  * </ul>
+ *
+ * @author coffee
  */
 @Service
 public class QcmPlanScheduler {

@@ -17,11 +17,11 @@ import java.util.Map;
 @Builder
 public class SdkTriggerRequest {
 
-    /** 质控类型（qcm_plan.qc_type 同词汇，如 zero_check / span_check / audit_span_check） */
-    String qcType;
+    /** 质控类型 */
+    SdkQcType qcType;
 
-    /** 仪器代码列表（单仪器类型恒 1 台，如 SO2/NO2/CO/O3） */
-    List<String> instruments;
+    /** 受检仪器列表（单仪器类型恒 1 台） */
+    List<SdkInstrument> instruments;
 
     /** 标气浓度 ppb（span_check / audit_span_check 必填 >0） */
     BigDecimal concentrationPpb;
@@ -32,8 +32,8 @@ public class SdkTriggerRequest {
     /** 标气流量 L/min（zero_check 拒绝提供；其余 ∈(0,50] 或省略） */
     BigDecimal flowRateLpm;
 
-    /** 阶段时长覆盖（稀疏；key 白名单与计划参数表 14 键同词汇，值正整数秒） */
-    Map<String, Number> durationOverrides;
+    /** 阶段时长覆盖（稀疏；键为计划参数表 14 键白名单，整数键正整数秒/次数，百分比键为序列） */
+    Map<SdkDurationKey, Number> durationOverrides;
 
     /** 触发操作者（必填且 name 必填，来源契约 §6）：存储侧拼平 displayOperator
      *  落 qcm_record.trigger_user，拒绝时留痕可溯源 */

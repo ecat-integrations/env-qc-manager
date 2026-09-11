@@ -7,8 +7,8 @@ import java.util.List;
 
 /**
  * SDK 触发回复（FR-03-10 毫秒级受理/拒绝）。
- * accepted=true 时 batchId/recordIds 非空；拒绝时 reason 为
- * {@link QualityControlSdk#REASON_BUSY_CONFLICT} 等四类结构化原因之一。
+ * accepted=true 时 batchId/recordIds 非空且 reason={@link SdkReason#ACCEPTED}；
+ * 拒绝时 reason 为对应的结构化原因（受理/拒绝原因全域见 {@link SdkReason}）。
  *
  * @author coffee
  */
@@ -28,13 +28,13 @@ public class SdkTriggerReply {
     /** 触发请求标识（§4.0.1：受理→轮询→结果全程同一标识；受理与留痕拒绝时非空） */
     String triggerRequestId;
 
-    /** 拒绝原因（结构化枚举字符串，见 QualityControlSdk 常量）；受理时为 null */
-    String reason;
+    /** 受理/拒绝的结构化原因（受理=ACCEPTED，拒绝=对应拒绝项，全域见 {@link SdkReason}） */
+    SdkReason reason;
 
     /** 人读消息（含逐字段校验错误清单或编排器透传信息） */
     String message;
 
-    public static SdkTriggerReply rejected(String reason, String message) {
+    public static SdkTriggerReply rejected(SdkReason reason, String message) {
         return SdkTriggerReply.builder()
                 .accepted(false)
                 .reason(reason)

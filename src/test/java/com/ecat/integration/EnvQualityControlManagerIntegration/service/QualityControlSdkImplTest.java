@@ -1,18 +1,24 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.service;
 
-import com.ecat.integration.EnvQualityControlManagerIntegration.api.QualityControlSdk;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.ResultFilter;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkBatchState;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkExecutionResult;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkExecutionStatus;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkInstrument;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkOperator;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkOperatorSource;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkPlanSetting;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkPlanStatus;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkQcType;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkReason;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkRecordDetail;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkRunningExecution;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkScheduleType;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkStopReply;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkStopRequest;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkTriggerReply;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkTriggerRequest;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkTriggerSource;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecordKeyParam;
@@ -92,8 +98,8 @@ class QualityControlSdkImplTest {
 
     private static SdkTriggerRequest spanRequestWithOperator(SdkOperator operator) {
         return SdkTriggerRequest.builder()
-                .qcType("span_check")
-                .instruments(Collections.singletonList("SO2"))
+                .qcType(SdkQcType.SPAN_CHECK)
+                .instruments(Collections.singletonList(SdkInstrument.SO2))
                 .concentrationPpb(BigDecimal.valueOf(400))
                 .operator(operator)
                 .allowQueue(false)
@@ -109,6 +115,19 @@ class QualityControlSdkImplTest {
         when(orchestrator.persistRejectedBatch(any(), any(), anyString(), anyString(), anyString()))
                 .thenAnswer(inv -> BatchResult.rejectedPreTrigger("batch-reject",
                         Collections.singletonList(91L), "req-reject", inv.getArgument(3, String.class)));
+    }
+
+    /** 生产存储形态的记录行夹具：parameter/quality_control_type 均落数字码（"1"=SO2/span_check），
+     *  与编排器 buildRecords 落库一致——两列 NOT NULL，真实行不会有空值。 */
+    private static QcmRecord record(long id, int status) {
+        QcmRecord record = new QcmRecord();
+        record.setId(id);
+        record.setBatchId("batch-x");
+        record.setParameter("1");
+        record.setQualityControlType("1");
+        record.setExecutionStatus(status);
+        record.setStartTime(Instant.now());
+        return record;
     }
 
     /** 经编排器第三参（triggerUser=displayOperator）观测来源拼平结果；同用例多次触发取末次捕获。 */
@@ -131,7 +150,8 @@ class QualityControlSdkImplTest {
         assertTrue(reply.isAccepted());
         assertEquals("batch-1", reply.getBatchId());
         assertEquals(Arrays.asList(11L, 12L), reply.getRecordIds());
-        assertNull(reply.getReason());
+        // R5：受理也显式给 reason，消除 accepted/reason 双通道歧义
+        assertEquals(SdkReason.ACCEPTED, reply.getReason());
     }
 
     @Test
@@ -202,8 +222,8 @@ class QualityControlSdkImplTest {
     void triggerWithAllowQueueRejectedButTracedWhenParamsComplete() {
         stubRejectedTrace();
         SdkTriggerRequest request = SdkTriggerRequest.builder()
-                .qcType("span_check")
-                .instruments(Collections.singletonList("SO2"))
+                .qcType(SdkQcType.SPAN_CHECK)
+                .instruments(Collections.singletonList(SdkInstrument.SO2))
                 .concentrationPpb(BigDecimal.valueOf(400))
                 .operator(sdkLocalOperator("lims-system"))
                 .allowQueue(true)
@@ -212,15 +232,15 @@ class QualityControlSdkImplTest {
         SdkTriggerReply reply = sdk.trigger(request);
 
         assertFalse(reply.isAccepted());
-        assertEquals(QualityControlSdk.REASON_QUEUE_NOT_SUPPORTED, reply.getReason());
+        assertEquals(SdkReason.QUEUE_NOT_SUPPORTED, reply.getReason());
         // 回执不哑拒：批次标识随留痕行回带
         assertEquals("batch-reject", reply.getBatchId());
         assertEquals(Collections.singletonList(91L), reply.getRecordIds());
         assertEquals("req-reject", reply.getTriggerRequestId());
-        // 触发前拒绝不经互斥闸路径，走留痕建行
+        // 触发前拒绝不经互斥闸路径，走留痕建行；落库 failure_reason 用枚举名（落库值集词汇）
         verify(orchestrator, never()).triggerExecution(any(), any(), any());
         verify(orchestrator).persistRejectedBatch(any(), eq(TriggerSource.REMOTE), eq("lims-system"),
-                eq(QualityControlSdk.REASON_QUEUE_NOT_SUPPORTED), anyString());
+                eq(SdkReason.QUEUE_NOT_SUPPORTED.name()), anyString());
     }
 
     @Test
@@ -228,7 +248,7 @@ class QualityControlSdkImplTest {
         SdkTriggerReply nullOperator = sdk.trigger(spanRequestWithOperator(null));
 
         assertFalse(nullOperator.isAccepted());
-        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, nullOperator.getReason());
+        assertEquals(SdkReason.INVALID_PARAM, nullOperator.getReason());
         assertTrue(nullOperator.getMessage().contains("operator"));
         assertNull(nullOperator.getBatchId());
         verify(orchestrator, never()).triggerExecution(any(), any(), any());
@@ -236,7 +256,7 @@ class QualityControlSdkImplTest {
         SdkTriggerReply blankName = sdk.trigger(spanRequestWithOperator(sdkLocalOperator("  ")));
 
         assertFalse(blankName.isAccepted());
-        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, blankName.getReason());
+        assertEquals(SdkReason.INVALID_PARAM, blankName.getReason());
         verify(orchestrator, never()).triggerExecution(any(), any(), any());
         // 无来源的触发尝试不可归属（trigger_user NOT NULL 不塞假值）：不留痕
         verify(orchestrator, never()).persistRejectedBatch(any(), any(), any(), any(), any());
@@ -247,44 +267,44 @@ class QualityControlSdkImplTest {
         stubRejectedTrace();
         // span_check 必填标气浓度（与计划保存同一校验器，FR-03-17）；qcType/instruments 可解析 → 建行留痕
         SdkTriggerReply reply = sdk.trigger(SdkTriggerRequest.builder()
-                .qcType("span_check")
-                .instruments(Collections.singletonList("SO2"))
+                .qcType(SdkQcType.SPAN_CHECK)
+                .instruments(Collections.singletonList(SdkInstrument.SO2))
                 .operator(sdkLocalOperator("lims-system"))
                 .allowQueue(false)
                 .build());
 
         assertFalse(reply.isAccepted());
-        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, reply.getReason());
+        assertEquals(SdkReason.INVALID_PARAM, reply.getReason());
         assertTrue(reply.getMessage().contains("标气浓度"));
         assertEquals("batch-reject", reply.getBatchId());
         verify(orchestrator).persistRejectedBatch(any(), eq(TriggerSource.REMOTE), eq("lims-system"),
-                eq(QualityControlSdk.REASON_INVALID_PARAM), anyString());
+                eq(SdkReason.INVALID_PARAM.name()), anyString());
         verify(orchestrator, never()).triggerExecution(any(), any(), any());
     }
 
     @Test
-    void triggerWithUnparseableParamsRejectedWithoutTrace() {
-        // 残缺请求（§7 边界1）：五个 NOT NULL 业务列填不出，reply 拒绝不建行
-        SdkTriggerReply unknownQcType = sdk.trigger(SdkTriggerRequest.builder()
-                .qcType("not_a_type")
-                .instruments(Collections.singletonList("SO2"))
+    void triggerWithIncompleteParamsRejectedWithoutTrace() {
+        // 残缺请求（§7 边界1）：五个 NOT NULL 业务列填不出，reply 拒绝不建行。
+        // 类型/仪器词汇已闭域（未知词汇在调用方编译期即不可表达），残缺只剩字段缺失
+        SdkTriggerReply missingQcType = sdk.trigger(SdkTriggerRequest.builder()
+                .instruments(Collections.singletonList(SdkInstrument.SO2))
                 .operator(sdkLocalOperator("lims-system"))
                 .allowQueue(false)
                 .build());
-        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, unknownQcType.getReason());
-        assertTrue(unknownQcType.getMessage().contains("不支持的质控类型"));
-        assertNull(unknownQcType.getBatchId());
+        assertEquals(SdkReason.INVALID_PARAM, missingQcType.getReason());
+        assertTrue(missingQcType.getMessage().contains("质控类型"));
+        assertNull(missingQcType.getBatchId());
 
-        SdkTriggerReply unknownInstrument = sdk.trigger(SdkTriggerRequest.builder()
-                .qcType("span_check")
-                .instruments(Collections.singletonList("XXX"))
+        SdkTriggerReply nullInstrumentElement = sdk.trigger(SdkTriggerRequest.builder()
+                .qcType(SdkQcType.SPAN_CHECK)
+                .instruments(Collections.singletonList(null))
                 .operator(sdkLocalOperator("lims-system"))
                 .allowQueue(false)
                 .build());
-        assertNull(unknownInstrument.getBatchId());
+        assertNull(nullInstrumentElement.getBatchId());
 
         SdkTriggerReply noInstrument = sdk.trigger(SdkTriggerRequest.builder()
-                .qcType("span_check")
+                .qcType(SdkQcType.SPAN_CHECK)
                 .operator(sdkLocalOperator("lims-system"))
                 .allowQueue(false)
                 .build());
@@ -295,16 +315,15 @@ class QualityControlSdkImplTest {
     }
 
     @Test
-    void triggerWithAllowQueueAndUnparseableParamsRejectedWithoutTrace() {
+    void triggerWithAllowQueueAndIncompleteParamsRejectedWithoutTrace() {
         SdkTriggerReply reply = sdk.trigger(SdkTriggerRequest.builder()
-                .qcType("not_a_type")
-                .instruments(Collections.singletonList("SO2"))
+                .instruments(Collections.singletonList(SdkInstrument.SO2))
                 .operator(sdkLocalOperator("lims-system"))
                 .allowQueue(true)
                 .build());
 
         assertFalse(reply.isAccepted());
-        assertEquals(QualityControlSdk.REASON_QUEUE_NOT_SUPPORTED, reply.getReason());
+        assertEquals(SdkReason.QUEUE_NOT_SUPPORTED, reply.getReason());
         assertNull(reply.getBatchId());
         verify(orchestrator, never()).persistRejectedBatch(any(), any(), any(), any(), any());
         verify(orchestrator, never()).triggerExecution(any(), any(), any());
@@ -318,7 +337,7 @@ class QualityControlSdkImplTest {
         SdkTriggerReply reply = sdk.trigger(validSpanRequest());
 
         assertFalse(reply.isAccepted());
-        assertEquals(QualityControlSdk.REASON_BUSY_CONFLICT, reply.getReason());
+        assertEquals(SdkReason.BUSY_CONFLICT, reply.getReason());
         assertEquals("batch-2", reply.getBatchId());
         assertEquals(Arrays.asList(21L, 22L), reply.getRecordIds());
     }
@@ -331,8 +350,22 @@ class QualityControlSdkImplTest {
         SdkTriggerReply reply = sdk.trigger(validSpanRequest());
 
         assertFalse(reply.isAccepted());
-        assertEquals(QualityControlSdk.REASON_EXECUTOR_TYPE_NOT_READY, reply.getReason());
+        assertEquals(SdkReason.EXECUTOR_TYPE_NOT_READY, reply.getReason());
         assertTrue(reply.getMessage().contains("无可用结果格式化器"));
+    }
+
+    @Test
+    void triggerExecutorNotReadyMappedFromBatchResultPath() {
+        // 编排器闸前拒绝路径（multi_zero_check 未接线）：留痕回执同样映射 EXECUTOR_TYPE_NOT_READY
+        when(orchestrator.triggerExecution(any(), eq(TriggerSource.REMOTE), eq("lims-system")))
+                .thenReturn(BatchResult.rejectedExecutorTypeNotReady("batch-3", Collections.singletonList(31L)));
+
+        SdkTriggerReply reply = sdk.trigger(validSpanRequest());
+
+        assertFalse(reply.isAccepted());
+        assertEquals(SdkReason.EXECUTOR_TYPE_NOT_READY, reply.getReason());
+        assertEquals("batch-3", reply.getBatchId());
+        assertEquals(Collections.singletonList(31L), reply.getRecordIds());
     }
 
     @Test
@@ -345,9 +378,9 @@ class QualityControlSdkImplTest {
 
         assertFalse(state.isTerminal());
         assertEquals(2, state.getRecords().size());
-        assertEquals("SO2", state.getRecords().get(0).getInstrument());
-        assertEquals("执行中", state.getRecords().get(0).getStatusName());
-        assertEquals("成功", state.getRecords().get(1).getStatusName());
+        assertEquals(SdkInstrument.SO2, state.getRecords().get(0).getInstrument());
+        assertEquals(SdkExecutionStatus.RUNNING, state.getRecords().get(0).getStatusName());
+        assertEquals(SdkExecutionStatus.SUCCESS, state.getRecords().get(1).getStatusName());
     }
 
     @Test
@@ -370,7 +403,8 @@ class QualityControlSdkImplTest {
         QcmRecord record = record(51L, 2);
         record.setBatchId("batch-5");
         record.setPlanId(null);
-        record.setQualityControlType("span_check");
+        // 记录侧 quality_control_type 落数字码（编排器 buildRecords 落库形态）
+        record.setQualityControlType("1");
         record.setTaskType(TriggerSource.REMOTE.getCode());
         record.setTriggerUser("lims-system");
         record.setFailureReason(null);
@@ -397,12 +431,12 @@ class QualityControlSdkImplTest {
         assertEquals(51L, detail.getRecordId());
         assertEquals("batch-5", detail.getBatchId());
         assertNull(detail.getPlanId());
-        assertEquals("span_check", detail.getQcType());
-        assertEquals("SO2", detail.getInstrument());
-        assertEquals("REMOTE", detail.getTriggerSource());
+        assertEquals(SdkQcType.SPAN_CHECK, detail.getQcType());
+        assertEquals(SdkInstrument.SO2, detail.getInstrument());
+        assertEquals(SdkTriggerSource.REMOTE, detail.getTriggerSource());
         assertEquals("lims-system", detail.getTriggerUser());
         assertEquals(2, detail.getExecutionStatus());
-        assertEquals("成功", detail.getExecutionStatusName());
+        assertEquals(SdkExecutionStatus.SUCCESS, detail.getExecutionStatusName());
         assertEquals(0, BigDecimal.valueOf(401.2).compareTo(detail.getMonitoringData()));
         assertEquals(0, BigDecimal.valueOf(400).compareTo(detail.getStandardValue()));
         assertEquals(0, BigDecimal.valueOf(0.3).compareTo(detail.getCalculatedValue()));
@@ -445,22 +479,20 @@ class QualityControlSdkImplTest {
                 org.mockito.ArgumentMatchers.anyInt())).thenReturn(Collections.emptyList());
 
         sdk.queryResults(ResultFilter.builder()
-                .begin(begin).end(end).qcType("span_check").instrument("SO2")
-                .triggerSource("REMOTE").batchId("batch-9").triggerRequestId("req-1").build());
+                .begin(begin).end(end).qcType(SdkQcType.SPAN_CHECK).instrument(SdkInstrument.SO2)
+                .triggerSource(SdkTriggerSource.REMOTE).batchId("batch-9").triggerRequestId("req-1").build());
 
         org.mockito.ArgumentCaptor<String> sourceCaptor =
                 org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(recordMapper).selectByFilter(eq(begin), eq(end), eq("span_check"), eq("SO2"),
+        // qcType 与 instrument 同向：selectByFilter 落记录侧列，两列均存数字码（真库符合性 IT 对账方向）
+        verify(recordMapper).selectByFilter(eq(begin), eq(end), eq("1"), eq("1"),
                 sourceCaptor.capture(), eq("batch-9"), eq("req-1"),
                 org.mockito.ArgumentMatchers.eq(501));
         assertEquals(TriggerSource.REMOTE.getCode(), sourceCaptor.getValue());
     }
 
-    @Test
-    void queryResults_unknownTriggerSourceThrows() {
-        assertThrows(IllegalArgumentException.class, () -> sdk.queryResults(
-                ResultFilter.builder().triggerSource("NOT_A_SOURCE").build()));
-    }
+    // 说明：旧用例「未知触发源字符串抛 IAE」随闭域重打型删除——未知词汇在调用方编译期即不可表达，
+    // 词汇翻译的未知值纪律改由 SdkVocabularyTranslationTest 在存储面锁定。
 
     @Test
     void queryResults_overLimitThrowsWithNarrowHint() {
@@ -472,7 +504,7 @@ class QualityControlSdkImplTest {
                 org.mockito.ArgumentMatchers.anyInt())).thenReturn(rows);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> sdk.queryResults(ResultFilter.builder().qcType("span_check").build()));
+                () -> sdk.queryResults(ResultFilter.builder().qcType(SdkQcType.SPAN_CHECK).build()));
         assertTrue(ex.getMessage().contains("500"));
         assertTrue(ex.getMessage().contains("收窄"));
     }
@@ -492,7 +524,8 @@ class QualityControlSdkImplTest {
         record.setBatchId("batch-6");
         record.setTriggerRequestId("req-6");
         record.setPlanId(3L);
-        record.setQualityControlType("multi_check");
+        // 记录侧 quality_control_type 落数字码（multi_check=2）
+        record.setQualityControlType("2");
         record.setTaskType(TriggerSource.SCHEDULED.getCode());
         record.setTriggerUser("system");
         record.setEndTime(Instant.ofEpochMilli(1_700_000_900_000L));
@@ -557,13 +590,13 @@ class QualityControlSdkImplTest {
         assertEquals("batch-6", result.getBatchId());
         assertEquals("req-6", result.getTriggerRequestId());
         assertEquals(Long.valueOf(3L), result.getPlanId());
-        assertEquals("multi_check", result.getQcType());
-        assertEquals("SO2", result.getInstrument());
-        assertEquals("SCHEDULED", result.getTriggerSource());
+        assertEquals(SdkQcType.MULTI_CHECK, result.getQcType());
+        assertEquals(SdkInstrument.SO2, result.getInstrument());
+        assertEquals(SdkTriggerSource.SCHEDULED, result.getTriggerSource());
         assertEquals("system", result.getTriggerUser());
         assertEquals(Instant.ofEpochMilli(1_700_000_900_000L), result.getEndTime());
         assertEquals(2, result.getExecutionStatus());
-        assertEquals("成功", result.getExecutionStatusName());
+        assertEquals(SdkExecutionStatus.SUCCESS, result.getExecutionStatusName());
         // 过程层（子表）
         assertEquals(1, result.getPhaseTimelines().size());
         assertEquals("check", result.getPhaseTimelines().get(0).getPhaseId());
@@ -621,16 +654,6 @@ class QualityControlSdkImplTest {
         assertNull(result.getFlowType());
     }
 
-    private static QcmRecord record(long id, int status) {
-        QcmRecord record = new QcmRecord();
-        record.setId(id);
-        record.setBatchId("batch-x");
-        record.setParameter("SO2");
-        record.setExecutionStatus(status);
-        record.setStartTime(Instant.now());
-        return record;
-    }
-
     // ===== queryPlans（质控计划当前设置） =====
 
     @Test
@@ -645,13 +668,13 @@ class QualityControlSdkImplTest {
         assertEquals(1, result.size());
         SdkPlanSetting s = result.get(0);
         assertEquals(7L, s.getPlanId());
-        assertEquals("span_check", s.getQcType());
-        assertEquals(Arrays.asList("SO2", "NO2"), s.getInstruments());
-        assertEquals("WEEKLY", s.getScheduleType());
+        assertEquals(SdkQcType.SPAN_CHECK, s.getQcType());
+        assertEquals(Arrays.asList(SdkInstrument.SO2, SdkInstrument.NO2), s.getInstruments());
+        assertEquals(SdkScheduleType.WEEKLY, s.getScheduleType());
         assertEquals(9, s.getHour());
         assertEquals(30, s.getMinute());
         assertTrue(s.getWeekdays().containsAll(Arrays.asList(1, 3, 5)));
-        assertEquals("ACTIVE", s.getStatus());
+        assertEquals(SdkPlanStatus.ACTIVE, s.getStatus());
         assertTrue(s.isEnabled());
     }
 
@@ -678,7 +701,7 @@ class QualityControlSdkImplTest {
         QcmPlan bad = plan(2L, "ACTIVE", "WEEKLY", "{\"hour\":8,\"minute\":0}");
         when(planService.selectList(any())).thenReturn(Arrays.asList(good, bad));
 
-        List<SdkPlanSetting> result = sdk.queryPlans("ACTIVE");
+        List<SdkPlanSetting> result = sdk.queryPlans(SdkPlanStatus.ACTIVE);
 
         assertEquals(1, result.size());
         assertEquals(1L, result.get(0).getPlanId());
@@ -691,16 +714,17 @@ class QualityControlSdkImplTest {
     void queryPlans_nullServiceResultReturnsEmpty() {
         when(planService.selectList(any())).thenReturn(null);
 
-        assertTrue(sdk.queryPlans("ACTIVE").isEmpty());
+        assertTrue(sdk.queryPlans(SdkPlanStatus.ACTIVE).isEmpty());
     }
 
     @Test
-    void queryPlans_blankStatusFilterTreatedAsNoFilterAndExcludesFinished() {
+    void queryPlans_nullFilterPassesUnsetStatusToServiceAndExcludesFinished() {
+        // 旧契约「空白串视为无过滤」随重打型删除（空白串不再可表达），null 即无过滤语义
         QcmPlan active = plan(1L, "ACTIVE", "DAILY", "{\"hour\":1,\"minute\":0}");
         QcmPlan finished = plan(2L, "FINISHED", "ONCE", "{\"onceAt\":\"2026-01-01T00:00:00Z\"}");
         when(planService.selectList(any())).thenReturn(Arrays.asList(active, finished));
 
-        List<SdkPlanSetting> result = sdk.queryPlans("   ");
+        List<SdkPlanSetting> result = sdk.queryPlans(null);
 
         assertEquals(1, result.size());
         assertEquals(1L, result.get(0).getPlanId());
@@ -714,11 +738,11 @@ class QualityControlSdkImplTest {
         QcmPlan finished = plan(5L, "FINISHED", "ONCE", "{\"onceAt\":\"2026-01-01T00:00:00Z\"}");
         when(planService.selectList(any())).thenReturn(Collections.singletonList(finished));
 
-        List<SdkPlanSetting> result = sdk.queryPlans("FINISHED");
+        List<SdkPlanSetting> result = sdk.queryPlans(SdkPlanStatus.FINISHED);
 
         assertEquals(1, result.size());
         assertEquals(5L, result.get(0).getPlanId());
-        assertEquals("FINISHED", result.get(0).getStatus());
+        assertEquals(SdkPlanStatus.FINISHED, result.get(0).getStatus());
         assertFalse(result.get(0).isEnabled());
     }
 
@@ -729,7 +753,7 @@ class QualityControlSdkImplTest {
 
         SdkPlanSetting s = sdk.queryPlans(null).get(0);
 
-        assertEquals("MONTHLY", s.getScheduleType());
+        assertEquals(SdkScheduleType.MONTHLY, s.getScheduleType());
         assertEquals(6, s.getHour());
         assertEquals(15, s.getMinute());
         assertTrue(s.getMonthDays().containsAll(Arrays.asList(1, 15, 31)));
@@ -744,7 +768,7 @@ class QualityControlSdkImplTest {
 
         SdkPlanSetting s = sdk.queryPlans(null).get(0);
 
-        assertEquals("ONCE", s.getScheduleType());
+        assertEquals(SdkScheduleType.ONCE, s.getScheduleType());
         assertEquals(Instant.parse("2026-01-02T03:04:05Z"), s.getOnceAt());
         assertNull(s.getWeekdays());
         assertNull(s.getMonthDays());
@@ -818,9 +842,9 @@ class QualityControlSdkImplTest {
     @Test
     void stopAcceptedCarriesBatchContextAndDisplayOperator() {
         QcmRecord first = record(11L, 1);
-        first.setQualityControlType("span_check");
+        first.setQualityControlType("1");
         QcmRecord second = record(12L, 1);
-        second.setQualityControlType("span_check");
+        second.setQualityControlType("1");
         stubBatchRows("batch-s1", first, second);
         when(orchestrator.stopExecution(eq(11L), isNull(), isNull(), eq(false), eq("scada@10.0.0.1:5025")))
                 .thenReturn(StopOutcome.initiated("质控记录已中止", "batch-s1", Arrays.asList(11L, 12L)));
@@ -830,11 +854,11 @@ class QualityControlSdkImplTest {
                         .name("scada").ip("10.0.0.1").port(5025).build()));
 
         assertTrue(reply.isAccepted());
-        assertEquals(QualityControlSdk.REASON_STOP_INITIATED, reply.getReason());
+        assertEquals(SdkReason.STOP_INITIATED, reply.getReason());
         assertEquals("batch-s1", reply.getBatchId());
         assertEquals(Arrays.asList(11L, 12L), reply.getRecordIds());
-        assertEquals("span_check", reply.getQcType());
-        assertEquals(Arrays.asList("SO2", "SO2"), reply.getInstruments());
+        assertEquals(SdkQcType.SPAN_CHECK, reply.getQcType());
+        assertEquals(Arrays.asList(SdkInstrument.SO2, SdkInstrument.SO2), reply.getInstruments());
         assertNotNull(reply.getStartTime());
         assertTrue(reply.getMessage().contains("质控记录已中止"));
         assertTrue(reply.getMessage().contains("queryExecution"));
@@ -843,7 +867,7 @@ class QualityControlSdkImplTest {
     @Test
     void stopAlreadyTerminalRejectedWithBatchContext() {
         QcmRecord settled = record(21L, 2);
-        settled.setQualityControlType("span_check");
+        settled.setQualityControlType("1");
         stubBatchRows("batch-s2", settled);
         when(orchestrator.stopExecution(isNull(), eq("batch-s2"), isNull(), eq(false), eq("lims-system")))
                 .thenReturn(StopOutcome.alreadySettled("批次已结束，无需中止", "batch-s2", Collections.singletonList(21L)));
@@ -851,12 +875,12 @@ class QualityControlSdkImplTest {
         SdkStopReply reply = sdk.stop(stopRequest(null, "batch-s2 ", null, false, sdkLocalOperator("lims-system")));
 
         assertFalse(reply.isAccepted());
-        assertEquals(QualityControlSdk.REASON_ALREADY_TERMINAL, reply.getReason());
+        assertEquals(SdkReason.ALREADY_TERMINAL, reply.getReason());
         assertEquals("批次已结束，无需中止", reply.getMessage());
         // 幂等拒绝同样回带批次定位：调用方可辨「停的是哪个批次、为何没停」
         assertEquals("batch-s2", reply.getBatchId());
         assertEquals(Collections.singletonList(21L), reply.getRecordIds());
-        assertEquals("span_check", reply.getQcType());
+        assertEquals(SdkQcType.SPAN_CHECK, reply.getQcType());
     }
 
     @Test
@@ -865,7 +889,7 @@ class QualityControlSdkImplTest {
                 .thenReturn(StopOutcome.nothingRunning("当前没有运行中的质控执行"));
         SdkStopReply nothing = sdk.stop(stopRequest(null, null, null, true, sdkLocalOperator("lims-system")));
         assertFalse(nothing.isAccepted());
-        assertEquals(QualityControlSdk.REASON_NOTHING_RUNNING, nothing.getReason());
+        assertEquals(SdkReason.NOTHING_RUNNING, nothing.getReason());
         assertNull(nothing.getBatchId());
         assertNull(nothing.getRecordIds());
         assertNull(nothing.getQcType());
@@ -874,22 +898,22 @@ class QualityControlSdkImplTest {
                 .thenReturn(StopOutcome.notFound("质控记录不存在"));
         SdkStopReply missing = sdk.stop(stopRequest(99L, null, null, false, sdkLocalOperator("lims-system")));
         assertFalse(missing.isAccepted());
-        assertEquals(QualityControlSdk.REASON_RECORD_NOT_FOUND, missing.getReason());
+        assertEquals(SdkReason.RECORD_NOT_FOUND, missing.getReason());
         assertNull(missing.getBatchId());
     }
 
     @Test
     void stopMissingOrBlankOperatorRejectedWithoutOrchestratorCall() {
         SdkStopReply noOperator = sdk.stop(stopRequest(11L, null, null, false, null));
-        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, noOperator.getReason());
+        assertEquals(SdkReason.INVALID_PARAM, noOperator.getReason());
         assertFalse(noOperator.isAccepted());
 
         SdkStopReply blankName = sdk.stop(stopRequest(11L, null, null, false,
                 SdkOperator.builder().sourceType(SdkOperatorSource.SDK_LOCAL).name("  ").build()));
-        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, blankName.getReason());
+        assertEquals(SdkReason.INVALID_PARAM, blankName.getReason());
 
         SdkStopReply nullRequest = sdk.stop(null);
-        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, nullRequest.getReason());
+        assertEquals(SdkReason.INVALID_PARAM, nullRequest.getReason());
 
         verify(orchestrator, never()).stopExecution(any(), any(), any(), anyBoolean(), any());
     }
@@ -903,7 +927,7 @@ class QualityControlSdkImplTest {
         SdkStopReply reply = sdk.stop(stopRequest(11L, "batch-1", null, false, sdkLocalOperator("lims-system")));
 
         assertFalse(reply.isAccepted());
-        assertEquals(QualityControlSdk.REASON_INVALID_PARAM, reply.getReason());
+        assertEquals(SdkReason.INVALID_PARAM, reply.getReason());
         assertNull(reply.getBatchId());
     }
 
@@ -917,7 +941,7 @@ class QualityControlSdkImplTest {
         SdkStopReply reply = sdk.stop(stopRequest(null, null, " req-3 ", false, sdkLocalOperator("lims-system")));
 
         assertFalse(reply.isAccepted());
-        assertEquals(QualityControlSdk.REASON_ALREADY_TERMINAL, reply.getReason());
+        assertEquals(SdkReason.ALREADY_TERMINAL, reply.getReason());
         assertEquals("批次正在终止，无需重复中止", reply.getMessage());
     }
 
@@ -932,13 +956,13 @@ class QualityControlSdkImplTest {
         when(orchestrator.runningBatchId()).thenReturn("batch-r");
         QcmRecord first = record(41L, 1);
         first.setBatchId("batch-r");
-        first.setQualityControlType("span_check");
+        first.setQualityControlType("1");
         first.setTriggerRequestId("req-r");
         first.setTaskType(TriggerSource.REMOTE.getCode());
         first.setTriggerUser("scada@10.0.0.1:5025");
         QcmRecord second = record(42L, 1);
         second.setBatchId("batch-r");
-        second.setParameter("NO2");
+        second.setParameter("2");
         stubBatchRows("batch-r", first, second);
 
         List<SdkRunningExecution> running = sdk.queryRunning();
@@ -948,10 +972,10 @@ class QualityControlSdkImplTest {
         assertEquals("batch-r", execution.getBatchId());
         assertEquals(Arrays.asList(41L, 42L), execution.getRecordIds());
         assertEquals("req-r", execution.getTriggerRequestId());
-        assertEquals("span_check", execution.getQcType());
-        // 多仪器批次的受检仪器列表 = 批次各行 parameter 去重前顺序聚合
-        assertEquals(Arrays.asList("SO2", "NO2"), execution.getInstruments());
-        assertEquals("REMOTE", execution.getTriggerSource());
+        assertEquals(SdkQcType.SPAN_CHECK, execution.getQcType());
+        // 多仪器批次的受检仪器列表 = 批次各行 parameter 去重前顺序聚合（存储码 "1"/"2" 译为枚举）
+        assertEquals(Arrays.asList(SdkInstrument.SO2, SdkInstrument.NO2), execution.getInstruments());
+        assertEquals(SdkTriggerSource.REMOTE, execution.getTriggerSource());
         assertEquals("scada@10.0.0.1:5025", execution.getTriggerUser());
     }
 }

@@ -31,16 +31,15 @@ public class SdkPlanSetting {
     String planName;
 
     /**
-     * 质控类型 code（zero_check / span_check / multi_check / precision_check /
-     * accuracy_check / conversion_check / audit_span_check / multi_zero_check）。
+     * 质控类型
      */
-    String qcType;
+    SdkQcType qcType;
 
-    /** 检测项（仪器代码列表，如 ["SO2","NO2","CO","O3"]） */
-    List<String> instruments;
+    /** 检测项（仪器列表） */
+    List<SdkInstrument> instruments;
 
-    /** 调度类型：DAILY / WEEKLY / MONTHLY / ONCE */
-    String scheduleType;
+    /** 调度类型 */
+    SdkScheduleType scheduleType;
 
     /** 调度小时（0-23）；ONCE 以 onceAt 为准，本值为配置残留可忽略 */
     int hour;
@@ -57,8 +56,8 @@ public class SdkPlanSetting {
     /** 一次性触发时刻；仅 ONCE 非空 */
     Instant onceAt;
 
-    /** 计划状态：ACTIVE / PAUSED / FINISHED */
-    String status;
+    /** 计划状态 */
+    SdkPlanStatus status;
 
     /** 是否启用（status==ACTIVE） */
     boolean enabled;

@@ -102,6 +102,14 @@
       <artifactId>mockito-inline</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- 仅 SDK 读面真库符合性 IT（QcmSdkCloudDbConformanceIT，手动门控）用：PG JDBC 直连部署云库，
+         生产 mapper XML 在真库上跑 SELECT。不进运行时依赖（运行时驱动由 ruoyi-admin 提供）。 -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>42.2.27</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
   <build>
     <resources>

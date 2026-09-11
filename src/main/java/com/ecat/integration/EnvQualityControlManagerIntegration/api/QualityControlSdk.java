@@ -7,7 +7,10 @@ import java.util.List;
  * 不接触 qcm 内部 service / mapper / composer 类型。
  *
  * <p>本包契约铁律：零第三方依赖（仅 java.* / lombok 编译期注解，SdkApiZeroDependencyGuardTest 守卫），
- * 状态与枚举一律用 String 常量承载，不 import qcm 内部枚举——外部类加载器无需可见 qcm 其余类。</p>
+ * 不 import qcm 内部类型——外部类加载器无需可见 qcm 其余类。词汇契约：闭域词汇（仪器/质控类型/
+ * 触发源/执行状态/受理原因/计划状态/失败原因/时长键/调度类型）一律用本包枚举，编译期穷尽、
+ * 存储形态互译由实现收口；开放文本与标识（batchId/triggerRequestId/triggerUser/评定与消息文案/
+ * 单位串等）保持 String。</p>
  *
  * <p>获取方式：{@code core.getIntegrationRegistry().getIntegration("integration-env-qc-manager")
  * .getQualityControlSdk()}。</p>
@@ -15,27 +18,6 @@ import java.util.List;
  * @author coffee
  */
 public interface QualityControlSdk {
-
-    /** 拒绝原因：执行器被互斥闸占用（批次已写 FAILED 终态留痕，D10）。 */
-    String REASON_BUSY_CONFLICT = "BUSY_CONFLICT";
-    /** 拒绝原因：请求 allowQueue=true，但 SDK 触发不支持排队（FR-03-07）；参数完整时本批次已写 FAILED 终态留痕。 */
-    String REASON_QUEUE_NOT_SUPPORTED = "QUEUE_NOT_SUPPORTED";
-    /** 拒绝原因：请求参数非法（复用计划参数校验器同一套规则，FR-03-17）；参数完整（qcType/instruments 可解析）时本批次已写 FAILED 终态留痕。 */
-    String REASON_INVALID_PARAM = "INVALID_PARAM";
-    /** 拒绝原因：执行器类型/结果格式化器未就绪（集成尚未完成启动注册）。 */
-    String REASON_EXECUTOR_TYPE_NOT_READY = "EXECUTOR_TYPE_NOT_READY";
-
-    /** 受理原因：停止已受理（STOPPING 已置位，设备恢复与终态落库异步完成，终态经 {@link #queryExecution(String)} 轮询）；
-     *  本词汇下 accepted=true。 */
-    String REASON_STOP_INITIATED = "STOP_INITIATED";
-    /** 拒绝原因：目标批次已结算（已终态或已在终止中），本次停止不受理且不改库——已终态行的
-     *  end_time/result_evaluation 是执行事实（幂等语义，重复 stop 不产生副作用）。 */
-    String REASON_ALREADY_TERMINAL = "ALREADY_TERMINAL";
-    /** 拒绝原因：当前没有运行中的质控执行（allRunning 寻址且执行闸空闲）。非故障语义——
-     *  「不管在跑什么都停」在没有东西可停时是正常结果。 */
-    String REASON_NOTHING_RUNNING = "NOTHING_RUNNING";
-    /** 拒绝原因：寻址句柄解析不到任何质控记录（记录不存在或已清理）。 */
-    String REASON_RECORD_NOT_FOUND = "RECORD_NOT_FOUND";
 
     /**
      * 异步触发：立即返回受理/拒绝（毫秒级），不等待执行（FR-03-10）。
@@ -51,12 +33,12 @@ public interface QualityControlSdk {
      * <ul>
      *   <li>批次粒度——一个批次一个 flow，寻址到批内任一行即停整批（accepted=true 的
      *       batchId/recordIds 回执说明实际停的是什么）；</li>
-     *   <li>幂等——批次已终态或已在终止中 → accepted=false + {@link #REASON_ALREADY_TERMINAL}，
+     *   <li>幂等——批次已终态或已在终止中 → accepted=false + {@link SdkReason#ALREADY_TERMINAL}，
      *       不改库（终态行的执行事实不可覆盖）；</li>
      *   <li>全停——{@code allRunning=true} 解析为「当前唯一运行批次」（单飞语义），无运行批次 →
-     *       accepted=false + {@link #REASON_NOTHING_RUNNING}（非故障）；</li>
+     *       accepted=false + {@link SdkReason#NOTHING_RUNNING}（非故障）；</li>
      *   <li>操作者必填——{@link SdkStopRequest#getOperator()} 缺失/空白 →
-     *       {@link #REASON_INVALID_PARAM}（无来源的停止不可归属，不落痕）。</li>
+     *       {@link SdkReason#INVALID_PARAM}（无来源的停止不可归属，不落痕）。</li>
      * </ul>
      */
     SdkStopReply stop(SdkStopRequest request);
@@ -106,8 +88,8 @@ public interface QualityControlSdk {
      *
      * <p>调度配置解析失败的个别计划会被跳过（不整批失败）；无匹配时返回空列表。</p>
      *
-     * @param statusFilter 计划状态过滤（ACTIVE/PAUSED/FINISHED，精确）；为空/空白时返回全部
-     *                     非 FINISHED 计划（ACTIVE+PAUSED——已终结的一次性计划不属「当前设置」）
+     * @param statusFilter 计划状态过滤（精确）；为 null 时返回全部非 FINISHED 计划
+     *                     （ACTIVE+PAUSED——已终结的一次性计划不属「当前设置」）
      */
-    List<SdkPlanSetting> queryPlans(String statusFilter);
+    List<SdkPlanSetting> queryPlans(SdkPlanStatus statusFilter);
 }

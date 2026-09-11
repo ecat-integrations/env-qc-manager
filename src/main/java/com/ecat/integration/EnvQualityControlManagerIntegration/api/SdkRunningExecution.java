@@ -26,17 +26,17 @@ public class SdkRunningExecution {
     /** 触发请求标识（可直接作为 SdkStopRequest.triggerRequestId） */
     String triggerRequestId;
 
-    /** 质控类型（qcm_plan.qc_type 同词汇，如 zero_check / span_check） */
-    String qcType;
+    /** 质控类型 */
+    SdkQcType qcType;
 
-    /** 受检仪器代码列表（单仪器类型恒 1 台） */
-    List<String> instruments;
+    /** 受检仪器列表（单仪器类型恒 1 台） */
+    List<SdkInstrument> instruments;
 
     /** 批次开始时刻 */
     Instant startTime;
 
-    /** 触发来源（SCHEDULED/MANUAL/REMOTE） */
-    String triggerSource;
+    /** 触发来源 */
+    SdkTriggerSource triggerSource;
 
     /** 触发者（触发时留痕的 displayOperator：PLATFORM 形态为 name@ip[:port]） */
     String triggerUser;

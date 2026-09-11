@@ -17,12 +17,11 @@ import java.util.List;
 @Builder
 public class SdkStopReply {
 
-    /** 是否已受理停止；false 时 reason 给出结构化原因（STOP_INITIATED / ALREADY_TERMINAL /
-     *  NOTHING_RUNNING / RECORD_NOT_FOUND / INVALID_PARAM） */
+    /** 是否已受理停止；false 时 reason 给出结构化原因 */
     boolean accepted;
 
-    /** 受理结果结构化原因（QualityControlSdk 的 REASON_* 常量词汇）；accepted=true 时为 STOP_INITIATED */
-    String reason;
+    /** 受理结果结构化原因（accepted=true 时为 {@link SdkReason#STOP_INITIATED}，全域见 {@link SdkReason}） */
+    SdkReason reason;
 
     /** 人读消息（含拒绝原因细节或目标批次说明） */
     String message;
@@ -34,10 +33,10 @@ public class SdkStopReply {
     List<Long> recordIds;
 
     /** 目标批次质控类型（解析到批次时非空） */
-    String qcType;
+    SdkQcType qcType;
 
     /** 目标批次受检仪器列表（解析到批次时非空） */
-    List<String> instruments;
+    List<SdkInstrument> instruments;
 
     /** 目标批次开始时刻（解析到批次时非空） */
     Instant startTime;

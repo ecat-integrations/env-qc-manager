@@ -3,16 +3,25 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.service;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.QualityControlSdk;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.ResultFilter;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkBatchState;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkDurationKey;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkExecutionResult;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkExecutionStatus;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkFailureReason;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkInstrument;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkOperator;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkOperatorSource;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkPlanSetting;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkPlanStatus;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkQcType;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkReason;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkRecordDetail;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkRunningExecution;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkScheduleType;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkStopReply;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkStopRequest;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkTriggerReply;
 import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkTriggerRequest;
+import com.ecat.integration.EnvQualityControlManagerIntegration.api.SdkTriggerSource;
 import com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto.PlanSaveDto;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
@@ -54,8 +63,10 @@ import java.util.Map;
  * （FR-03-17 单一事实源，与 REST 计划保存同一套规则）；执行统一走
  * {@link QcmExecutionOrchestrator#triggerExecution}（REMOTE 源，planId=null）；
  * 数据面读强类型列+三子表组装五层结构（§4.0），零 JSON 解析、零 live 查询。
+ * 闭域词汇（§3 九域）在本类单向收口：api 枚举 ↔ 内部存储形态（仪器/质控类型落码、
+ * 质控类型计划侧落名、触发源落任务类型编码、时长键 camelCase），编排器/mapper/DB 零改动。
  * 本类为动态 jar 单例（DynamicJarLoader 只注册 @Service/@RestController，用 @Component 会 NoSuchBeanDefinition），
- * 且方法签名不引用任何 composer 类型（Spring 内省在 ruoyi 类加载器下解析签名会 CNFE）。</p>
+ * 且方法签名只引用 api 包类型（Spring 内省在 ruoyi 类加载器下解析 composer/内部签名会 CNFE）。</p>
  *
  * @author coffee
  */
@@ -101,14 +112,14 @@ public class QualityControlSdkImpl implements QualityControlSdk {
     @Override
     public SdkTriggerReply trigger(SdkTriggerRequest request) {
         if (request == null) {
-            return SdkTriggerReply.rejected(REASON_INVALID_PARAM, "请求不能为空");
+            return SdkTriggerReply.rejected(SdkReason.INVALID_PARAM, "请求不能为空");
         }
         // 来源契约（§6）：operator 及其 name 必填——无来源的触发尝试不可归属（trigger_user NOT NULL
         // 不塞假值），reply 拒绝且不留痕（行内留痕矩阵 §7 边界2，log 兜底可追溯）
         SdkOperator operator = request.getOperator();
         if (operator == null || operator.getName() == null || operator.getName().trim().isEmpty()) {
             log.warn("SDK 触发拒绝（INVALID_PARAM）：operator 及其 name 不能为空，触发尝试未留痕");
-            return SdkTriggerReply.rejected(REASON_INVALID_PARAM, "operator 及其 name 不能为空");
+            return SdkTriggerReply.rejected(SdkReason.INVALID_PARAM, "operator 及其 name 不能为空");
         }
         // 校验与可解析性判定先于排队分支：拒绝留痕（行内留痕矩阵 §7）需以「参数完整」决定是否建行
         List<String> errors = validator.validateExecutionParams(toPlanSaveDto(request));
@@ -116,11 +127,11 @@ public class QualityControlSdkImpl implements QualityControlSdk {
         QcExecutionRequest req = isRequestParseable(request) ? assembleRemoteRequest(request) : null;
         // 排队不支持（FR-03-07）：先于互斥闸判；参数完整时建 FAILED 行留痕
         if (request.isAllowQueue()) {
-            return rejectedWithTrace(req, displayOperator, REASON_QUEUE_NOT_SUPPORTED,
+            return rejectedWithTrace(req, displayOperator, SdkReason.QUEUE_NOT_SUPPORTED,
                     "SDK 触发不支持排队（allowQueue=true 被拒绝）");
         }
         if (!errors.isEmpty()) {
-            return rejectedWithTrace(req, displayOperator, REASON_INVALID_PARAM, String.join("; ", errors));
+            return rejectedWithTrace(req, displayOperator, SdkReason.INVALID_PARAM, String.join("; ", errors));
         }
         try {
             BatchResult result = orchestrator.triggerExecution(req, TriggerSource.REMOTE, displayOperator);
@@ -130,6 +141,7 @@ public class QualityControlSdkImpl implements QualityControlSdk {
                         .batchId(result.getBatchId())
                         .recordIds(result.getRecordIds())
                         .triggerRequestId(result.getTriggerRequestId())
+                        .reason(SdkReason.ACCEPTED)
                         .message("质控执行已受理，结果经 queryExecution 轮询获取")
                         .build();
             }
@@ -140,7 +152,7 @@ public class QualityControlSdkImpl implements QualityControlSdk {
                         .batchId(result.getBatchId())
                         .recordIds(result.getRecordIds())
                         .triggerRequestId(result.getTriggerRequestId())
-                        .reason(REASON_EXECUTOR_TYPE_NOT_READY)
+                        .reason(SdkReason.EXECUTOR_TYPE_NOT_READY)
                         .message("执行器类型未接线，本批次 " + result.getRecordIds().size()
                                 + " 条记录已写 FAILED 终态留痕（EXECUTOR_TYPE_NOT_READY）")
                         .build();
@@ -150,27 +162,27 @@ public class QualityControlSdkImpl implements QualityControlSdk {
                     .batchId(result.getBatchId())
                     .recordIds(result.getRecordIds())
                     .triggerRequestId(result.getTriggerRequestId())
-                    .reason(REASON_BUSY_CONFLICT)
+                    .reason(SdkReason.BUSY_CONFLICT)
                     .message("执行器被占用，本批次 " + result.getRecordIds().size()
                             + " 条记录已写 FAILED 终态留痕（EXECUTOR_BUSY_CONFLICT）")
                     .build();
         } catch (IllegalStateException e) {
             // 编排器结果格式化器未注册等「执行器类型未就绪」类硬抛
-            return SdkTriggerReply.rejected(REASON_EXECUTOR_TYPE_NOT_READY, e.getMessage());
+            return SdkTriggerReply.rejected(SdkReason.EXECUTOR_TYPE_NOT_READY, e.getMessage());
         }
     }
 
     @Override
     public SdkStopReply stop(SdkStopRequest request) {
         if (request == null) {
-            return rejectedStop(REASON_INVALID_PARAM, "请求不能为空");
+            return rejectedStop(SdkReason.INVALID_PARAM, "请求不能为空");
         }
         // 来源契约（§6）：operator 及其 name 必填——无来源的停止尝试不可归属（updated_by NOT NULL
         // 不塞假值），reply 拒绝且不落痕（与触发侧同一纪律）
         SdkOperator operator = request.getOperator();
         if (operator == null || operator.getName() == null || operator.getName().trim().isEmpty()) {
             log.warn("SDK 停止拒绝（INVALID_PARAM）：operator 及其 name 不能为空，停止尝试未留痕");
-            return rejectedStop(REASON_INVALID_PARAM, "operator 及其 name 不能为空");
+            return rejectedStop(SdkReason.INVALID_PARAM, "operator 及其 name 不能为空");
         }
         // 寻址恰好一键的判定在编排器（REST/SDK 共用唯一真相），此处只翻译其结果
         String displayOperator = displayOperator(operator);
@@ -192,11 +204,11 @@ public class QualityControlSdkImpl implements QualityControlSdk {
             throw new IllegalStateException("运行中批次的质控记录行不存在: batchId=" + batchId);
         }
         List<Long> recordIds = new ArrayList<>();
-        List<String> instruments = new ArrayList<>();
+        List<SdkInstrument> instruments = new ArrayList<>();
         for (QcmRecord row : rows) {
             recordIds.add(row.getId());
             if (row.getParameter() != null) {
-                instruments.add(row.getParameter());
+                instruments.add(instrumentOfCode(row.getParameter()));
             }
         }
         QcmRecord first = rows.get(0);
@@ -204,34 +216,34 @@ public class QualityControlSdkImpl implements QualityControlSdk {
                 .batchId(first.getBatchId())
                 .recordIds(recordIds)
                 .triggerRequestId(first.getTriggerRequestId())
-                .qcType(first.getQualityControlType())
+                .qcType(qcTypeOfRecordValue(first.getQualityControlType()))
                 .instruments(instruments)
                 .startTime(first.getStartTime())
-                .triggerSource(TriggerSource.fromTaskTypeCode(first.getTaskType()).name())
+                .triggerSource(sdkTriggerSource(TriggerSource.fromTaskTypeCode(first.getTaskType())))
                 .triggerUser(first.getTriggerUser())
                 .build());
     }
 
-    /** 停止结果 → SDK 回执（§5）：status 翻译成 REASON_* 词汇；已定位到批次的场景
+    /** 停止结果 → SDK 回执（§5）：status 翻译成受理/拒绝原因词汇；已定位到批次的场景
      *  （受理/幂等拒绝）按批次读记录行补齐业务上下文，回执不哑停。 */
     private SdkStopReply toStopReply(StopOutcome outcome) {
         StopOutcome.Status status = outcome.getStatus();
-        final String reason;
+        final SdkReason reason;
         switch (status) {
             case INITIATED:
-                reason = REASON_STOP_INITIATED;
+                reason = SdkReason.STOP_INITIATED;
                 break;
             case ALREADY_SETTLED:
-                reason = REASON_ALREADY_TERMINAL;
+                reason = SdkReason.ALREADY_TERMINAL;
                 break;
             case NOTHING_RUNNING:
-                reason = REASON_NOTHING_RUNNING;
+                reason = SdkReason.NOTHING_RUNNING;
                 break;
             case NOT_FOUND:
-                reason = REASON_RECORD_NOT_FOUND;
+                reason = SdkReason.RECORD_NOT_FOUND;
                 break;
             case INVALID_PARAM:
-                reason = REASON_INVALID_PARAM;
+                reason = SdkReason.INVALID_PARAM;
                 break;
             default:
                 throw new IllegalStateException("未知的停止结果状态: " + status);
@@ -242,8 +254,8 @@ public class QualityControlSdkImpl implements QualityControlSdk {
                 : outcome.getMessage();
         String batchId = outcome.getBatchId();
         List<Long> recordIds = outcome.getRecordIds();
-        String qcType = null;
-        List<String> instruments = null;
+        SdkQcType qcType = null;
+        List<SdkInstrument> instruments = null;
         Instant startTime = null;
         if (batchId != null) {
             List<QcmRecord> rows = recordMapper.selectByBatchId(batchId);
@@ -255,10 +267,10 @@ public class QualityControlSdkImpl implements QualityControlSdk {
                 for (QcmRecord row : rows) {
                     recordIds.add(row.getId());
                     if (row.getParameter() != null) {
-                        instruments.add(row.getParameter());
+                        instruments.add(instrumentOfCode(row.getParameter()));
                     }
                 }
-                qcType = rows.get(0).getQualityControlType();
+                qcType = qcTypeOfRecordValue(rows.get(0).getQualityControlType());
                 startTime = rows.get(0).getStartTime();
             }
         }
@@ -275,7 +287,7 @@ public class QualityControlSdkImpl implements QualityControlSdk {
     }
 
     /** 无批次上下文的停止拒绝回执（请求空/操作者缺失：尚未寻址，无可回带的批次信息）。 */
-    private static SdkStopReply rejectedStop(String reason, String message) {
+    private static SdkStopReply rejectedStop(SdkReason reason, String message) {
         return SdkStopReply.builder()
                 .accepted(false)
                 .reason(reason)
@@ -309,9 +321,9 @@ public class QualityControlSdkImpl implements QualityControlSdk {
             }
             summaries.add(SdkBatchState.RecordSummary.builder()
                     .recordId(row.getId())
-                    .instrument(row.getParameter())
+                    .instrument(instrumentOfCode(row.getParameter()))
                     .status(status.getCode().intValue())
-                    .statusName(status.getDisplayName())
+                    .statusName(executionStatus(status))
                     .startTime(row.getStartTime())
                     .endTime(row.getEndTime())
                     .resultEvaluation(row.getResultEvaluation())
@@ -360,12 +372,13 @@ public class QualityControlSdkImpl implements QualityControlSdk {
         if (filter == null || filter.isEmpty()) {
             throw new IllegalArgumentException("queryResults 过滤条件不能全空（至少提供时间窗/类型/仪器/触发源/批次/触发请求之一，防全表扫）");
         }
-        String taskTypeCode = null;
-        if (filter.getTriggerSource() != null && !filter.getTriggerSource().trim().isEmpty()) {
-            taskTypeCode = toTaskTypeCode(filter.getTriggerSource().trim());
-        }
+        // 过滤条件换算成存储词汇再下 SQL：仪器传枚举直译存储码（旧契约传字母名查空的陷阱在边界消除）
+        String taskTypeCode = filter.getTriggerSource() == null
+                ? null : internalTriggerSource(filter.getTriggerSource()).getCode();
         List<QcmRecord> rows = recordMapper.selectByFilter(filter.getBegin(), filter.getEnd(),
-                filter.getQcType(), filter.getInstrument(), taskTypeCode,
+                filter.getQcType() == null ? null : qcTypeCode(filter.getQcType()),
+                filter.getInstrument() == null ? null : instrumentCode(filter.getInstrument()),
+                taskTypeCode,
                 filter.getBatchId(), filter.getTriggerRequestId(), QUERY_RESULT_LIMIT + 1);
         if (rows != null && rows.size() > QUERY_RESULT_LIMIT) {
             throw new IllegalArgumentException("queryResults 命中超过上限 " + QUERY_RESULT_LIMIT
@@ -390,11 +403,11 @@ public class QualityControlSdkImpl implements QualityControlSdk {
     }
 
     @Override
-    public List<SdkPlanSetting> queryPlans(String statusFilter) {
-        boolean filterGiven = statusFilter != null && !statusFilter.trim().isEmpty();
+    public List<SdkPlanSetting> queryPlans(SdkPlanStatus statusFilter) {
+        boolean filterGiven = statusFilter != null;
         QcmPlan query = new QcmPlan();
         if (filterGiven) {
-            query.setStatus(statusFilter.trim());
+            query.setStatus(statusFilter.name());
         }
         List<QcmPlan> plans = planService.selectList(query);
         List<SdkPlanSetting> out = new ArrayList<>();
@@ -403,7 +416,7 @@ public class QualityControlSdkImpl implements QualityControlSdk {
         }
         for (QcmPlan plan : plans) {
             // 未给状态过滤时排除 FINISHED（已终结的一次性计划不属「当前设置」）
-            if (!filterGiven && "FINISHED".equals(plan.getStatus())) {
+            if (!filterGiven && SdkPlanStatus.FINISHED.name().equals(plan.getStatus())) {
                 continue;
             }
             SdkPlanSetting setting = toPlanSetting(plan);
@@ -420,40 +433,30 @@ public class QualityControlSdkImpl implements QualityControlSdk {
      */
     private SdkPlanSetting toPlanSetting(QcmPlan plan) {
         ScheduleSpec spec;
+        SdkScheduleType scheduleType;
         try {
             spec = ScheduleSpecs.fromConfig(plan.getScheduleType(), plan.getScheduleConfig(),
                     plan.getPlanStartTime(), plan.getPlanEndTime());
+            scheduleType = SdkScheduleType.valueOf(spec.getType().name());
         } catch (Exception e) {
             log.warn("计划 {} 调度配置解析失败，queryPlans 跳过该计划：{}", plan.getId(), e.getMessage());
             return null;
         }
+        SdkPlanStatus status = SdkPlanStatus.valueOf(plan.getStatus());
         return SdkPlanSetting.builder()
                 .planId(plan.getId() == null ? 0L : plan.getId())
                 .planName(plan.getPlanName())
-                .qcType(plan.getQcType())
-                .instruments(parseInstruments(plan.getInstruments()))
-                .scheduleType(plan.getScheduleType())
+                .qcType(qcTypeOfName(plan.getQcType()))
+                .instruments(instrumentsOfNameJson(plan.getInstruments()))
+                .scheduleType(scheduleType)
                 .hour(spec.getHour())
                 .minute(spec.getMinute())
                 .weekdays(spec.getWeekdays())
                 .monthDays(spec.getMonthDays())
                 .onceAt(spec.getOnceAt())
-                .status(plan.getStatus())
-                .enabled("ACTIVE".equals(plan.getStatus()))
+                .status(status)
+                .enabled(status == SdkPlanStatus.ACTIVE)
                 .build();
-    }
-
-    /** instruments JSON 数组串 → List&lt;String&gt;；空/非法返回空列表（如实呈现，不伪造）。 */
-    private static List<String> parseInstruments(String instrumentsJson) {
-        if (instrumentsJson == null || instrumentsJson.trim().isEmpty()) {
-            return Collections.emptyList();
-        }
-        try {
-            return MAPPER.readValue(instrumentsJson,
-                    MAPPER.getTypeFactory().constructCollectionType(List.class, String.class));
-        } catch (Exception e) {
-            return Collections.emptyList();
-        }
     }
 
     /** 五层组装（§4.0）：事件/结论层取 qcm_record 列，过程/工况层取三子表，判定层取列+point 子表。 */
@@ -517,15 +520,15 @@ public class QualityControlSdkImpl implements QualityControlSdk {
                 .batchId(record.getBatchId())
                 .triggerRequestId(record.getTriggerRequestId())
                 .planId(record.getPlanId())
-                .qcType(record.getQualityControlType())
-                .instrument(record.getParameter())
-                .triggerSource(TriggerSource.fromTaskTypeCode(record.getTaskType()).name())
+                .qcType(qcTypeOfRecordValue(record.getQualityControlType()))
+                .instrument(instrumentOfCode(record.getParameter()))
+                .triggerSource(sdkTriggerSource(TriggerSource.fromTaskTypeCode(record.getTaskType())))
                 .triggerUser(record.getTriggerUser())
                 .startTime(record.getStartTime())
                 .endTime(record.getEndTime())
                 .executionStatus(status.getCode().intValue())
-                .executionStatusName(status.getDisplayName())
-                .failureReason(record.getFailureReason())
+                .executionStatusName(executionStatus(status))
+                .failureReason(failureReasonOf(record.getFailureReason()))
                 .phaseTimelines(phases)
                 .judgement(judgement)
                 .keyParameters(keyParams)
@@ -543,26 +546,171 @@ public class QualityControlSdkImpl implements QualityControlSdk {
                 .build();
     }
 
-    /** 触发源名（SCHEDULED/MANUAL/REMOTE）→ qcm_record.task_type 编码；未知名硬抛不猜。 */
-    private static String toTaskTypeCode(String triggerSourceName) {
+    /** instruments JSON 数组串 → api 仪器列表；空/非法返回空列表（如实呈现，不伪造）。 */
+    private static List<SdkInstrument> instrumentsOfNameJson(String instrumentsJson) {
+        if (instrumentsJson == null || instrumentsJson.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> names;
         try {
-            return TriggerSource.valueOf(triggerSourceName).getCode();
+            names = MAPPER.readValue(instrumentsJson,
+                    MAPPER.getTypeFactory().constructCollectionType(List.class, String.class));
+        } catch (Exception e) {
+            return Collections.emptyList();
+        }
+        return instrumentsOfNames(names);
+    }
+
+    // ===== 闭域词汇翻译（§3 九域，api 枚举 ↔ 内部存储形态，全模块唯一收口点） =====
+
+    /** api 仪器 → 内部字母名（ParameterEnum name，逻辑设备入口词汇）。 */
+    private static String instrumentName(SdkInstrument instrument) {
+        return ParameterEnum.valueOf(instrument.name()).getName();
+    }
+
+    /** api 仪器 → 内部存储码（qcm_record.parameter / SQL 过滤词汇）。 */
+    private static String instrumentCode(SdkInstrument instrument) {
+        return ParameterEnum.valueOf(instrument.name()).getCode();
+    }
+
+    /** 存储码 → api 仪器。按常量名反查而非展示名：PM2_5 展示名带点（PM2.5）不能作枚举名。
+     *  译不出抛 IAE 带原码（禁伪造，R4）。 */
+    private static SdkInstrument instrumentOfCode(String code) {
+        for (ParameterEnum p : ParameterEnum.values()) {
+            if (p.getCode().equals(code)) {
+                return SdkInstrument.valueOf(p.name());
+            }
+        }
+        throw new IllegalArgumentException("未知的仪器存储码: " + code);
+    }
+
+    /** 内部字母名列表 → api 仪器列表（qcm_plan.instruments JSON 词汇）；null 元素原样保留由校验侧报错。 */
+    private static List<SdkInstrument> instrumentsOfNames(List<String> names) {
+        List<SdkInstrument> out = new ArrayList<>();
+        for (String name : names) {
+            out.add(name == null ? null : instrumentOfName(name));
+        }
+        return out;
+    }
+
+    /** 内部字母名 → api 仪器（按展示名反查）；译不出抛 IAE 带原值（R4）。 */
+    private static SdkInstrument instrumentOfName(String name) {
+        for (ParameterEnum p : ParameterEnum.values()) {
+            if (p.getName().equals(name)) {
+                return SdkInstrument.valueOf(p.name());
+            }
+        }
+        throw new IllegalArgumentException("未知的仪器: " + name);
+    }
+
+    /** api 仪器列表 → 内部字母名列表；null 列表原样返回，null 元素原样保留（残缺请求不伪造）。 */
+    private static List<String> instrumentNames(List<SdkInstrument> instruments) {
+        if (instruments == null) {
+            return null;
+        }
+        List<String> out = new ArrayList<>();
+        for (SdkInstrument instrument : instruments) {
+            out.add(instrument == null ? null : instrumentName(instrument));
+        }
+        return out;
+    }
+
+    /** api 质控类型 → 内部 snake_case name（计划/请求域词汇）。 */
+    private static String qcTypeName(SdkQcType qcType) {
+        return QualityControlTypeEnum.valueOf(qcType.name()).getName();
+    }
+
+    /** api 质控类型 → 记录侧存储码（qcm_record.quality_control_type / SQL 过滤词汇）。
+     *  与 {@link #qcTypeName} 必须分作两条：质控类型是双路径词汇（R7）——记录列落数字码
+     *  （编排器 buildRecords 落 {@code qcEnum.getCode()}），计划/请求域落 snake_case name；
+     *  记录侧过滤用 name 会恒查空（真库符合性 IT 实证：'span_check' 命中 0 行、码命中 108 行）。 */
+    private static String qcTypeCode(SdkQcType qcType) {
+        return QualityControlTypeEnum.valueOf(qcType.name()).getCode();
+    }
+
+    /** 计划侧 snake_case name → api 质控类型；译不出抛 IAE 带原值（保存时已校验，出现即缺陷）。 */
+    private static SdkQcType qcTypeOfName(String name) {
+        for (QualityControlTypeEnum e : QualityControlTypeEnum.values()) {
+            if (e.getName().equals(name)) {
+                return SdkQcType.valueOf(e.name());
+            }
+        }
+        throw new IllegalArgumentException("未知的质控类型: " + name);
+    }
+
+    /** 记录侧数字码 → api 质控类型。历史遗留行（G-STD-4 的 calibration_check）不在闭域词汇内，
+     *  如实回 null 而非整查询失败——它是代码明确证明的合法边界；其余译不出抛 IAE 带原值（R4）。 */
+    private static SdkQcType qcTypeOfRecordValue(String stored) {
+        if (QualityControlTypeEnum.LEGACY_CALIBRATION_CHECK_TYPE.equals(stored)) {
+            return null;
+        }
+        QualityControlTypeEnum e = QualityControlTypeEnum.fromCode(stored);
+        if (e == null) {
+            throw new IllegalArgumentException("未知的质控类型存储值: " + stored);
+        }
+        return SdkQcType.valueOf(e.name());
+    }
+
+    /** api 触发源 → 内部触发源（同名语义直映射）。 */
+    private static TriggerSource internalTriggerSource(SdkTriggerSource source) {
+        return TriggerSource.valueOf(source.name());
+    }
+
+    /** 内部触发源 → api 触发源（同名语义直映射）。 */
+    private static SdkTriggerSource sdkTriggerSource(TriggerSource source) {
+        return SdkTriggerSource.valueOf(source.name());
+    }
+
+    /** 内部执行状态 → api 执行状态（同名语义直映射，中文名串不再出契约）。 */
+    private static SdkExecutionStatus executionStatus(ExecutionStatusEnum status) {
+        return SdkExecutionStatus.valueOf(status.name());
+    }
+
+    /** failure_reason 落库值 → api 失败原因；null=无结构化原因（如实透传）；译不出抛 IAE 带原值。 */
+    private static SdkFailureReason failureReasonOf(String stored) {
+        if (stored == null || stored.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return SdkFailureReason.valueOf(stored);
         } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("未知的触发源: " + triggerSourceName
-                    + "（合法值 SCHEDULED/MANUAL/REMOTE）", e);
+            throw new IllegalArgumentException("未知的失败原因存储值: " + stored, e);
         }
     }
 
-    /** SDK 请求 → 编排器入参（REMOTE 源，planId=null，快照用请求参数自描述）。 */
+    /** api 时长覆盖 → 内部 flowParams 键值对：键换 camelCase 白名单键，整数型值归一为 Integer（校验器口径）。 */
+    private static Map<String, Object> durationOverrides(Map<SdkDurationKey, Number> overrides) {
+        if (overrides == null) {
+            return null;
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<SdkDurationKey, Number> e : overrides.entrySet()) {
+            out.put(e.getKey().getKey(), widenIntegral(e.getValue()));
+        }
+        return out;
+    }
+
+    /**
+     * 时长值类型适配：校验器要求整数秒为 Integer，SDK 侧签名是 Number——
+     * 无小数部分的 Byte/Short/Integer/Long 归一为 Integer（语义同一），其余原样透传由校验器报错。
+     */
+    private static Object widenIntegral(Number value) {
+        if (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long) {
+            return value.intValue();
+        }
+        return value;
+    }
+
+    /** SDK 请求 → 编排器入参（REMOTE 源，planId=null，快照用请求参数自描述，词汇与计划侧快照同形态）。 */
     private static QcExecutionRequest assembleRemoteRequest(SdkTriggerRequest request) {
         return QcExecutionRequest.builder()
                 .planId(null)
-                .qcType(request.getQcType())
-                .instruments(request.getInstruments())
+                .qcType(qcTypeName(request.getQcType()))
+                .instruments(instrumentNames(request.getInstruments()))
                 .concentrationPpb(request.getConcentrationPpb())
                 .pointPercents(request.getPointPercents())
                 .flowRateLpm(request.getFlowRateLpm())
-                .durationOverrides(widenIntegralDurations(request.getDurationOverrides()))
+                .durationOverrides(durationOverrides(request.getDurationOverrides()))
                 .planSnapshotJson(buildRequestSnapshotJson(request))
                 .build();
     }
@@ -573,13 +721,13 @@ public class QualityControlSdkImpl implements QualityControlSdk {
      * （§7 边界1：被拒无 DB 痕，日志是唯一追溯手段）。
      */
     private SdkTriggerReply rejectedWithTrace(QcExecutionRequest req, String displayOperator,
-                                              String reason, String message) {
+                                              SdkReason reason, String message) {
         if (req == null) {
-            log.warn("SDK 触发拒绝（{}）：残缺请求（qcType/instruments 不可解析）未留痕——{}", reason, message);
+            log.warn("SDK 触发拒绝（{}）：残缺请求（qcType/instruments 缺失）未留痕——{}", reason, message);
             return SdkTriggerReply.rejected(reason, message);
         }
         BatchResult result = orchestrator.persistRejectedBatch(req, TriggerSource.REMOTE, displayOperator,
-                reason, message);
+                reason.name(), message);
         return SdkTriggerReply.builder()
                 .accepted(false)
                 .batchId(result.getBatchId())
@@ -587,7 +735,7 @@ public class QualityControlSdkImpl implements QualityControlSdk {
                 .triggerRequestId(result.getTriggerRequestId())
                 .reason(reason)
                 .message(message + "；本批次 " + result.getRecordIds().size()
-                        + " 条记录已写 FAILED 终态留痕（" + reason + "）")
+                        + " 条记录已写 FAILED 终态留痕（" + reason.name() + "）")
                 .build();
     }
 
@@ -606,78 +754,49 @@ public class QualityControlSdkImpl implements QualityControlSdk {
     }
 
     /**
-     * 建行前置的参数完整性判定（§7 边界1）：qcType 可解析为质控类型且 instruments 逐个可解析为
-     * 仪器参数——qcm_record 五个 NOT NULL 业务列填得出才建留痕行。只判「可解析」不判「合法」：
-     * 其余字段非法走留痕，残缺请求走纯 reply 拒绝。
+     * 建行前置的参数完整性判定（§7 边界1）：质控类型/仪器已由 api 枚举在编译期闭域，
+     * 剩余的「残缺」只有字段缺失——qcm_record 五个 NOT NULL 业务列填得出才建留痕行。
+     * 只判「填得出」不判「合法」：其余字段非法走留痕，残缺请求走纯 reply 拒绝。
      */
     private static boolean isRequestParseable(SdkTriggerRequest request) {
         if (request.getQcType() == null) {
             return false;
         }
-        try {
-            QualityControlTypeEnum.valueOf(request.getQcType().trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
         if (request.getInstruments() == null || request.getInstruments().isEmpty()) {
             return false;
         }
-        for (String instrument : request.getInstruments()) {
+        for (SdkInstrument instrument : request.getInstruments()) {
             if (instrument == null) {
-                return false;
-            }
-            try {
-                ParameterEnum.valueOf(instrument);
-            } catch (IllegalArgumentException e) {
                 return false;
             }
         }
         return true;
     }
 
-    /** SDK 请求 → 校验器入参等价物（仅执行参数域字段，调度/有效期属计划保存域不参与）。 */
+    /** SDK 请求 → 校验器入参等价物（仅执行参数域字段，词汇已换算为校验器存储形态）。 */
     private static PlanSaveDto toPlanSaveDto(SdkTriggerRequest request) {
         PlanSaveDto dto = new PlanSaveDto();
-        dto.setQcType(request.getQcType());
-        dto.setInstruments(request.getInstruments());
+        dto.setQcType(request.getQcType() == null ? null : qcTypeName(request.getQcType()));
+        dto.setInstruments(instrumentNames(request.getInstruments()));
         dto.setConcentrationPpb(request.getConcentrationPpb());
         dto.setPointPercents(request.getPointPercents());
         dto.setFlowRateLpm(request.getFlowRateLpm());
-        dto.setDurationOverrides(widenIntegralDurations(request.getDurationOverrides()));
+        dto.setDurationOverrides(durationOverrides(request.getDurationOverrides()));
         return dto;
     }
 
-    /**
-     * durationOverrides 值类型适配：校验器要求整数秒为 Integer，SDK 侧签名是 Number——
-     * 无小数部分的 Byte/Short/Integer/Long 归一为 Integer（语义同一），其余原样透传由校验器报错。
-     */
-    private static Map<String, Object> widenIntegralDurations(Map<String, Number> overrides) {
-        if (overrides == null) {
-            return null;
-        }
-        Map<String, Object> out = new LinkedHashMap<>();
-        for (Map.Entry<String, Number> e : overrides.entrySet()) {
-            Number v = e.getValue();
-            if (v instanceof Byte || v instanceof Short || v instanceof Integer || v instanceof Long) {
-                out.put(e.getKey(), v.intValue());
-            } else {
-                out.put(e.getKey(), v);
-            }
-        }
-        return out;
-    }
-
-    /** 无计划的 SDK 直接触发：快照用请求参数自描述（计划删除后记录仍可溯源，FR-04-09 同语义）。 */
+    /** 无计划的 SDK 直接触发：快照用请求参数自描述（计划删除后记录仍可溯源，FR-04-09 同语义）。
+     *  快照落内部存储词汇（与计划触发侧快照同形态），api 枚举不出现在存储面。 */
     private static String buildRequestSnapshotJson(SdkTriggerRequest request) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("source", "REMOTE_SDK");
         snapshot.put("operator", operatorSnapshot(request.getOperator()));
-        snapshot.put("qcType", request.getQcType());
-        snapshot.put("instruments", request.getInstruments());
+        snapshot.put("qcType", request.getQcType() == null ? null : qcTypeName(request.getQcType()));
+        snapshot.put("instruments", instrumentNames(request.getInstruments()));
         snapshot.put("concentrationPpb", request.getConcentrationPpb());
         snapshot.put("pointPercents", request.getPointPercents());
         snapshot.put("flowRateLpm", request.getFlowRateLpm());
-        snapshot.put("durationOverrides", request.getDurationOverrides());
+        snapshot.put("durationOverrides", durationOverrides(request.getDurationOverrides()));
         return JsonUtils.toJsonString(snapshot);
     }
 

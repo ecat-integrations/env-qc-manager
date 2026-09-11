@@ -35,14 +35,14 @@ public class SdkExecutionResult {
     /** 关联计划 ID（SDK 直接触发无计划时为 null） */
     Long planId;
 
-    /** 质控类型（span_check 等，与 qcm_plan.qc_type 同词汇） */
-    String qcType;
+    /** 质控类型（历史遗留行不在词汇域内时如实为 null） */
+    SdkQcType qcType;
 
-    /** 仪器代码 */
-    String instrument;
+    /** 受检仪器 */
+    SdkInstrument instrument;
 
-    /** 触发源（SCHEDULED/MANUAL/REMOTE） */
-    String triggerSource;
+    /** 触发源 */
+    SdkTriggerSource triggerSource;
 
     /** 触发者（REMOTE=来源名 / MANUAL=用户名 / SCHEDULED=system） */
     String triggerUser;
@@ -53,14 +53,14 @@ public class SdkExecutionResult {
     /** 执行结束时间（未结束时为 null） */
     Instant endTime;
 
-    /** 执行状态码（qcm_record.execution_status int 编码） */
+    /** 执行状态码（qcm_record.execution_status int 编码，与 {@link #executionStatusName} 同值异形） */
     int executionStatus;
 
-    /** 执行状态展示名（等待中/执行中/成功/失败/手动中止） */
-    String executionStatusName;
+    /** 执行状态（中文展示由调用方自行 switch） */
+    SdkExecutionStatus executionStatusName;
 
-    /** 结构化失败原因（非失败场景为 null） */
-    String failureReason;
+    /** 结构化失败原因（无结构化原因的行——运行中/成功/启动期失败——为 null，人读细节走 resultEvaluation） */
+    SdkFailureReason failureReason;
 
     // ===== 过程层 =====
 

@@ -33,14 +33,14 @@ public class SdkBatchState {
         /** 记录 ID */
         long recordId;
 
-        /** 仪器代码 */
-        String instrument;
+        /** 受检仪器 */
+        SdkInstrument instrument;
 
-        /** 执行状态码（qcm_record.execution_status int 编码：0 等待/1 执行中/2 成功/3 失败/4 手动中止中） */
+        /** 执行状态码（qcm_record.execution_status int 编码，与 {@link #statusName} 同值异形） */
         int status;
 
-        /** 执行状态展示名（等待中/执行中/成功/失败/手动中止） */
-        String statusName;
+        /** 执行状态（中文展示由调用方自行 switch，SDK 不掺展示语言） */
+        SdkExecutionStatus statusName;
 
         /** 执行开始时间 */
         Instant startTime;

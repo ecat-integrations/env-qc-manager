@@ -231,6 +231,45 @@ class ResultSnapshotWriterTest {
         assertEquals(new BigDecimal("10.1"), points.get(0).getDeviceValue());
     }
 
+    /**
+     * 降级运行哨兵的 DB 边界：指标遇 NaN/Infinity 落 null（numeric 列不可存非有限值，
+     * BigDecimal 构造对 "NaN" 直接抛 NumberFormatException——语义「没有」而非数值异常）。
+     */
+    @Test
+    void nonFiniteJudgementValues_frozenAsNullColumnsAndPoints() {
+        Map<String, Object> judgement = new LinkedHashMap<>();
+        judgement.put("stdValue", 100f);
+        judgement.put("deviceValue", Float.NaN);
+        judgement.put("resultValue", Float.POSITIVE_INFINITY);
+        judgement.put("slope", Double.NaN);
+        judgement.put("correlation", Double.NEGATIVE_INFINITY);
+        judgement.put("isPass", Boolean.FALSE);
+        judgement.put("stdValues", Arrays.asList(0f, 100f));
+        judgement.put("deviceValues", Arrays.asList(Float.NaN, 101f));
+        writer.freezeResultSnapshot(12L, "air.monitor.calibration.multi_check",
+                judgement, Collections.emptyList(), Collections.emptyList(), null, null, 1L, "CO", null);
+
+        ArgumentCaptor<QcmRecord> rowCaptor = ArgumentCaptor.forClass(QcmRecord.class);
+        verify(recordMapper).updateResultSnapshot(rowCaptor.capture());
+        QcmRecord row = rowCaptor.getValue();
+        // float 字面量化后 100f→"100.0"（scale 与 "100" 不同），数值语义断言用 compareTo
+        assertEquals(0, new BigDecimal("100").compareTo(row.getStandardValue()));
+        assertNull(row.getMonitoringData(), "NaN 读数冻结为 null");
+        assertNull(row.getCalculatedValue(), "Infinity 结果冻结为 null");
+        assertNull(row.getSlope());
+        assertNull(row.getCorrelation());
+        assertEquals(Boolean.FALSE, row.getIsPass());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<QcmRecordPoint>> captor = ArgumentCaptor.forClass((Class) List.class);
+        verify(pointMapper).insertBatch(captor.capture());
+        List<QcmRecordPoint> points = captor.getValue();
+        assertEquals(2, points.size());
+        assertNull(points.get(0).getDeviceValue(), "序列内 NaN 点冻结为 null");
+        assertEquals(0, new BigDecimal("0").compareTo(points.get(0).getStdValue()));
+        assertEquals(0, new BigDecimal("101").compareTo(points.get(1).getDeviceValue()));
+    }
+
     /** 严格模式：stdValues 与 deviceValues 都在但长度不等 = 数据损坏，硬抛不猜。 */
     @Test
     void mismatchedSeriesLength_throws() {

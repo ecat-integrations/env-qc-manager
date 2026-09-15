@@ -27,6 +27,15 @@
       <!-- ==== 执行结果 ==== -->
       <div class="result-section">
         <h5>执行结果</h5>
+        <!-- 缺设备降级运行说明（statusMap.missingDevices）：人工操作/视检语义，非设备故障 -->
+        <el-alert
+          v-if="missingDeviceNotes.length"
+          type="warning"
+          :closable="false"
+          class="degraded-run-alert"
+        >
+          降级运行：{{ missingDeviceNotes.join('；') }}（流程时序照常执行）
+        </el-alert>
         <template v-if="hasStructuredExecutionResult">
           <!-- 语义说明：composer 三个原始字段的业务口径，帮助读数（判定指标单位随质控类型而异） -->
           <el-alert type="info" :closable="false" class="result-semantics-alert">
@@ -520,6 +529,24 @@ const statusMapHasDisplayableFields = computed(() => {
     return true;
   }
   return false;
+});
+
+/**
+ * 缺设备降级运行说明（statusMap.missingDevices 枚举名 → 人读文案，
+ * 与后端备注拼装同口径）：键缺席=全配正常，不渲染说明条。
+ * 闭域外值原样回显——值只会来自后端枚举，越界即词汇漂移，回显让漂移可见。
+ */
+const MISSING_DEVICE_NOTES = {
+  TARGET_ANALYZER: '监测仪未配置（人工视检，数据无效）',
+  CALIBRATOR: '校准仪未配置（产气人工操作）'
+};
+
+const missingDeviceNotes = computed(() => {
+  const md = parsedExecutionLog.value?.statusMap?.missingDevices;
+  if (!Array.isArray(md) || md.length === 0) {
+    return [];
+  }
+  return md.map((name) => MISSING_DEVICE_NOTES[String(name)] || `缺失设备未识别：${name}`);
 });
 
 /** 概要「是否通过」：优先结构化 result.isPass，其次 statusMap，最后行级旧列 */
@@ -1230,6 +1257,11 @@ defineExpose({ open });
 }
 
 .result-semantics-alert {
+  margin-bottom: 12px;
+}
+
+/* 缺设备降级运行说明条：与结果语义说明同样的区块节奏 */
+.degraded-run-alert {
   margin-bottom: 12px;
 }
 

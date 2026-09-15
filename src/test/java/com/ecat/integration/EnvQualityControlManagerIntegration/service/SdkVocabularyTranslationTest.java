@@ -253,6 +253,9 @@ class SdkVocabularyTranslationTest {
                 failureReasonOfRow("EXECUTOR_TYPE_NOT_READY"));
         assertEquals(SdkFailureReason.INVALID_PARAM, failureReasonOfRow("INVALID_PARAM"));
         assertEquals(SdkFailureReason.QUEUE_NOT_SUPPORTED, failureReasonOfRow("QUEUE_NOT_SUPPORTED"));
+        // 缺设备降级运行值域扩展：闭域新增值与既有翻译同一通道
+        assertEquals(SdkFailureReason.TARGET_ANALYZER_MISSING, failureReasonOfRow("TARGET_ANALYZER_MISSING"));
+        assertEquals(SdkFailureReason.CALIBRATOR_MISSING, failureReasonOfRow("CALIBRATOR_MISSING"));
         assertNull(failureReasonOfRow(null));
     }
 

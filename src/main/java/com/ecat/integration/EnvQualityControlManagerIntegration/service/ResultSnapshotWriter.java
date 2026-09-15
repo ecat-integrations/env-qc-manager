@@ -223,11 +223,20 @@ public class ResultSnapshotWriter {
             return BigDecimal.valueOf(((Number) v).longValue());
         }
         if (v instanceof Float) {
-            // float 的 doubleValue 会带二进制尾差（101.2f→101.1999969...），须按 float 字面量字符串化
-            return new BigDecimal(String.valueOf((Float) v));
+            // float 的 doubleValue 会带二进制尾差（101.2f→101.1999969...），须按 float 字面量字符串化；
+            // NaN/Infinity（缺监测仪降级哨兵/除零传播）无法用 BigDecimal 表示，语义「没有」如实落 null
+            Float f = (Float) v;
+            if (f.isNaN() || f.isInfinite()) {
+                return null;
+            }
+            return new BigDecimal(String.valueOf(f));
         }
         if (v instanceof Double) {
-            return new BigDecimal(String.valueOf((Double) v));
+            Double d = (Double) v;
+            if (d.isNaN() || d.isInfinite()) {
+                return null;
+            }
+            return new BigDecimal(String.valueOf(d));
         }
         if (v instanceof String) {
             try {

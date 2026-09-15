@@ -1,6 +1,7 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.util;
 
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorResultBase;
+import com.ecat.integration.EnvCalibrationComposerIntegration.MissingDevice;
 import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseExecutionRecord;
 
 import java.time.Instant;
@@ -66,6 +67,14 @@ public final class QualityControlExecutionLogHelper {
         m.put("isException", result.isException());
         m.put("resultMessage", result.getResultMessage() != null ? result.getResultMessage() : "");
         m.put("errorMessage", result.getErrorMessage() != null ? result.getErrorMessage() : "");
+        // 缺设备降级运行标记（枚举名串）：键缺席=全配正常零行为差异；详情展示与备注拼装据此解释降级条件
+        if (result.getMissingDevices() != null && !result.getMissingDevices().isEmpty()) {
+            List<String> names = new ArrayList<>();
+            for (MissingDevice d : result.getMissingDevices()) {
+                names.add(d.name());
+            }
+            m.put("missingDevices", names);
+        }
         return m;
     }
 
@@ -128,7 +137,9 @@ public final class QualityControlExecutionLogHelper {
         if (resultBody == null) {
             root.put("result", Collections.emptyMap());
         } else {
-            root.put("result", resultBody);
+            // JSON 边界净化：缺监测仪降级运行的读数哨兵是 NaN/Infinity（非法 JSON 数值令牌，
+            // 落库后解析链读不回），指标遇之一律转 null（语义「没有」），嵌套序列逐元素同规则
+            root.put("result", jsonSafeMetricTree(resultBody));
         }
         root.put("statusMap", buildStatusMap(result));
         if (keyParametersSnapshot != null && !keyParametersSnapshot.isEmpty()) {
@@ -148,6 +159,36 @@ public final class QualityControlExecutionLogHelper {
             root.put("keyParametersSamplingWindow", win);
         }
         return JsonUtils.toJsonString(root);
+    }
+
+    /**
+     * 指标树 JSON 净化：Float/Double 非有限值（NaN/Infinity，降级运行哨兵与除零传播）转 null，
+     * Map/List 递归处理，其余类型原样保留。容器重建（不改入参）保序。
+     */
+    private static Object jsonSafeMetricTree(Object v) {
+        if (v instanceof Float) {
+            Float f = (Float) v;
+            return f.isNaN() || f.isInfinite() ? null : f;
+        }
+        if (v instanceof Double) {
+            Double d = (Double) v;
+            return d.isNaN() || d.isInfinite() ? null : d;
+        }
+        if (v instanceof Map) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> e : ((Map<?, ?>) v).entrySet()) {
+                out.put(String.valueOf(e.getKey()), jsonSafeMetricTree(e.getValue()));
+            }
+            return out;
+        }
+        if (v instanceof List) {
+            List<Object> out = new ArrayList<>();
+            for (Object o : (List<?>) v) {
+                out.add(jsonSafeMetricTree(o));
+            }
+            return out;
+        }
+        return v;
     }
 
     /**
@@ -475,6 +516,13 @@ public final class QualityControlExecutionLogHelper {
             Map<String, Object> sm = (Map<String, Object>) smObj;
             addTrimmedUnique(parts, stringOrEmpty(sm.get("errorMessage")));
             addTrimmedUnique(parts, stringOrEmpty(sm.get("resultMessage")));
+            // 降级条件段：缺监测仪=人工视检数据无效；缺校准仪=产气人工操作（非故障语义）
+            Object mdObj = sm.get("missingDevices");
+            if (mdObj instanceof List) {
+                for (Object md : (List<?>) mdObj) {
+                    addTrimmedUnique(parts, missingDeviceRemark(String.valueOf(md)));
+                }
+            }
         }
         Map<String, Object> m = metricsForReport(executionLog);
         if (!m.isEmpty()) {
@@ -499,6 +547,21 @@ public final class QualityControlExecutionLogHelper {
             return;
         }
         parts.add(t);
+    }
+
+    /**
+     * 缺失设备标记 → 备注段（人工操作/人工视检措辞，非故障语义）。闭域外值原样回显：
+     * 备注是展示拼装路径，值只会来自 {@link #buildStatusMap} 写入的枚举名，越界即词汇漂移，
+     * 回显让漂移可见而不是吞掉或炸掉整份报告。
+     */
+    private static String missingDeviceRemark(String missingName) {
+        if (MissingDevice.TARGET_ANALYZER.name().equals(missingName)) {
+            return "监测仪未配置（人工视检，数据无效）";
+        }
+        if (MissingDevice.CALIBRATOR.name().equals(missingName)) {
+            return "校准仪未配置（产气人工操作）";
+        }
+        return "缺失设备未识别：" + missingName;
     }
 
     private static String stringOrEmpty(Object o) {

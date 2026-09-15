@@ -6,7 +6,9 @@ import com.ecat.core.State.AttributeBase;
 import com.ecat.core.State.UnitInfo;
 import com.ecat.integration.EnvCalibrationComposerIntegration.AccuracyResult;
 import com.ecat.integration.EnvCalibrationComposerIntegration.CheckResult;
+import com.ecat.integration.EnvCalibrationComposerIntegration.CheckStatus;
 import com.ecat.integration.EnvCalibrationComposerIntegration.ConversionResult;
+import com.ecat.integration.EnvCalibrationComposerIntegration.MissingDevice;
 import com.ecat.integration.EnvCalibrationComposerIntegration.MultiResult;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDeviceReportSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionLogHelper;
@@ -110,6 +112,39 @@ class EnvQualityControlTaskConstructResultTest {
         assertTrue(res.containsKey("check_r_min"));
         assertTrue(res.containsKey("deviceValues"));
         assertFalse(res.containsKey("checkPassLimit"), "多点检查不应再落单值限值字段");
+    }
+
+    /**
+     * 缺监测仪降级运行（qcm 侧端到端）：NO_DATA + NaN 哨兵读数 → execution_log 指标落 null
+     * （非法 JSON 数值令牌不落库）、statusMap 暴露 missingDevices 标记（备注拼装/详情据此解释）。
+     */
+    @Test
+    void zeroCheckDegraded_nanSentinelBecomesNullAndMarkerExposed() {
+        ExposedTask t = new ExposedTask();
+        CheckResult cr = new CheckResult(CheckStatus.NO_DATA, Float.NaN);
+        cr.setStdValue(0f);
+        cr.setDeviceValue(Float.NaN);
+        cr.setCheckPassLimit(2f);
+        cr.setCheckCalibLimit(10f);
+        cr.setPass(false);
+        cr.setResultMessage("监测仪器未配置，监测数据无效");
+        cr.setMissingDevices(java.util.Collections.singletonList(MissingDevice.TARGET_ANALYZER));
+        Map<String, Object> p = new HashMap<>();
+        p.put("parameter", "SO2");
+        String json = t.build(null, p, cr, QualityControlTypeEnum.ZERO_CHECK.getCode());
+
+        assertFalse(json.contains("NaN"), "NaN 不得以任何形态进 execution_log JSON");
+        Map<String, Object> root = QualityControlExecutionLogHelper.parseRootMap(json);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> res = (Map<String, Object>) root.get("result");
+        assertNull(res.get("deviceValue"), "缺监测仪读数哨兵落 null");
+        assertNull(res.get("resultValue"), "NaN 漂移计算值落 null");
+        assertEquals(0f, ((Number) res.get("stdValue")).floatValue(), 1e-5);
+        assertEquals(Boolean.FALSE, res.get("isPass"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> sm = (Map<String, Object>) root.get("statusMap");
+        assertEquals(java.util.Collections.singletonList("TARGET_ANALYZER"), sm.get("missingDevices"));
+        assertEquals("监测仪器未配置，监测数据无效", sm.get("resultMessage"));
     }
 
     /**

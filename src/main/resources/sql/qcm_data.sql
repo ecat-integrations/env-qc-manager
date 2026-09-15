@@ -173,7 +173,7 @@ COMMENT ON COLUMN qcm_record.execution_status IS '执行状态（ExecutionStatus
 COMMENT ON COLUMN qcm_record.execution_log IS '执行日志文本（含 phaseTimelines 阶段时间线，现状机制沿用）';
 COMMENT ON COLUMN qcm_record.result_evaluation IS '结果评定';
 COMMENT ON COLUMN qcm_record.trigger_user IS '触发者 displayOperator：一般形态=操作者名（用户名/system/集成名），PLATFORM 形态=name@ip[:port]；varchar(100) 为容纳平台网络端点';
-COMMENT ON COLUMN qcm_record.failure_reason IS '结构化失败原因枚举（FR-02-23）；普通失败仍走 execution_log';
+COMMENT ON COLUMN qcm_record.failure_reason IS '结构化失败原因枚举（FR-02-23）：EXECUTOR_BUSY_CONFLICT/EXECUTOR_TYPE_NOT_READY/INVALID_PARAM/QUEUE_NOT_SUPPORTED（触发前拒绝与闸口留痕，终态 FAILED）；TARGET_ANALYZER_MISSING（缺监测仪降级，人工视检数据无效，终态 SUCCESS+is_pass=false）/CALIBRATOR_MISSING（缺校准仪降级，产气人工操作，判定照常）为缺设备降级运行留痕，终态 SUCCESS；普通失败仍走 execution_log';
 COMMENT ON COLUMN qcm_record.record_snapshot IS '触发时的计划配置快照（名称/类型/仪器/参数摘要）；计划删除后记录仍可溯源';
 COMMENT ON COLUMN qcm_record.created_by IS '创建人';
 COMMENT ON COLUMN qcm_record.updated_by IS '更新人 displayOperator：一般形态=操作者名，PLATFORM 形态=name@ip[:port]（停止/触发留痕统一口径）；varchar(100) 为容纳平台网络端点';

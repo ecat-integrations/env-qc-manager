@@ -6,6 +6,7 @@ import com.ecat.integration.EnvCalibrationComposerIntegration.EnvCalibrationComp
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorResultBase;
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorStoppedException;
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorType;
+import com.ecat.integration.EnvCalibrationComposerIntegration.MissingDevice;
 import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseExecutionRecord;
 import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseInfo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.EnvQualityControlManagerIntegration;
@@ -64,6 +65,10 @@ public class QcmExecutionOrchestrator {
     /** multi_zero_check 等 composer 未接线类型的结构化失败原因（FR-02-14 中间态，与 BUSY 留痕同构）。 */
     static final String NOT_READY_REASON = "EXECUTOR_TYPE_NOT_READY";
     static final String NOT_READY_MESSAGE = "多仪器零点 flow 未接线";
+    /** 缺监测仪降级运行的结构化失败原因（人工视检，监测数据无效；终态 SUCCESS + is_pass=false 留痕进报告）。 */
+    static final String TARGET_ANALYZER_MISSING_REASON = "TARGET_ANALYZER_MISSING";
+    /** 缺校准仪降级运行的结构化失败原因（外部校准仪人工操作模式，判定照常交给数据）。 */
+    static final String CALIBRATOR_MISSING_REASON = "CALIBRATOR_MISSING";
     static final String RUNNING_MESSAGE = "校准任务执行中...";
     static final String NO_EXECUTOR_MESSAGE = "校准任务未执行 没有可用的执行器";
     /** 编排器维护计划触发时刻的更新人（系统操作，非 ruoyi 用户）。 */
@@ -384,6 +389,21 @@ public class QcmExecutionOrchestrator {
     }
 
     /**
+     * 降级运行评定后缀（拼进 result_evaluation，人工操作/人工视检措辞，非故障语义）：
+     * 缺设备是部署形态不是设备故障，文案按「本次由人工承担哪段操作」表述。
+     */
+    private static String degradedRunSuffix(boolean targetAnalyzerMissing, boolean calibratorMissing) {
+        StringBuilder sb = new StringBuilder();
+        if (targetAnalyzerMissing) {
+            sb.append("；监测仪器未配置，人工视检（监测数据无效）");
+        }
+        if (calibratorMissing) {
+            sb.append("；校准仪未配置，产气由人工操作");
+        }
+        return sb.toString();
+    }
+
+    /**
      * 取走本批的停止者暂存（读后清）：调用点在终态回调体内——displayOperator 由 stopExecution
      * 在受理时写入，回调发生在其后的任意时刻与线程，必须回调时读取而非回调装配时。
      * 无 batch_id 的历史行没有暂存槽位（stopExecution 同样只对有批次的行暂存），返回 null 属正常。
@@ -409,6 +429,13 @@ public class QcmExecutionOrchestrator {
         future.thenAccept((Object resultObj) -> {
             ExecutorResultBase result = (ExecutorResultBase) resultObj;
             log.info("Calibration result " + result.toString());
+            // 降级运行缺失标记（体内读 composer 类型，CNFE 约束同 result 强转惯例）：
+            // 缺监测仪=人工视检数据无效；缺校准仪=产气人工操作。执行时序照常走完，只影响留痕语义
+            List<MissingDevice> missingDevices = result.getMissingDevices();
+            final boolean targetAnalyzerMissing =
+                    missingDevices != null && missingDevices.contains(MissingDevice.TARGET_ANALYZER);
+            final boolean calibratorMissing =
+                    missingDevices != null && missingDevices.contains(MissingDevice.CALIBRATOR);
             // 停止者暂存须在回调执行时（而非本方法装配时）读取：stop 发生在受理之后的任意时刻，
             // 读后清保证本批终态回调只消费一次（thenAccept 体抛异常会再进 exceptionally，取到 null 不重复换算）
             final String stopOperator = takeStopOperator(records);
@@ -463,6 +490,16 @@ public class QcmExecutionOrchestrator {
                             ? "校准任务未通过 " + result.getResultMessage()
                             : "校准任务完成，但未通过 " + result.getResultMessage();
                     status = auditLikeFailureOnNotPass ? ExecutionStatusEnum.FAILED : ExecutionStatusEnum.SUCCESS;
+                }
+                if (targetAnalyzerMissing || calibratorMissing) {
+                    // 降级运行：流程已按完整时序执行完毕（人工操作/人工视检节拍），终态一律 SUCCESS
+                    // 留痕进报告——FAILED 行会被报告过滤，降级执行不能缺席报告（含人工核查未通过的场景）。
+                    // 两者并存记 TARGET_ANALYZER_MISSING：闭域枚举不记组合串，数据无效比产气跳过更根本
+                    //（完整缺失集在 execution_log.statusMap.missingDevices，供详情/备注解释）
+                    status = ExecutionStatusEnum.SUCCESS;
+                    record.setFailureReason(targetAnalyzerMissing
+                            ? TARGET_ANALYZER_MISSING_REASON : CALIBRATOR_MISSING_REASON);
+                    message = message + degradedRunSuffix(targetAnalyzerMissing, calibratorMissing);
                 }
                 record.setEndTime(Instant.now());
                 record.setExecutionLog(resultContentJson);

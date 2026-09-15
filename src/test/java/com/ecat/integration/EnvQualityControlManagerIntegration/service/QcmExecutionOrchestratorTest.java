@@ -6,6 +6,7 @@ import com.ecat.integration.EnvCalibrationComposerIntegration.AbstractCalibratio
 import com.ecat.integration.EnvCalibrationComposerIntegration.EnvCalibrationComposerIntegration;
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorResultBase;
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorStoppedException;
+import com.ecat.integration.EnvCalibrationComposerIntegration.MissingDevice;
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorType;
 import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseExecutionRecord;
 import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseInfo;
@@ -531,6 +532,98 @@ class QcmExecutionOrchestratorTest {
                 anyString(), any(Map.class), any(List.class), any(List.class),
                 isNull(), isNull(), org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.any(), isNull());
+    }
+
+    // ---------- 缺设备降级运行：missingDevices → failure_reason + SUCCESS 终态 ----------
+    // （FAILED 行会被报告过滤，降级执行已按完整时序完成，须 SUCCESS 留痕进报告）
+
+    /** 结果回调降级判定终态捕获（第一次是 RUNNING 标记，第二次是终态）。 */
+    private QcmRecord completeAndGetTerminal(ExecutorResultBase result) {
+        CompletableFuture<ExecutorResultBase> future = new CompletableFuture<>();
+        when(composer.isRunning()).thenReturn(false);
+        when(composer.getRunningExecutor()).thenReturn(mock(AbstractCalibrationFlow.class));
+        when(composer.execute(any(ExecutorType.class), anyString(), any(Map.class))).thenReturn(future);
+        orchestrator.triggerExecution(singleInstrumentRequest().build(), TriggerSource.MANUAL, "user");
+        future.complete(result);
+        ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
+        verify(recordService, times(2)).updateQcmRecord(captor.capture());
+        return captor.getAllValues().get(1);
+    }
+
+    @Test
+    void targetAnalyzerMissing_notPassResult_terminalSuccessWithManualInspectionWording() {
+        ExecutorResultBase notPass = new ExecutorResultBase(false, false);
+        notPass.setResultMessage("监测仪器未配置，监测数据无效");
+        notPass.setMissingDevices(Collections.singletonList(MissingDevice.TARGET_ANALYZER));
+
+        QcmRecord terminal = completeAndGetTerminal(notPass);
+
+        assertEquals(ExecutionStatusEnum.SUCCESS.getCode().intValue(), terminal.getExecutionStatus());
+        assertEquals("TARGET_ANALYZER_MISSING", terminal.getFailureReason());
+        // is_pass=false 由结果侧判定（NO_DATA 保底不合格）；评定文案拼人工视检降级说明（非故障语义）
+        assertTrue(terminal.getResultEvaluation().contains("校准任务完成，但未通过"));
+        assertTrue(terminal.getResultEvaluation().contains("人工视检"));
+    }
+
+    @Test
+    void calibratorMissing_passResult_terminalSuccessJudgementUntouched() {
+        ExecutorResultBase pass = new ExecutorResultBase(true, false);
+        pass.setResultMessage("零点核查通过");
+        pass.setMissingDevices(Collections.singletonList(MissingDevice.CALIBRATOR));
+
+        QcmRecord terminal = completeAndGetTerminal(pass);
+
+        assertEquals(ExecutionStatusEnum.SUCCESS.getCode().intValue(), terminal.getExecutionStatus());
+        assertEquals("CALIBRATOR_MISSING", terminal.getFailureReason());
+        // 判定照常交给数据：合格文案原样保留，仅追加产气人工操作降级说明
+        assertTrue(terminal.getResultEvaluation().contains("校准任务完成，且已通过"));
+        assertTrue(terminal.getResultEvaluation().contains("校准仪未配置"));
+        assertTrue(terminal.getResultEvaluation().contains("人工操作"));
+    }
+
+    @Test
+    void bothMissing_targetAnalyzerReasonTakesPrecedence() {
+        ExecutorResultBase notPass = new ExecutorResultBase(false, false);
+        notPass.setMissingDevices(Arrays.asList(MissingDevice.CALIBRATOR, MissingDevice.TARGET_ANALYZER));
+
+        QcmRecord terminal = completeAndGetTerminal(notPass);
+
+        // 数据无效比产气跳过更根本，原因列单值记 TARGET_ANALYZER_MISSING（闭域枚举不记组合串）
+        assertEquals("TARGET_ANALYZER_MISSING", terminal.getFailureReason());
+        // 降级说明两段都拼（完整缺失集在 execution_log.statusMap.missingDevices）
+        assertTrue(terminal.getResultEvaluation().contains("人工视检"));
+        assertTrue(terminal.getResultEvaluation().contains("校准仪未配置"));
+    }
+
+    @Test
+    void auditSpanNotPass_withCalibratorMissing_degradedTerminalSuccess() {
+        // 人工核查未通过本应 FAILED；降级运行执行已完成，按 SUCCESS 留痕进报告（FAILED 行被报告过滤）
+        ExecutorResultBase notPass = new ExecutorResultBase(false, false);
+        notPass.setMissingDevices(Collections.singletonList(MissingDevice.CALIBRATOR));
+        CompletableFuture<ExecutorResultBase> future = new CompletableFuture<>();
+        when(composer.isRunning()).thenReturn(false);
+        when(composer.getRunningExecutor()).thenReturn(mock(AbstractCalibrationFlow.class));
+        when(composer.execute(any(ExecutorType.class), anyString(), any(Map.class))).thenReturn(future);
+        // 人工核查无时长覆盖/浓度时 flowParams 为空，走两参 execute 重载
+        when(composer.execute(any(ExecutorType.class), anyString())).thenReturn(future);
+        orchestrator.triggerExecution(singleInstrumentRequest().qcType("audit_span_check").build(),
+                TriggerSource.MANUAL, "user");
+        future.complete(notPass);
+
+        ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
+        verify(recordService, times(2)).updateQcmRecord(captor.capture());
+        QcmRecord terminal = captor.getAllValues().get(1);
+        assertEquals(ExecutionStatusEnum.SUCCESS.getCode().intValue(), terminal.getExecutionStatus());
+        assertEquals("CALIBRATOR_MISSING", terminal.getFailureReason());
+    }
+
+    @Test
+    void fullyConfiguredResult_failureReasonStaysNull() {
+        // 回归锁：全配场景（missingDevices 空集）零行为差异——failure_reason 不落值
+        QcmRecord terminal = completeAndGetTerminal(new ExecutorResultBase(true, false));
+        assertEquals(ExecutionStatusEnum.SUCCESS.getCode().intValue(), terminal.getExecutionStatus());
+        assertNull(terminal.getFailureReason());
+        assertTrue(terminal.getResultEvaluation().startsWith("校准任务完成，且已通过"));
     }
 
     // ---------- persistRejectedBatch（行内留痕矩阵：触发前拒绝也建 FAILED 留痕行） ----------

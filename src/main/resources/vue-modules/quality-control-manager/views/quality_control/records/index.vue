@@ -197,15 +197,22 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="质控结论" align="center" width="128">
+      <el-table-column label="质控结论" align="center" :width="verdictColumnWidth">
         <template #default="scope">
           <el-tag
             :type="resolveQcVerdict(scope.row).elType"
             effect="dark"
             class="qc-verdict-tag"
-            :class="{ 'qc-verdict-tag--manual-abort': isQcManualAbortEndRow(scope.row) }"
+            :class="{
+              'qc-verdict-tag--manual-abort': isQcManualAbortEndRow(scope.row),
+              'qc-verdict-tag--degraded': !!resolveQcVerdict(scope.row).degradedNote
+            }"
           >
-            {{ resolveQcVerdict(scope.row).text }}
+            <span class="qc-verdict-tag__text">{{ resolveQcVerdict(scope.row).text }}</span>
+            <!-- 缺设备降级运行角标：第二行人工操作/视检说明（非故障语义） -->
+            <span v-if="resolveQcVerdict(scope.row).degradedNote" class="qc-verdict-tag__note">
+              {{ resolveQcVerdict(scope.row).degradedNote }}
+            </span>
           </el-tag>
         </template>
       </el-table-column>
@@ -522,12 +529,27 @@
   --el-tag-border-color: #cf9236 !important;
 }
 
+/* 降级运行角标：结论与原因两行排布（el-tag 默认 nowrap 单行装不下原因文案） */
+.qc-verdict-tag.qc-verdict-tag--degraded {
+  height: auto;
+  min-height: 24px;
+  white-space: normal;
+  line-height: 1.35;
+  padding: 2px 8px;
+}
+
+.qc-verdict-tag--degraded .qc-verdict-tag__note {
+  display: block;
+  font-weight: 400;
+  opacity: 0.92;
+}
+
 </style>
 
 <script setup name="Records">
 import { listRecords, delRecords, addRecords, updateRecords, stopRecords } from "@/api/quality_control/records";
 import { Operation, Reading, CircleCloseFilled } from '@element-plus/icons-vue';
-import { getCurrentInstance, onMounted, nextTick, watch, ref, reactive, toRefs } from 'vue';
+import { getCurrentInstance, onMounted, nextTick, watch, ref, reactive, toRefs, computed } from 'vue';
 import ExecutionLogDetailDialog from './components/ExecutionLogDetailDialog.vue';
 import QcResultPreviewDialog from './components/QcResultPreviewDialog.vue';
 import {
@@ -603,6 +625,21 @@ const data = reactive({
 
 const { queryParams, form, rules } = toRefs(data);
 
+/**
+ * 缺设备降级运行原因码（行级 failure_reason 列，与后端 SdkFailureReason 闭域对齐）
+ * → 结论角标文案（人工操作/视检措辞，非故障语义）。
+ * 缺监测仪=NO_DATA 保底不合格，结论由原因码直判；缺校准仪判定照常交给数据，仅附角标。
+ */
+const DEGRADED_RUN_BADGES = {
+  TARGET_ANALYZER_MISSING: '监测仪未配置（人工视检）',
+  CALIBRATOR_MISSING: '校准仪未配置（人工操作）'
+};
+
+/** 质控结论列宽：本页存在降级运行行时加宽容纳角标第二行，普通页维持原宽 */
+const verdictColumnWidth = computed(() => (
+  recordsList.value.some((r) => !!DEGRADED_RUN_BADGES[String(r.failureReason || '')]) ? 210 : 128
+));
+
 function resolveQcVerdict(row) {
   if (isQcManualAbortEndRow(row)) {
     return { text: '手动中止', elType: 'warning' };
@@ -614,6 +651,20 @@ function resolveQcVerdict(row) {
   if (st !== '2') {
     return { text: '—', elType: 'info' };
   }
+  const reason = String(row.failureReason || '');
+  // 缺设备降级行终态恒为成功，结构化原因码先于文案正则判定
+  if (reason === 'TARGET_ANALYZER_MISSING') {
+    return { text: '不合格', elType: 'danger', degradedNote: DEGRADED_RUN_BADGES[reason] };
+  }
+  const verdict = resolveQcVerdictFromLog(row);
+  if (reason === 'CALIBRATOR_MISSING') {
+    return { ...verdict, degradedNote: DEGRADED_RUN_BADGES[reason] };
+  }
+  return verdict;
+}
+
+/** 既有判定路径（execution_log 文案正则 + statusMap 结构化字段），降级场景之外行为不变 */
+function resolveQcVerdictFromLog(row) {
   if (String(row.qualityControlType) === '6') {
     return { text: '—', elType: 'info' };
   }

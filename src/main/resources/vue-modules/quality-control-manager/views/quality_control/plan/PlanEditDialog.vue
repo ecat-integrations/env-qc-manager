@@ -260,7 +260,7 @@ const DURATION_PARAM_DEFS = [
   { key: 'calibrationTimeSeconds', label: '校准时间', unit: '秒', defaultValue: 61, applicableTypes: t => t === 'zero_check' || t === 'span_check' || t === 'multi_zero_check' },
   { key: 'verificationStableTimeSeconds', label: '核查稳定时间', unit: '秒', defaultValue: 30, applicableTypes: t => t === 'zero_check' || t === 'span_check' || t === 'multi_zero_check' },
   { key: 'verificationSampleCount', label: '核查采样次数', unit: '次', defaultValue: 3, applicableTypes: t => t === 'zero_check' || t === 'span_check' || t === 'multi_zero_check' },
-  { key: 'zeroGasOpenDelaySeconds', label: '零气开阀延迟', unit: '秒', defaultValue: 3, applicableTypes: t => t === 'zero_check' || t === 'multi_zero_check' },
+  { key: 'zeroGasOpenDelaySeconds', label: '零气开阀延迟', unit: '秒', defaultValue: 0, applicableTypes: t => t === 'zero_check' || t === 'multi_zero_check' },
   { key: 'recoveryDelaySeconds', label: '恢复延迟', unit: '秒', defaultValue: 60, applicableTypes: null },
   { key: 'precisionRounds', label: '精密度轮数', unit: '轮', defaultValue: 6, applicableTypes: t => t === 'precision_check' },
   { key: 'conversionRounds', label: '转换效率轮数', unit: '轮', defaultValue: 3, applicableTypes: t => t === 'conversion_check' },

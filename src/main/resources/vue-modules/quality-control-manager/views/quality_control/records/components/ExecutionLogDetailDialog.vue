@@ -298,8 +298,9 @@ const PARAM_LABELS = {
   triggerUser: '触发人／远程来源',
   concentrationPpb: '标气浓度',
   spanConcentrationPpb: '标气浓度',
-  // stdGasConcentration 是质控完成时从标准气逻辑设备快照的钢瓶原气浓度（气瓶档案口径，通常 ppm 量级），
-  // 与「标气浓度」（concentrationPpb 等＝任务稀释后通入分析仪的目标浓度，ppb）语义不同，命名与单位都须区分
+  // stdGasConcentration 是钢瓶原气浓度（气瓶档案口径，通常 ppm 量级；一本账 2026-09-18 定案后为
+  // qcm_record 受理定格的表列值，旧记录为完成时快照残留键），与「标气浓度」（concentrationPpb 等＝
+  // 任务稀释后通入分析仪的目标浓度，ppb）语义不同，命名与单位都须区分
   stdGasConcentration: '钢瓶原气浓度（快照）',
   genGasConc: '标气浓度',
   targetFlowLpm: '目标稀释流量',
@@ -435,6 +436,9 @@ function recordFieldsAsExecutionParams(r) {
   put('taskType', r.taskType);
   put('qualityControlType', r.qualityControlType);
   put('parameter', r.parameter);
+  // 钢瓶原气浓度一行账（2026-09-18 定案）：数据源改行级表列（受理定格的 gas_concentration），
+  // 新记录 execution_log 已停写 stdGas 键、行级无值（O₃/未定格）则该行不出现
+  put('stdGasConcentration', r.gasConcentration);
   return out;
 }
 
@@ -813,9 +817,10 @@ function formatStdGasConcPpb(value) {
 }
 
 /**
- * 钢瓶原气浓度（快照）：值是气瓶档案浓度（通常 ppm 量级），历史快照无单位键，不得硬贴 ppb：
- * 优先行级冻结对 gasConcentration+gasConcentrationUnit（有单位带单位；旧数据无单位裸值展示不猜）；
- * 行级缺失回退 execution_log 根级快照值（新数据根级带 stdGasConcentrationUnit 键则拼上，旧数据裸值）。
+ * 钢瓶原气浓度：值是气瓶档案浓度（通常 ppm 量级），不得硬贴 ppb：
+ * 优先行级 gasConcentration+gasConcentrationUnit 成对（一本账 2026-09-18 定案＝受理定格表列，
+ * 有单位带单位；旧数据无单位裸值展示不猜）；行级缺失回退 execution_log 根级旧快照值
+ * （存量行残留键；根级带 stdGasConcentrationUnit 键则拼上，旧数据裸值）。
  */
 function formatCylinderGasConc(value) {
   const rowConc = row.value?.gasConcentration;

@@ -22,12 +22,14 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.Batc
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.QcExecutionRequest;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.StopOutcome;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.TriggerSource;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.CylinderArchiveSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ExecutionStatusEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -55,6 +57,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -188,6 +191,101 @@ class QcmExecutionOrchestratorTest {
         // 单仪器 flow 只注册一次，但批次全部行都挂到 executorMap
         assertEquals(3, entry.executorMap.size());
         verify(composer, times(1)).execute(any(ExecutorType.class), anyString(), any(Map.class));
+    }
+
+    // ---------- 钢瓶气一本账（2026-09-18 定案）：受理定格 gas 四列，qcm_record 为唯一真相源 ----------
+
+    /** 台账全有：受理时（buildRecords）浓度+单位成对与来源/编号定格入列。 */
+    @Test
+    void acceptance_freezesGasLedgerPairedFromArchive() {
+        stubIdleAndRunningFlow();
+        try (MockedStatic<CylinderArchiveSupport> support = mockStatic(CylinderArchiveSupport.class)) {
+            support.when(() -> CylinderArchiveSupport.readArchive(core, "1"))
+                    .thenReturn(new CylinderArchiveSupport.GasTrace(
+                            "国家标准物质中心", "GBW-E-050123", new BigDecimal("50"), "ppm"));
+            BatchResult result = orchestrator.triggerExecution(
+                    singleInstrumentRequest().build(), TriggerSource.MANUAL, "user");
+            assertEquals(BatchResult.Status.ACCEPTED, result.getStatus());
+            QcmRecord inserted = captureInsertedBatch(1).get(0);
+            assertEquals("国家标准物质中心", inserted.getGasSource());
+            assertEquals("GBW-E-050123", inserted.getGasNo());
+            assertEquals(new BigDecimal("50"), inserted.getGasConcentration());
+            assertEquals("ppm", inserted.getGasConcentrationUnit());
+            support.verify(() -> CylinderArchiveSupport.readArchive(core, "1"));
+        }
+    }
+
+    /** 浓度缺单位：成对完整性——缺一个则两个都写 null（杜绝裸数字被贴默认单位）；来源/编号各自独立有就存。 */
+    @Test
+    void acceptance_concentrationWithoutUnit_pairBothNull() {
+        stubIdleAndRunningFlow();
+        try (MockedStatic<CylinderArchiveSupport> support = mockStatic(CylinderArchiveSupport.class)) {
+            support.when(() -> CylinderArchiveSupport.readArchive(core, "1"))
+                    .thenReturn(new CylinderArchiveSupport.GasTrace(
+                            "某气源", "GBW-01", new BigDecimal("50"), null));
+            orchestrator.triggerExecution(singleInstrumentRequest().build(), TriggerSource.MANUAL, "user");
+            QcmRecord inserted = captureInsertedBatch(1).get(0);
+            assertEquals("某气源", inserted.getGasSource());
+            assertEquals("GBW-01", inserted.getGasNo());
+            assertNull(inserted.getGasConcentration(), "浓度缺单位则浓度列也留空（成对完整性）");
+            assertNull(inserted.getGasConcentrationUnit());
+        }
+    }
+
+    /** 台账不存在（O3 发生器供气/设备未注册）：四列如实 null，flow 照常受理执行（没有就是没有）。 */
+    @Test
+    void acceptance_archiveAbsent_allFourNull_composerStillExecutes() {
+        stubIdleAndRunningFlow();
+        try (MockedStatic<CylinderArchiveSupport> support = mockStatic(CylinderArchiveSupport.class)) {
+            support.when(() -> CylinderArchiveSupport.readArchive(core, "3")).thenReturn(null);
+            QcExecutionRequest req = QcExecutionRequest.builder()
+                    .qcType("zero_check")
+                    .instruments(Collections.singletonList("O3"))
+                    .build();
+            BatchResult result = orchestrator.triggerExecution(req, TriggerSource.SCHEDULED, "system");
+            assertEquals(BatchResult.Status.ACCEPTED, result.getStatus());
+            QcmRecord inserted = captureInsertedBatch(1).get(0);
+            assertNull(inserted.getGasSource());
+            assertNull(inserted.getGasNo());
+            assertNull(inserted.getGasConcentration());
+            assertNull(inserted.getGasConcentrationUnit());
+            verify(composer, times(1)).execute(any(ExecutorType.class), anyString(), any(Map.class));
+        }
+    }
+
+    /** 档案读取抛异常：吞掉写空，绝不阻塞受理（不阻碍 flow 执行）。 */
+    @Test
+    void acceptance_archiveReadFailure_swallowed_composerStillExecutes() {
+        stubIdleAndRunningFlow();
+        try (MockedStatic<CylinderArchiveSupport> support = mockStatic(CylinderArchiveSupport.class)) {
+            support.when(() -> CylinderArchiveSupport.readArchive(core, "1"))
+                    .thenThrow(new RuntimeException("registry down"));
+            BatchResult result = orchestrator.triggerExecution(
+                    singleInstrumentRequest().build(), TriggerSource.MANUAL, "user");
+            assertEquals(BatchResult.Status.ACCEPTED, result.getStatus());
+            QcmRecord inserted = captureInsertedBatch(1).get(0);
+            assertNull(inserted.getGasSource());
+            assertNull(inserted.getGasConcentration());
+            verify(composer, times(1)).execute(any(ExecutorType.class), anyString(), any(Map.class));
+        }
+    }
+
+    /**
+     * SQL 契约锁：insertBatch 固定列须含 gas 四列——受理定格的值必须随行落库，
+     * 否则编排器填了字段也不会入库（一本账写入链的 SQL 半边）。
+     */
+    @Test
+    void insertBatchSql_carriesGasLedgerColumns() throws Exception {
+        String xml = new String(java.nio.file.Files.readAllBytes(
+                java.nio.file.Paths.get("src/main/resources/mapper/quality_control/QcmRecordMapper.xml")),
+                java.nio.charset.StandardCharsets.UTF_8);
+        int begin = xml.indexOf("<insert id=\"insertBatch\"");
+        assertTrue(begin >= 0, "insertBatch 语句存在");
+        String block = xml.substring(begin, xml.indexOf("</insert>", begin));
+        assertTrue(block.contains("gas_source"), "insertBatch 须写 gas_source 列");
+        assertTrue(block.contains("gas_no"), "insertBatch 须写 gas_no 列");
+        assertTrue(block.contains("gas_concentration"), "insertBatch 须写 gas_concentration 列");
+        assertTrue(block.contains("gas_concentration_unit"), "insertBatch 须写 gas_concentration_unit 列");
     }
 
     @Test

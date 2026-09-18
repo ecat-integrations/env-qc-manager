@@ -8,7 +8,6 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecord
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordMapper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordPhaseMapper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordPointMapper;
-import com.ecat.integration.EnvQualityControlManagerIntegration.util.CylinderArchiveSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDeviceReportSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
 import com.ecat.core.Device.DeviceBase;
@@ -110,16 +109,8 @@ public class ResultSnapshotWriter {
         }
         row.setFullScale(fullScaleDecimalFor(gasCode));
 
-        // 标气溯源冻结（方案 A 2026-08-23）：真相源=airstation 钢瓶逻辑设备档案属性
-        // （gas_source/cylinder_id/gas_concentration），完成时读一次 AttrState，此后换瓶不改历史；
-        // O3 无钢瓶供应（发生器），溯源三列如实 null
-        CylinderArchiveSupport.GasTrace trace = CylinderArchiveSupport.readArchive(core, gasCode);
-        if (trace != null) {
-            row.setGasSource(trace.gasSource);
-            row.setGasNo(trace.cylinderId);
-            row.setGasConcentration(trace.concentration);
-            row.setGasConcentrationUnit(trace.concentrationUnit);
-        }
+        // gas 四列（来源/编号/浓度/单位）不在完成冻结职责内：一本账（2026-09-18 定案）受理时
+        // 已定格入行，此处读写只会用冻结时刻的新值/NULL 覆写受理定格值（updateResultSnapshot 同步剔列）
         row.setFlowType(executorTypeClassName);
         row.setFlowExecutionRef(recordId + "@" + flowStartEpochMillis);
         row.setUpdateTime(Instant.now());

@@ -118,13 +118,13 @@ class QcmRecordSnapshotMapperTest {
         }
         Set<String> props = fieldNames(QcmRecord.class, RECORD_NON_DB_FIELDS);
 
-        // §4.0 快照全集：判定标量（含激活三列）+ 快照层 + flow 排障关联 + 审计
+        // §4.0 快照全集：判定标量（含激活三列）+ 快照层 + flow 排障关联 + 审计。
+        // gas 四列不在内：一本账（2026-09-18）受理时定格，完成冻结不得覆写受理值
         Set<String> expected = new java.util.HashSet<>(Arrays.asList(
             "standard_value", "monitoring_data", "calculated_value",
             "check_pass_limit", "check_calib_limit", "is_pass",
             "slope", "intercept", "correlation",
             "full_scale", "instrument_name", "instrument_no",
-            "gas_source", "gas_no", "gas_concentration", "gas_concentration_unit",
             "sampling_start_time", "sampling_end_time",
             "flow_type", "flow_execution_ref", "update_time", "updated_by"));
         assertEquals(expected, colToProp.keySet(),

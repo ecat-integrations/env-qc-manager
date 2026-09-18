@@ -226,13 +226,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
          </trim>
     </insert>
 
-    <!-- 多仪器零点一次执行 N 行：同 batch_id 一次批量写入 -->
+    <!-- 多仪器零点一次执行 N 行：同 batch_id 一次批量写入；gas 四列=一本账受理定格值（2026-09-18） -->
     <insert id="insertBatch" parameterType="java.util.List" useGeneratedKeys="true" keyProperty="id">
         insert into qcm_record
         (batch_id, plan_id, task_type, quality_control_type, parameter, start_time, end_time,
          standard_value, monitoring_data, calculated_value, execution_status, execution_log,
          result_evaluation, trigger_user, failure_reason, record_snapshot,
          trigger_request_id, flow_type, flow_execution_ref,
+         gas_source, gas_no, gas_concentration, gas_concentration_unit,
          created_by, updated_by, create_time, update_time)
         values
         <foreach item="item" collection="records" separator=",">
@@ -243,6 +244,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
              #{item.executionLog}, #{item.resultEvaluation}, #{item.triggerUser}, #{item.failureReason},
              #{item.recordSnapshot}::jsonb,
              #{item.triggerRequestId}, #{item.flowType}, #{item.flowExecutionRef},
+             #{item.gasSource}, #{item.gasNo}, #{item.gasConcentration}, #{item.gasConcentrationUnit},
              #{item.createdBy}, #{item.updatedBy},
              #{item.createTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
              #{item.updateTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP})
@@ -293,7 +295,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </update>
 
     <!-- §4.0 完成时一次性冻结结果快照：判定标量+快照层+flow 关联列，WHERE id。
-         与通用 update 分离：快照列只在完成时写一次，语义独立可守卫。 -->
+         与通用 update 分离：快照列只在完成时写一次，语义独立可守卫。
+         gas 四列不在此 SET：一本账（2026-09-18）受理时定格，完成冻结不得覆写受理值。 -->
     <update id="updateResultSnapshot" parameterType="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord">
         update qcm_record
         set standard_value = #{standardValue},
@@ -308,10 +311,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             full_scale = #{fullScale},
             instrument_name = #{instrumentName},
             instrument_no = #{instrumentNo},
-            gas_source = #{gasSource},
-            gas_no = #{gasNo},
-            gas_concentration = #{gasConcentration},
-            gas_concentration_unit = #{gasConcentrationUnit},
             sampling_start_time = #{samplingStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
             sampling_end_time = #{samplingEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
             flow_type = #{flowType},

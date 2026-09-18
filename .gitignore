@@ -2,3 +2,5 @@
 # Auto-added essential ignore rules
 *.log
 target/
+# Playwright MCP 浏览器测试产物（console log / page snapshot），本地临时件不入库
+.playwright-mcp/

@@ -280,38 +280,48 @@ class ReportGeneratorTest {
                 .selectQcmRecordByTypeTime(any(Instant.class), any(Instant.class), any(), any(Integer.class));
     }
 
-    // ===== 标气浓度成对口径（2026-09-02 单位修复）：值必须随真实单位，禁止裸数字 =====
+    // ===== 标气浓度一本账读链（2026-09-18 定案）：唯一一级=qcm_record 表列成对；JSON 键停读作废 =====
 
     /** protected 方法测试缝：包内子类暴露（不放宽生产可见性）。 */
     private static class ExposedGen extends ReportGenerator {
         ExposedGen(EcatCore core) { super(core); }
-        String resolve(String gas, QcmRecord... rs) { return resolveReportStdGasConcentration(gas, rs); }
+        String resolve(QcmRecord... rs) { return resolveReportStdGasConcentration(rs); }
     }
 
-    /** 快照对（成对落库后的新记录）：值+单位键都在 → "50.0 ppm"。 */
+    /** 表列成对（受理定格）：值+单位齐 → "50 ppm"；旧 JSON 键不再兜底（已作废）。 */
     @Test
-    void stdGasConcentration_snapshotPairValueAndUnit() {
+    void stdGasConcentration_tableColumnsPaired_winOverLegacyJson() {
         QcmRecord r = new QcmRecord();
-        r.setExecutionLog("{\"stdGasConcentration\":\"50.0\",\"stdGasConcentrationUnit\":\"ppm\"}");
-        assertEquals("50.0 ppm", new ExposedGen(mockEcatCore).resolve("SO2", r));
-    }
-
-    /** 旧记录：快照值在、单位键缺席 → record 冻结对补单位（ResultSnapshotWriter 冻结列同源）。 */
-    @Test
-    void stdGasConcentration_legacySnapshotFallsBackToFrozenPair() {
-        QcmRecord r = new QcmRecord();
-        r.setExecutionLog("{\"stdGasConcentration\":\"50.00\"}");
+        r.setExecutionLog("{\"stdGasConcentration\":\"99.0\",\"stdGasConcentrationUnit\":\"ppb\"}");
         r.setGasConcentration(new java.math.BigDecimal("50.0"));
         r.setGasConcentrationUnit("ppm");
-        assertEquals("50 ppm", new ExposedGen(mockEcatCore).resolve("SO2", r));
+        assertEquals("50 ppm", new ExposedGen(mockEcatCore).resolve(r));
     }
 
-    /** 单位键与冻结对皆缺（更旧数据）→ 只显数值不猜单位。 */
+    /** 只有旧 JSON 键、无表列（停读后的存量行）→ 显空：JSON 浓度键作废，不兜底。 */
     @Test
-    void stdGasConcentration_noUnitAnywhere_bareValueNotGuessed() {
+    void stdGasConcentration_legacyJsonOnly_empty() {
         QcmRecord r = new QcmRecord();
-        r.setExecutionLog("{\"stdGasConcentration\":\"50.00\"}");
-        assertEquals("50.00", new ExposedGen(mockEcatCore).resolve("SO2", r));
+        r.setExecutionLog("{\"stdGasConcentration\":\"99.0\",\"stdGasConcentrationUnit\":\"ppb\"}");
+        assertEquals("", new ExposedGen(mockEcatCore).resolve(r));
+    }
+
+    /** 表列值在而单位缺（不成对）→ 显空不猜单位，禁止裸数字。 */
+    @Test
+    void stdGasConcentration_columnsWithoutUnit_empty() {
+        QcmRecord r = new QcmRecord();
+        r.setGasConcentration(new java.math.BigDecimal("50.0"));
+        assertEquals("", new ExposedGen(mockEcatCore).resolve(r));
+    }
+
+    /** 零跨两行同仪器：首行无定格、次行成对 → 取次行（同一钢瓶气，任一完整定格即可）。 */
+    @Test
+    void stdGasConcentration_firstCompletePairWins() {
+        QcmRecord zero = new QcmRecord();
+        QcmRecord span = new QcmRecord();
+        span.setGasConcentration(new java.math.BigDecimal("50.0"));
+        span.setGasConcentrationUnit("ppm");
+        assertEquals("50 ppm", new ExposedGen(mockEcatCore).resolve(zero, span));
     }
 
     @Test

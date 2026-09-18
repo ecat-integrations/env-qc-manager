@@ -300,6 +300,30 @@ class GenPrecisionReportTest {
      * 创建精密度检查记录
      * @param parameterCode 参数 code（"1"=SO2, "2"=NO2, "3"=O3, "4"=CO）
      */
+    /**
+     * D2（一本账 2026-09-18）：cell 层不再 strip 包裹——精密度报告 instrument_info 的
+     * gas_concentration 按受理定格成对单位展示，SO2 默认 ppb 不得覆盖定格 ppm。
+     */
+    @Test
+    void ledgerPairedUnit_displayedVerbatim_notGasDefaultUnit() {
+        QcmRecord record = createPrecisionCheckRecord("1");  // SO2 code，默认单位 ppb
+        record.setGasConcentration(new java.math.BigDecimal("400"));
+        record.setGasConcentrationUnit("ppm");
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
+                .thenReturn(Arrays.asList(record));
+        DeviceBase so2Device = createMockDevice("esa-so2", "SO2分析仪", "SN-SO2-001", "SO2");
+        lenient().when(mockDeviceRegistry.getDeviceByID("esa-so2")).thenReturn(so2Device);
+
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
+        assertEquals(1, reports.size());
+        @SuppressWarnings("unchecked")
+        Map<String, String> instrumentInfo =
+                (Map<String, String>) reports.get(0).getReportData().get("instrument_info");
+        assertEquals("400 ppm", instrumentInfo.get("gas_concentration"),
+                "成对定格单位 ppm 不得被 SO2 默认 ppb 覆盖");
+    }
+
     private QcmRecord createPrecisionCheckRecord(String parameterCode) {
         QcmRecord record = new QcmRecord();
         record.setId(1L);

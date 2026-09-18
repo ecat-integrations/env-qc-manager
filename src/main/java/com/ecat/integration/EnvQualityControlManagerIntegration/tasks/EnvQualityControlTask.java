@@ -19,7 +19,6 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.service.QcResult
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.BatchResult;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.QcExecutionRequest;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.TriggerSource;
-import com.ecat.integration.EnvQualityControlManagerIntegration.util.CylinderArchiveSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.LogicDeviceReportSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlExecutionLogHelper;
@@ -210,20 +209,15 @@ public class EnvQualityControlTask extends Task implements QcResultFormatter {
         }
 
         List<Map<String, Object>> keySnapshot;
-        String stdGasSnap = "";
-        String stdGasUnitSnap = "";
         if (qcRecordId < 0) {
             keySnapshot = Collections.emptyList();
         } else {
             String paramStr = params != null ? (String) params.get("parameter") : null;
             String gasName = paramStr != null ? ParameterEnum.valueOf(paramStr).name() : null;
             keySnapshot = buildKeyParametersSnapshotAtComplete(core, gasName);
-            String[] stdGasPair = stdGasSnapshotPair(core, paramStr);
-            stdGasSnap = stdGasPair[0];
-            stdGasUnitSnap = stdGasPair[1];
         }
-        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, metrics, result, keySnapshot,
-                stdGasSnap, stdGasUnitSnap);
+        // 一本账 2026-09-18 定案：execution_log 不再落 stdGas 浓度键（qcm_record 表列受理定格为唯一真相源）
+        return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, metrics, result, keySnapshot);
     }
 
     private static Map<String, Object> serializableTaskParamsForLog(Map<String, Object> params) {
@@ -248,47 +242,16 @@ public class EnvQualityControlTask extends Task implements QcResultFormatter {
     private String executionLogJsonForStubResult(EcatCore core, Map<String, Object> params, ExecutorResultBase stub, long qcRecordId) {
         Map<String, Object> serializableParams = serializableTaskParamsForLog(params);
         List<Map<String, Object>> keySnapshot;
-        String stdGasSnap = "";
-        String stdGasUnitSnap = "";
         if (qcRecordId < 0) {
             keySnapshot = Collections.emptyList();
         } else {
             String paramStr = params != null ? (String) params.get("parameter") : null;
             String gasName = paramStr != null ? ParameterEnum.valueOf(paramStr).name() : null;
             keySnapshot = buildKeyParametersSnapshotAtComplete(core, gasName);
-            String[] stdGasPair = stdGasSnapshotPair(core, paramStr);
-            stdGasSnap = stdGasPair[0];
-            stdGasUnitSnap = stdGasPair[1];
         }
+        // 一本账 2026-09-18 定案：execution_log 不再落 stdGas 浓度键（表列受理定格为唯一真相源）
         return QualityControlExecutionLogHelper.toExecutionLogJson(serializableParams, Collections.emptyMap(), stub,
-                keySnapshot, stdGasSnap, stdGasUnitSnap);
-    }
-
-    /**
-     * 标气快照对（[0]=浓度裸数串、[1]=单位短名；无档案/未登记时对应元素空串）。
-     *
-     * <p>走 {@link CylinderArchiveSupport#readArchive}（airstation 钢瓶逻辑设备 AttrState 一次读）
-     * 成对取浓度+单位——与 {@code ResultSnapshotWriter} 冻结 {@code gas_concentration(_unit)} 列同一条好链。
-     * 旧链 {@code LogicDeviceReportSupport.readStandardGasCylinderConcentration} 返回裸串无单位，
-     * execution_log 消费方无法判定浓度口径（ppm/ppb），是用户发现的上报缺陷。读取失败只降级为空快照
-     * （完成路径不能因档案缺失而失败，与旧链容错一致）。</p>
-     */
-    private String[] stdGasSnapshotPair(EcatCore core, String paramStr) {
-        if (core == null || paramStr == null) {
-            return new String[] {"", ""};
-        }
-        try {
-            CylinderArchiveSupport.GasTrace trace =
-                    CylinderArchiveSupport.readArchive(core, ParameterEnum.valueOf(paramStr).getCode());
-            if (trace != null && trace.concentration != null) {
-                return new String[] {
-                        trace.concentration.toPlainString(),
-                        trace.concentrationUnit != null ? trace.concentrationUnit.trim() : ""};
-            }
-        } catch (Exception e) {
-            log.debug("stdGasConcentration snapshot skipped: {}", e.getMessage());
-        }
-        return new String[] {"", ""};
+                keySnapshot);
     }
 
     private List<Map<String, Object>> buildKeyParametersSnapshotAtComplete(EcatCore core, String gasParameterName) {

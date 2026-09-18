@@ -42,48 +42,22 @@ class QualityControlExecutionLogHelperTest {
         assertTrue(QualityControlExecutionLogHelper.readIsPass(json));
     }
 
+    /**
+     * 一本账 2026-09-18 定案：execution_log 不再承载浓度（浓度键停写停读，
+     * qcm_record 表列受理定格为唯一真相源）——组装输出根级不得出现 stdGas 两键。
+     */
     @Test
-    void toExecutionLogJson_includesStdGasConcentrationAtRoot() {
+    void toExecutionLogJson_stdGasKeysNeverWritten() {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("parameter", "SO2");
         Map<String, Object> metrics = new LinkedHashMap<>();
         metrics.put("resultValue", 1.0f);
         TestResult tr = new TestResult(true, false, "ok", "");
-        String json = QualityControlExecutionLogHelper.toExecutionLogJson(params, metrics, tr, null, "400", null);
+
+        String json = QualityControlExecutionLogHelper.toExecutionLogJson(params, metrics, tr, null);
 
         Map<String, Object> root = QualityControlExecutionLogHelper.parseRootMap(json);
-        assertEquals("400", root.get(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_KEY));
-        assertEquals("400", QualityControlExecutionLogHelper.readStdGasConcentrationSnapshot(json));
-        Map<String, Object> m = QualityControlExecutionLogHelper.metricsForReport(json);
-        assertFalse(m.containsKey(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_KEY));
-    }
-
-    @Test
-    void toExecutionLogJson_stdGasConcentrationAndUnitArePaired() {
-        Map<String, Object> params = new LinkedHashMap<>();
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("resultValue", 1.0f);
-        TestResult tr = new TestResult(true, false, "ok", "");
-        String json = QualityControlExecutionLogHelper.toExecutionLogJson(params, metrics, tr, null, "400", "ppm");
-
-        Map<String, Object> root = QualityControlExecutionLogHelper.parseRootMap(json);
-        assertEquals("400", root.get(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_KEY));
-        assertEquals("ppm", root.get(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_UNIT_KEY),
-                "浓度与单位成对落键（气瓶快照单位修复）");
-        Map<String, Object> m = QualityControlExecutionLogHelper.metricsForReport(json);
-        assertFalse(m.containsKey(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_UNIT_KEY),
-                "单位键不进报表指标 Map");
-    }
-
-    /** 单位入参缺席（旧记录语义）：单位键不落（键缺席，解析方按缺单位处理不猜）。 */
-    @Test
-    void toExecutionLogJson_withoutUnit_omitsUnitKey() {
-        Map<String, Object> params = new LinkedHashMap<>();
-        TestResult tr = new TestResult(true, false, "ok", "");
-        String json = QualityControlExecutionLogHelper.toExecutionLogJson(params, Collections.emptyMap(), tr, null, "400", null);
-
-        Map<String, Object> root = QualityControlExecutionLogHelper.parseRootMap(json);
-        assertEquals("400", root.get(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_KEY));
+        assertFalse(root.containsKey(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_KEY));
         assertFalse(root.containsKey(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_UNIT_KEY));
     }
 
@@ -109,7 +83,7 @@ class QualityControlExecutionLogHelperTest {
         TestResult tr = new TestResult(false, false, "监测仪器未配置，监测数据无效", "");
 
         String json = QualityControlExecutionLogHelper.toExecutionLogJson(
-                new LinkedHashMap<>(), metrics, tr, null, null, null);
+                new LinkedHashMap<>(), metrics, tr, null);
 
         assertFalse(json.contains("NaN"), "NaN 不得以任何形态进 JSON");
         assertFalse(json.contains("Infinity"), "Infinity 不得以任何形态进 JSON");
@@ -133,7 +107,7 @@ class QualityControlExecutionLogHelperTest {
         metrics.put("deviceValues", java.util.Arrays.asList(80f, 240f));
         TestResult tr = new TestResult(true, false, "ok", "");
         String json = QualityControlExecutionLogHelper.toExecutionLogJson(
-                new LinkedHashMap<>(), metrics, tr, null, null, null);
+                new LinkedHashMap<>(), metrics, tr, null);
         Map<String, Object> res = (Map<String, Object>) QualityControlExecutionLogHelper.parseRootMap(json).get("result");
         assertEquals(0.7f, ((Number) res.get("resultValue")).floatValue(), 1e-5);
         assertEquals(2, ((List<?>) res.get("deviceValues")).size());

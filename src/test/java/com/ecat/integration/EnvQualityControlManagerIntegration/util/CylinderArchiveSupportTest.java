@@ -20,6 +20,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -82,6 +84,34 @@ class CylinderArchiveSupportTest {
             assertNull(trace.gasSource);
             assertNull(trace.cylinderId);
             assertNull(trace.concentration);
+        }
+    }
+
+    /**
+     * 浓度值与单位同取一次 {@code getState()} 快照（attr-state 契约：外部只走 state、单次不可变读）——
+     * 值读与单位读分两次 getState 之间存在撕裂窗口（换瓶更新恰好落在中间时值与单位来自不同瓶）。
+     */
+    @Test
+    void readArchive_valueAndUnitShareSingleStateSnapshot() {
+        EcatCore core = mock(EcatCore.class);
+        LogicDevice device = mock(LogicDevice.class);
+        Map<String, AttributeBase<?>> attrs = new HashMap<>();
+        AttributeBase<?> conc = mock(AttributeBase.class);
+        AttrState<?> concState = mock(AttrState.class);
+        org.mockito.Mockito.doReturn(Double.valueOf(50.0)).when(concState).getValue();
+        UnitInfo ppm = mock(UnitInfo.class);
+        when(ppm.getName()).thenReturn("ppm");
+        org.mockito.Mockito.doReturn(ppm).when(concState).getDisplayUnit();
+        org.mockito.Mockito.doReturn(concState).when(conc).getState();
+        attrs.put("gas_concentration", conc);
+        when(device.getAttrs()).thenReturn(attrs);
+
+        try (MockedStatic<LogicDeviceReportSupport> support = mockStatic(LogicDeviceReportSupport.class)) {
+            support.when(() -> LogicDeviceReportSupport.airstationDevice(any(), any())).thenReturn(device);
+            CylinderArchiveSupport.GasTrace trace = CylinderArchiveSupport.readArchive(core, "1");
+            assertEquals(0, new BigDecimal("50").compareTo(trace.concentration));
+            assertEquals("ppm", trace.concentrationUnit);
+            verify(conc, times(1)).getState();
         }
     }
 

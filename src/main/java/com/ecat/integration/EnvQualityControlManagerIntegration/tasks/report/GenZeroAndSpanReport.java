@@ -116,7 +116,7 @@ public class GenZeroAndSpanReport extends ReportGenerator {
             report.setInstrumentNo("");
             report.setInstrumentNameAndNo("");
         }
-        String gasConcentration = param != null ? resolveReportStdGasConcentration(param, zero, span) : "";
+        String gasConcentration = param != null ? resolveReportStdGasConcentration(zero, span) : "";
         report.setGasConcentration(gasConcentration);
 
         if (zero != null) {

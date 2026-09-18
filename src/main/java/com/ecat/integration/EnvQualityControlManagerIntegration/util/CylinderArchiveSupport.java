@@ -85,11 +85,14 @@ public final class CylinderArchiveSupport {
             log.debug("钢瓶档案读取跳过：槽 {} 逻辑设备未注册（正常于 airstation 未加载/未 provision）", slot);
             return null;
         }
+        // 浓度值与单位同取一次 AttrState 快照（attr-state 契约：单次不可变读）——
+        // 分两次 getState 存在撕裂窗口：换瓶更新恰好落在中间时值与单位来自不同瓶
+        AttrState<?> concState = stateOf(device, ATTR_GAS_CONCENTRATION);
         return new GasTrace(
                 textStateOf(device, ATTR_GAS_SOURCE),
                 textStateOf(device, ATTR_CYLINDER_ID),
-                numericStateOf(device, ATTR_GAS_CONCENTRATION),
-                unitOf(device, ATTR_GAS_CONCENTRATION));
+                numericOf(concState),
+                unitOf(concState));
     }
 
     /** 取属性不可变状态；属性不存在或尚无状态快照（新属性从未写入）返回 null——未登记语义。 */
@@ -110,14 +113,12 @@ public final class CylinderArchiveSupport {
         return value == null ? null : String.valueOf(value);
     }
 
-    private static BigDecimal numericStateOf(LogicDevice device, String attrId) {
-        AttrState<?> state = stateOf(device, attrId);
+    private static BigDecimal numericOf(AttrState<?> state) {
         Object value = state == null ? null : state.getValue();
         return value instanceof Number ? BigDecimal.valueOf(((Number) value).doubleValue()) : null;
     }
 
-    private static String unitOf(LogicDevice device, String attrId) {
-        AttrState<?> state = stateOf(device, attrId);
+    private static String unitOf(AttrState<?> state) {
         UnitInfo unit = state == null ? null : state.getDisplayUnit();
         return unit == null ? null : unit.getName();
     }

@@ -287,6 +287,30 @@ class GenMultiCheckReportTest {
         assertNotNull(instrumentInfo.get("report_date"));
     }
 
+    /**
+     * D2（一本账 2026-09-18）：cell 层不再 strip 包裹——受理定格的成对单位原样展示，
+     * 气体默认单位只补裸数字。SO2 默认 ppb，定格 ppm 必须显 ppm（strip 时代会错显 ppb）。
+     */
+    @Test
+    void ledgerPairedUnit_displayedVerbatim_notGasDefaultUnit() {
+        QcmRecord record = createMultiCheckRecord("1");  // SO2 code，默认单位 ppb
+        record.setGasConcentration(new java.math.BigDecimal("400"));
+        record.setGasConcentrationUnit("ppm");           // 受理定格单位 ppm
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
+                .thenReturn(Arrays.asList(record));
+        DeviceBase so2Device = createMockDevice("esa-so2", "SO2分析仪", "SN-SO2-001", "SO2");
+        lenient().when(mockDeviceRegistry.getDeviceByID("esa-so2")).thenReturn(so2Device);
+
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
+        assertEquals(1, reports.size());
+        @SuppressWarnings("unchecked")
+        Map<String, String> instrumentInfo =
+                (Map<String, String>) reports.get(0).getReportData().get("instrument_info");
+        assertEquals("400 ppm", instrumentInfo.get("gas_concentration"),
+                "成对定格单位 ppm 不得被 SO2 默认 ppb 覆盖");
+    }
+
     // ==================== 辅助方法 ====================
 
     private static float parseConcCell(String cell) {

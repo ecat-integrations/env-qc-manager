@@ -35,13 +35,13 @@ public final class QualityControlExecutionLogHelper {
      */
     public static final String QC_PHASE_TIMELINES_KEY = "qcPhaseTimelines";
 
-    /** 质控完成时从标准气逻辑设备快照的标气浓度，报告优先用此字段。 */
+    /**
+     * 历史 execution_log 的标气浓度键（一本账 2026-09-18 定案后停写停读，浓度以 qcm_record 表列为准）。
+     * 常量仅为 {@link #metricsForReport} 剥离存量行残留键保留，防止旧浓度值混进报表指标。
+     */
     public static final String STD_GAS_CONCENTRATION_KEY = "stdGasConcentration";
 
-    /**
-     * 标气浓度快照的配套单位（ppm 等短名）——与 {@link #STD_GAS_CONCENTRATION_KEY} 成对写入。
-     * 旧记录无此键=如实缺席（当时快照链只有裸串无单位），解析方按缺单位处理不猜默认单位。
-     */
+    /** {@link #STD_GAS_CONCENTRATION_KEY} 的配套单位键（同上：停写停读，仅存量指标剥离用）。 */
     public static final String STD_GAS_CONCENTRATION_UNIT_KEY = "stdGasConcentrationUnit";
 
     /** 阶段时间串解析（G-STD-7：SimpleDateFormat → DateTimeFormatter）。前两种为无时区本地串，末种带偏移。 */
@@ -90,29 +90,13 @@ public final class QualityControlExecutionLogHelper {
 
     /**
      * 组装入库的 execution_log JSON 字符串（可选根级 {@code keyParametersSnapshot}）。
+     * 一本账 2026-09-18 定案：浓度不进 execution_log（stdGas 两键停写，qcm_record 表列受理定格为唯一真相源）。
      */
     public static String toExecutionLogJson(
             Map<String, Object> params,
             Object resultBody,
             ExecutorResultBase result,
             List<Map<String, Object>> keyParametersSnapshot) {
-        return toExecutionLogJson(params, resultBody, result, keyParametersSnapshot, null, null);
-    }
-
-    /**
-     * 组装入库的 execution_log JSON（标气浓度与单位成对快照）。
-     *
-     * @param stdGasConcentration     标气浓度裸数串；null/空=快照链未取到（键缺席）
-     * @param stdGasConcentrationUnit 标气浓度单位短名（ppm 等）；null/空=快照链未取到单位
-     *                                （键缺席，旧记录语义，解析方按缺单位处理不猜）
-     */
-    public static String toExecutionLogJson(
-            Map<String, Object> params,
-            Object resultBody,
-            ExecutorResultBase result,
-            List<Map<String, Object>> keyParametersSnapshot,
-            String stdGasConcentration,
-            String stdGasConcentrationUnit) {
         Map<String, Object> root = new LinkedHashMap<>();
         List<?> phaseTimelines = null;
         if (params != null && !params.isEmpty()) {
@@ -144,12 +128,6 @@ public final class QualityControlExecutionLogHelper {
         root.put("statusMap", buildStatusMap(result));
         if (keyParametersSnapshot != null && !keyParametersSnapshot.isEmpty()) {
             root.put("keyParametersSnapshot", keyParametersSnapshot);
-        }
-        if (stdGasConcentration != null && !stdGasConcentration.trim().isEmpty()) {
-            root.put(STD_GAS_CONCENTRATION_KEY, stdGasConcentration.trim());
-        }
-        if (stdGasConcentrationUnit != null && !stdGasConcentrationUnit.trim().isEmpty()) {
-            root.put(STD_GAS_CONCENTRATION_UNIT_KEY, stdGasConcentrationUnit.trim());
         }
         Date[] samplingWin = resolveReadPhaseWindowFromTimelinesList(phaseTimelines);
         if (samplingWin != null) {
@@ -274,40 +252,6 @@ public final class QualityControlExecutionLogHelper {
         m.remove(STD_GAS_CONCENTRATION_KEY);
         m.remove(STD_GAS_CONCENTRATION_UNIT_KEY);
         return m;
-    }
-
-    /** 读取质控完成时写入的标气浓度快照；无则空串。 */
-    public static String readStdGasConcentrationSnapshot(String executionLog) {
-        Map<String, Object> root = parseRootMap(executionLog);
-        if (root.isEmpty()) {
-            return "";
-        }
-        Object v = root.get(STD_GAS_CONCENTRATION_KEY);
-        if (v == null && root.get("params") instanceof Map) {
-            v = ((Map<?, ?>) root.get("params")).get(STD_GAS_CONCENTRATION_KEY);
-        }
-        if (v == null) {
-            return "";
-        }
-        String s = String.valueOf(v).trim();
-        return "null".equals(s) ? "" : s;
-    }
-
-    /**
-     * 读取快照浓度随行的单位键（{@link #STD_GAS_CONCENTRATION_UNIT_KEY}，成对落库起才有）。
-     * 旧记录无该键返回空串——值单位分离的旧数据不得猜单位，由调用方回落冻结对。
-     */
-    public static String readStdGasConcentrationUnitSnapshot(String executionLog) {
-        Map<String, Object> root = parseRootMap(executionLog);
-        if (root.isEmpty()) {
-            return "";
-        }
-        Object v = root.get(STD_GAS_CONCENTRATION_UNIT_KEY);
-        if (v == null) {
-            return "";
-        }
-        String s = String.valueOf(v).trim();
-        return "null".equals(s) ? "" : s;
     }
 
     /**

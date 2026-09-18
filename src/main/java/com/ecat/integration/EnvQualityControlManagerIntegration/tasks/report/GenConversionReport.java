@@ -22,7 +22,6 @@ import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.rep
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatEfficiencyPercent;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatFloatListWithConcUnit;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatPpbWithDisplayUnit;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.stripNumericConcentration;
 
 /**
  * GenConversionReport
@@ -86,10 +85,10 @@ public class GenConversionReport extends ReportGenerator {
 
         String concUnitCode = ParameterEnum.NO2.getCode();
         List<String> gasConcentrations = new ArrayList<>(2);
-        String noC = resolveReportStdGasConcentration("NO", record);
-        String no2C = resolveReportStdGasConcentration("NO2", record);
-        gasConcentrations.add(noC == null ? "" : appendConcUnit(stripNumericConcentration(noC), concUnitCode));
-        gasConcentrations.add(no2C == null ? "" : appendConcUnit(stripNumericConcentration(no2C), concUnitCode));
+        String noC = resolveReportStdGasConcentration(record);
+        String no2C = resolveReportStdGasConcentration(record);
+        gasConcentrations.add(noC == null ? "" : appendConcUnit(noC, concUnitCode));
+        gasConcentrations.add(no2C == null ? "" : appendConcUnit(no2C, concUnitCode));
         report.setGasConcentration(gasConcentrations);
 
         String executionLog = record.getExecutionLog();

@@ -175,6 +175,10 @@ class GenZeroAndSpanReportTest {
                 + "},"
                 + "\"qcPhaseTimelines\":[{\"phaseCode\":\"calibration\",\"endTimeMillis\":1736474400000}]"
                 + "}");
+        // 一本账 2026-09-18 定案：报告浓度唯一读源 = qcm_record 表列成对（受理定格）；
+        // zero 行残留的旧 stdGasConcentration JSON 键作废不兜底，定格取 span 行
+        span.setGasConcentration(new java.math.BigDecimal("400"));
+        span.setGasConcentrationUnit("ppb");
 
         when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
                 any(Instant.class), any(Instant.class), any(), any(Integer.class)))

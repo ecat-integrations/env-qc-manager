@@ -18,7 +18,6 @@ import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.rep
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatFloatListWithConcUnit;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatPpbInterceptForDisplay;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.metricString;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.stripNumericConcentration;
 
 /**
  * GenMultiCheckReport
@@ -91,7 +90,7 @@ public class GenMultiCheckReport extends ReportGenerator {
         List<Float> instrumentResponse = convertToFloatList(executionLogMap.get("deviceValues"));
         report.setInstrumentResponses(instrumentResponse);
 
-        String cylinderConc = param != null ? resolveReportStdGasConcentration(param, record) : "";
+        String cylinderConc = param != null ? resolveReportStdGasConcentration(record) : "";
         report.setGasConcentration(cylinderConc);
 
         boolean pass = QualityControlExecutionLogHelper.readBoolean(executionLogMap, "isPass");
@@ -139,7 +138,7 @@ public class GenMultiCheckReport extends ReportGenerator {
         instrumentInfo.put("gas_source_and_no", report.getGasSourceAndNo());
         instrumentInfo.put("gas_source", report.getGasSource());
         instrumentInfo.put("gas_no", report.getGasNo());
-        instrumentInfo.put("gas_concentration", appendConcUnit(stripNumericConcentration(report.getGasConcentration()), gasCode));
+        instrumentInfo.put("gas_concentration", appendConcUnit(report.getGasConcentration(), gasCode));
         boolean pass = record != null && QualityControlExecutionLogHelper.readIsPass(record.getExecutionLog());
         instrumentInfo.put("qc_stamp", pass ? "pass" : "fail");
         reportContent.put("instrument_info", instrumentInfo);

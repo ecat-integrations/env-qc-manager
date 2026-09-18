@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -286,36 +287,21 @@ class ResultSnapshotWriterTest {
         verify(pointMapper, never()).insertBatch(anyList());
     }
 
-    /** 方案 A：冻结时读 airstation 钢瓶档案（GasTrace）写溯源四列。 */
+    /**
+     * 一本账 2026-09-18 定案：gas 四列在受理时定格（buildRecords + insertBatch），
+     * 完成冻结不再读档案、不写 gas 四列（updateResultSnapshot 同步剔列）——
+     * 档案链此刻可读也不得覆写受理值（否则完成时 NULL/新值覆盖受理定格）。
+     */
     @Test
-    void gasArchive_frozenIntoTraceColumns() {
+    void gasLedgerColumns_notTouchedAtCompletion() {
         try (MockedStatic<CylinderArchiveSupport> support = Mockito.mockStatic(CylinderArchiveSupport.class)) {
-            support.when(() -> CylinderArchiveSupport.readArchive(core, "1"))
+            support.when(() -> CylinderArchiveSupport.readArchive(any(), any()))
                     .thenReturn(new CylinderArchiveSupport.GasTrace(
                             "国家标准物质研究所", "GBW-E-050123", new BigDecimal("50"), "ppm"));
-
             writer.freezeResultSnapshot(21L, "air.monitor.calibration.span_check",
                     fullJudgement(), Collections.emptyList(), Collections.emptyList(),
                     null, null, 1L, "1", null);
-        }
-        ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
-        verify(recordMapper).updateResultSnapshot(captor.capture());
-        QcmRecord row = captor.getValue();
-        assertEquals("国家标准物质研究所", row.getGasSource());
-        assertEquals("GBW-E-050123", row.getGasNo());
-        assertEquals(new BigDecimal("50"), row.getGasConcentration());
-        assertEquals("ppm", row.getGasConcentrationUnit());
-    }
-
-    /** 无档案（O3 发生器供气/槽未 provision）：溯源四列如实 null，不伪造。 */
-    @Test
-    void gasArchiveMissing_traceColumnsStayNull() {
-        try (MockedStatic<CylinderArchiveSupport> support = Mockito.mockStatic(CylinderArchiveSupport.class)) {
-            support.when(() -> CylinderArchiveSupport.readArchive(core, "3")).thenReturn(null);
-
-            writer.freezeResultSnapshot(22L, "air.monitor.calibration.span_check",
-                    fullJudgement(), Collections.emptyList(), Collections.emptyList(),
-                    null, null, 1L, "3", null);
+            support.verify(() -> CylinderArchiveSupport.readArchive(any(), any()), Mockito.never());
         }
         ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
         verify(recordMapper).updateResultSnapshot(captor.capture());
@@ -335,14 +321,31 @@ class ResultSnapshotWriterTest {
         Transactional tx = m.getAnnotation(Transactional.class);
         assertNotNull(tx, "freezeResultSnapshot 必须 @Transactional");
     }
+
+    /**
+     * 一本账最高优先锁扣（2026-09-18 定案）：updateResultSnapshot 的 SET 子句不得含 gas 四列——
+     * gas 值在受理时定格，完成冻结行不携带 gas 值，任何 gas SET 都等于用 null 覆写受理定格。
+     */
+    @Test
+    void updateResultSnapshotSql_neverTouchesGasLedgerColumns() throws Exception {
+        String xml = mapperXmlText();
+        int begin = xml.indexOf("<update id=\"updateResultSnapshot\"");
+        assertTrue(begin >= 0, "updateResultSnapshot 语句存在");
+        String block = xml.substring(begin, xml.indexOf("</update>", begin));
+        assertFalse(block.contains("gas_source"), "gas_source 不得出现在完成更新 SET 中");
+        assertFalse(block.contains("gas_no"), "gas_no 不得出现在完成更新 SET 中");
+        assertFalse(block.contains("gas_concentration"), "gas_concentration/单位不得被完成更新覆写");
+    }
+
+    private static String mapperXmlText() throws Exception {
+        return new String(java.nio.file.Files.readAllBytes(
+                java.nio.file.Paths.get("src/main/resources/mapper/quality_control/QcmRecordMapper.xml")),
+                java.nio.charset.StandardCharsets.UTF_8);
+    }
     /** §4.0 仪器识别+满量程冻结：满量程与 Gen 零跨报告同源（CO=50ppm=50000ppb 归一 ppb，其余 500ppb）。 */
     @Test
     void fullScale_frozenPpbNormalized_CO50000Others500() {
-        // gas 档案与本用例无关：stub 掉（real readArchive 会走 mock core 的 null registry）
-        try (MockedStatic<CylinderArchiveSupport> gas = Mockito.mockStatic(CylinderArchiveSupport.class)) {
-            gas.when(() -> CylinderArchiveSupport.readArchive(any(), any())).thenReturn(null);
         fullScale_frozen_body();
-        }
     }
 
     private void fullScale_frozen_body() {
@@ -403,16 +406,5 @@ class ResultSnapshotWriterTest {
         assertNull(captor.getValue().getInstrumentName());
         assertNull(captor.getValue().getInstrumentNo());
         assertNotNull(captor.getValue().getFullScale());
-    }
-    /** 契约回归：writer 把 qcm_record.parameter 数字代码原样传给档案读取（翻译在 support 槽映射）。 */
-    @Test
-    void gasArchive_calledWithRawParameterCode() {
-        try (MockedStatic<CylinderArchiveSupport> support = Mockito.mockStatic(CylinderArchiveSupport.class)) {
-            support.when(() -> CylinderArchiveSupport.readArchive(core, "4")).thenReturn(null);
-            writer.freezeResultSnapshot(42L, "air.monitor.calibration.span_check",
-                    Collections.emptyMap(), null, null, null, null, 1L, "4", null);
-            support.verify(() -> CylinderArchiveSupport.readArchive(core, "4"));
-        }
-        verify(recordMapper).updateResultSnapshot(any(QcmRecord.class));
     }
 }

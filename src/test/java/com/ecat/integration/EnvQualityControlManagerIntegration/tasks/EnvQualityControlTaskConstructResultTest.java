@@ -148,11 +148,11 @@ class EnvQualityControlTaskConstructResultTest {
     }
 
     /**
-     * 气瓶快照单位修复：constructResult 完成路径走 {@code CylinderArchiveSupport.readArchive}（钢瓶档案链）
-     * 成对取浓度+单位，execution_log 两键都落——旧链裸串无单位，消费方无法判定浓度口径。
+     * 一本账 2026-09-18 定案：execution_log 停写浓度键（浓度在受理时定格入 qcm_record 表列，
+     * 唯一真相源）——即使钢瓶档案链此刻可读到成对值，JSON 也不再落 stdGas 两键。
      */
     @Test
-    void stdGasSnapshot_concentrationAndUnitAreFrozenAsPair() {
+    void stdGasKeys_neverWrittenEvenWhenArchiveReadable() {
         ExposedTask t = new ExposedTask();
         EcatCore core = mock(EcatCore.class);
         LogicDevice cyl = mock(LogicDevice.class);
@@ -168,7 +168,7 @@ class EnvQualityControlTaskConstructResultTest {
         when(cyl.getAttrs()).thenReturn(attrs);
 
         try (MockedStatic<LogicDeviceReportSupport> support = mockStatic(LogicDeviceReportSupport.class)) {
-            // 钢瓶档案链唯一外部依赖：airstation standard_gas 槽设备（关键参数快照走 mockStatic 默认空）
+            // 钢瓶档案链可读（airstation standard_gas 槽设备在线、浓度+单位都有值）
             support.when(() -> LogicDeviceReportSupport.airstationDevice(
                             eq(core), eq("logicdevice_station.standard_gas.so2")))
                     .thenReturn(cyl);
@@ -185,9 +185,9 @@ class EnvQualityControlTaskConstructResultTest {
             String json = t.buildWithRecordId(core, p, cr, QualityControlTypeEnum.ZERO_CHECK.getCode(), 7L);
 
             Map<String, Object> root = QualityControlExecutionLogHelper.parseRootMap(json);
-            // numericStateOf 走 BigDecimal.valueOf(double)，50.0 的规范串即 "50.0"
-            assertEquals("50.0", root.get(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_KEY));
-            assertEquals("ppm", root.get(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_UNIT_KEY));
+            assertFalse(root.containsKey(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_KEY),
+                    "JSON 浓度键已停写：表列受理定格为唯一真相源");
+            assertFalse(root.containsKey(QualityControlExecutionLogHelper.STD_GAS_CONCENTRATION_UNIT_KEY));
         }
     }
 

@@ -115,7 +115,7 @@ public final class LogicDeviceReportSupport {
             String display;
             if (attr != null && def != null && matchesPrimaryGasConcentration(parameterName, def.getAttrClass())) {
                 // G-BUG-20：主浓度按目标单位取值（CO→PPM，其余 PPB），与判定同口径；µg/m³ native 值不得直出
-                com.ecat.core.State.UnitInfo targetUnit = "CO".equalsIgnoreCase(nullSafe(parameterName).trim())
+                UnitInfo targetUnit = "CO".equalsIgnoreCase(nullSafe(parameterName).trim())
                         ? AirVolumeUnit.PPM : AirVolumeUnit.PPB;
                 display = nullSafe(attr.getDisplayValue(targetUnit));
             } else {
@@ -232,112 +232,9 @@ public final class LogicDeviceReportSupport {
         return out;
     }
 
-    /**
-     * 报表/任务「标气浓度」冻结读取（唯一持有者；曾与 GasSetting 页共用，页面已移除）——
-     * 优先校准仪逻辑设备上的 {@code <gas>_cylinder_concentration}（标气浓度真相源，见
-     * {@link #readCalibratorCylinderConcentration}）；取到非空即返，否则回落标准气逻辑设备上的
-     * {@code gas_concentration}（站房可写业务量，原路径保留，校准仪无值时行为向后兼容）。
-     * O₃ 无钢瓶实例，留空。两源皆空返回空串并记 ERROR——标气浓度缺失属业务错误，必须可见。
-     */
-    public static String readStandardGasCylinderConcentration(EcatCore core, String gasLabel) {
-        if (core == null || gasLabel == null || gasLabel.trim().isEmpty()) {
-            return "";
-        }
-        if ("O3".equalsIgnoreCase(gasLabel.trim())) {
-            return "";
-        }
-        String fromCalibrator = readCalibratorCylinderConcentration(core, gasLabel);
-        if (!fromCalibrator.isEmpty()) {
-            return fromCalibrator;
-        }
-        String fromCylinder = readStandardGasCylinderFromStandardGasDevices(core, gasLabel);
-        if (!fromCylinder.isEmpty()) {
-            return fromCylinder;
-        }
-        logger.warn("标气浓度读取为空：calibrator 无 {}_cylinder_concentration 值且钢瓶设备 gas_concentration 空——快照将缺失 gasLabel={}",
-                cylinderKeyPrefixForGasLabel(gasLabel), gasLabel);
-        return "";
-    }
-
-    /**
-     * 读校准仪逻辑设备上当前气体对应的钢瓶浓度属性展示值（标气浓度真相源，读取顺序先于标准气钢瓶设备）。
-     * 属性 ID 复用 {@link #resolveCalibratorCylinderAttrId} 解析
-     * 同一解析函数，两消费方共享；解析不到属性、设备未注册或属性无值返回空串，由调用方决定回落。
-     */
-    public static String readCalibratorCylinderConcentration(EcatCore core, String gasLabel) {
-        String attrId = resolveCalibratorCylinderAttrId(core, gasLabel);
-        if (attrId == null) {
-            return "";
-        }
-        LogicDevice cal = (LogicDevice) airstationDevice(core, EntryId.Station.CALIBRATOR);
-        if (cal == null || cal.getAttrMap() == null) {
-            return "";
-        }
-        ILogicAttribute<?> attr = cal.getAttrMap().get(attrId);
-        if (attr == null) {
-            return "";
-        }
-        String v = attr.getDisplayValue();
-        return v == null ? "" : v.trim();
-    }
-
-    /**
-     * 从校准仪逻辑设备的属性定义中解析当前气体对应的钢瓶浓度属性 ID；无对应前缀（如 O₃）返回 {@code null}。
-     */
-    public static String resolveCalibratorCylinderAttrId(EcatCore core, String gasLabel) {
-        String prefix = cylinderKeyPrefixForGasLabel(gasLabel);
-        if (prefix == null) {
-            return null;
-        }
-        DeviceRegistry reg = core.getDeviceRegistry();
-        if (reg == null) {
-            return null;
-        }
-        LogicDevice cal = (LogicDevice) airstationDevice(core,EntryId.Station.CALIBRATOR);
-        if (cal == null) {
-            return null;
-        }
-        List<LogicAttributeDefine> defs = cal.getAttrDefs();
-        if (defs == null) {
-            return null;
-        }
-        for (LogicAttributeDefine def : defs) {
-            String aid = def.getAttrId();
-            if (aid == null) {
-                continue;
-            }
-            if (aid.startsWith(prefix + "_") && aid.endsWith("_cylinder_concentration")) {
-                return aid;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * 标准气逻辑设备上「可写的标气浓度」属性：在定义列表中取首个非 mapable、可改、NUMERIC 且原始单位为 PPM 的项（与站点 StandardGas 编排一致）。
-     */
-    public static String resolveStdGasConcentrationAttrId(LogicDevice cyl) {
-        if (cyl == null) {
-            return null;
-        }
-        List<LogicAttributeDefine> defs = cyl.getAttrDefs();
-        if (defs == null) {
-            return null;
-        }
-        for (LogicAttributeDefine d : defs) {
-            if (d.isMapable() || !d.isValueChangeable()) {
-                continue;
-            }
-            if (d.getAttrClass() != AttributeClass.NUMERIC) {
-                continue;
-            }
-            UnitInfo nu = d.getNativeUnit();
-            if (nu instanceof AirVolumeUnit && AirVolumeUnit.PPM.equals(nu)) {
-                return d.getAttrId();
-            }
-        }
-        return null;
-    }
+    // 「标气浓度」live 即时读链（校准仪优先 + 标准气钢瓶回落的 readStandardGasCylinderConcentration 及
+    // 其解析簇）已按一本账 2026-09-18 定案整体删除：浓度唯一真相源 = qcm_record 表列（受理定格），
+    // 报告不再直读设备。来源/编号的历史兜底见上方 tryReadStandardGasSourceAndNo。
 
     /** 逻辑设备定义中是否包含某属性 ID（用于 API 校验）。 */
     public static boolean attributeDefinedOn(LogicDevice ld, String attrId) {
@@ -354,48 +251,6 @@ public final class LogicDeviceReportSupport {
             }
         }
         return false;
-    }
-
-    private static String cylinderKeyPrefixForGasLabel(String gasLabel) {
-        if (gasLabel == null) {
-            return null;
-        }
-        switch (gasLabel.trim().toUpperCase(Locale.ROOT)) {
-            case "SO2":
-                return GasKey.SO2;
-            case "NO":
-            case "NO2":
-                return GasKey.NO;
-            case "CO":
-                return GasKey.CO;
-            default:
-                return null;
-        }
-    }
-
-    private static String readStandardGasCylinderFromStandardGasDevices(
-            EcatCore core, String gasLabel) {
-        for (String instance : cylinderInstancesForLabel(gasLabel)) {
-            LogicDevice cyl = (LogicDevice) airstationDevice(core,EntryId.Station.standardGas(instance));
-            if (cyl == null || cyl.getAttrMap() == null) {
-                continue;
-            }
-            String concAttr = "gas_concentration";
-            ILogicAttribute<?> attr = cyl.getAttrMap().get(concAttr);
-            if (attr == null) {
-                concAttr = resolveStdGasConcentrationAttrId(cyl);
-                if (concAttr != null) {
-                    attr = cyl.getAttrMap().get(concAttr);
-                }
-            }
-            if (attr != null) {
-                String v = attr.getDisplayValue();
-                if (v != null && !v.trim().isEmpty()) {
-                    return v.trim();
-                }
-            }
-        }
-        return "";
     }
 
     private static String nullSafe(String s) {

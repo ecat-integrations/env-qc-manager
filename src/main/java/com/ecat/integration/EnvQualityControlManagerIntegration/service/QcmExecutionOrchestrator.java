@@ -19,6 +19,7 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.Batc
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.QcExecutionRequest;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.StopOutcome;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.TriggerSource;
+import com.ecat.integration.EnvQualityControlManagerIntegration.util.CylinderArchiveSupport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.FlowDefaults;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ExecutionStatusEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
@@ -677,10 +678,14 @@ public class QcmExecutionOrchestrator {
         return recs;
     }
 
-    /** N 仪器 × N 条 qcm_record：batch_id/task_type(source.code)/trigger_user/plan_id/快照/WAITING。 */
-    private static List<QcmRecord> buildRecords(QcExecutionRequest req, TriggerSource source, String triggerUser,
-                                                QualityControlTypeEnum qcEnum, String batchId,
-                                                String triggerRequestId) {
+    /**
+     * N 仪器 × N 条 qcm_record：batch_id/task_type(source.code)/trigger_user/plan_id/快照/WAITING，
+     * 外加钢瓶气一本账受理定格（gas 四列）。拒绝留痕（persistRejectedBatch）同走此组装——
+     * 拒绝行带 gas 值是有意为之：一行台账记的是「当时要用的什么气」，与执行成败无关。
+     */
+    private List<QcmRecord> buildRecords(QcExecutionRequest req, TriggerSource source, String triggerUser,
+                                         QualityControlTypeEnum qcEnum, String batchId,
+                                         String triggerRequestId) {
         Instant now = Instant.now();
         List<QcmRecord> records = new ArrayList<>();
         for (String instrument : req.getInstruments()) {
@@ -691,7 +696,8 @@ public class QcmExecutionOrchestrator {
             record.setQualityControlType(qcEnum.getCode());
             record.setTriggerRequestId(triggerRequestId);
             record.setFlowType(qcEnum.getClassName());
-            record.setParameter(ParameterEnum.valueOf(instrument).getCode());
+            String gasCode = ParameterEnum.valueOf(instrument).getCode();
+            record.setParameter(gasCode);
             record.setStartTime(now);
             record.setExecutionStatus(ExecutionStatusEnum.WAITING.getCode().intValue());
             record.setTriggerUser(triggerUser);
@@ -701,9 +707,36 @@ public class QcmExecutionOrchestrator {
             // insertBatch 全列写入：createTime/update_time 均须显式赋值（NOT NULL，无 DB 默认兜底路径）
             record.setCreateTime(now);
             record.setUpdateTime(now);
+            freezeGasLedgerAtAcceptance(record, gasCode, instrument);
             records.add(record);
         }
         return records;
+    }
+
+    /**
+     * 钢瓶气一本账受理定格（2026-09-18 定案）：受理时刻读一次档案定格 gas 四列入行，
+     * 此后完成冻结不再读写（换瓶不影响已受理行的历史值）。权威源=站房 standard_gas
+     * 逻辑设备；浓度与单位成对完整性——缺一个则两个都留空（杜绝裸数字被报表层贴默认单位），
+     * 来源/编号各自独立有就存。O3（发生器供气）/设备未注册/读取失败 → 四列如实 null：
+     * 没有就是没有，不阻碍 flow 执行。
+     */
+    private void freezeGasLedgerAtAcceptance(QcmRecord record, String gasCode, String instrument) {
+        CylinderArchiveSupport.GasTrace trace;
+        try {
+            trace = CylinderArchiveSupport.readArchive(core, gasCode);
+        } catch (Exception e) {
+            log.warn("钢瓶气一本账受理定格读取失败，四列写空继续受理：instrument={}", instrument, e);
+            return;
+        }
+        if (trace == null) {
+            return;
+        }
+        record.setGasSource(trace.gasSource);
+        record.setGasNo(trace.cylinderId);
+        if (trace.concentration != null && trace.concentrationUnit != null) {
+            record.setGasConcentration(trace.concentration);
+            record.setGasConcentrationUnit(trace.concentrationUnit);
+        }
     }
 
     /**

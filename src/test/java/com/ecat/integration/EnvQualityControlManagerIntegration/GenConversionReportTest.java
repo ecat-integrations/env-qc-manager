@@ -380,6 +380,30 @@ class GenConversionReportTest {
     /**
      * 创建转换效率检查记录
      */
+    /**
+     * D2（一本账 2026-09-18）：转换报告 no/no2 两格浓度按受理定格成对单位展示；
+     * 一本账下 NO 与 NO₂ 同一钢瓶源、同一 record 定格，两格同值是有意为之。
+     */
+    @Test
+    void ledgerPairedUnit_displayedVerbatim_notGasDefaultUnit() {
+        QcmRecord record = createConversionCheckRecord();  // NO2 code，默认单位 ppb
+        record.setGasConcentration(new java.math.BigDecimal("50"));
+        record.setGasConcentrationUnit("ppm");
+        when(mockQualityControlRecordsService.selectQcmRecordByTypeTime(
+                any(Instant.class), any(Instant.class), any(), any(Integer.class)))
+                .thenReturn(Arrays.asList(record));
+
+        List<QcmReport> reports = reportGenerator.generate(startTime, endTime);
+        assertEquals(1, reports.size());
+        @SuppressWarnings("unchecked")
+        Map<String, String> instrumentInfo =
+                (Map<String, String>) reports.get(0).getReportData().get("instrument_info");
+        assertEquals("50 ppm", instrumentInfo.get("no_concentration"),
+                "成对定格单位 ppm 不得被 NO2 默认 ppb 覆盖");
+        assertEquals("50 ppm", instrumentInfo.get("no2_concentration"),
+                "NO 与 NO₂ 同一 record 定格，两格同值（成对单位保留）");
+    }
+
     private QcmRecord createConversionCheckRecord() {
         QcmRecord record = new QcmRecord();
         record.setId(1L);

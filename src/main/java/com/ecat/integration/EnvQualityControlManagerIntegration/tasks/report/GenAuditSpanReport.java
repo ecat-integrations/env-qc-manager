@@ -90,7 +90,7 @@ public class GenAuditSpanReport extends ReportGenerator {
             report.setInstrumentNameAndNo("");
             report.setReportName(report.getReportName());
         }
-        String gasConcentration = param != null ? resolveReportStdGasConcentration(param, records_0) : "";
+        String gasConcentration = resolveReportStdGasConcentration(records_0);
         report.setGasConcentration(gasConcentration);
 
         List<String> auditRemarkLines = new ArrayList<>();

@@ -20,7 +20,6 @@ import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.rep
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatFloatListWithConcUnit;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatPpbWithDisplayUnit;
 import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.formatRelativeStandardDeviationPercent;
-import static com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report.ReportFormatSupport.stripNumericConcentration;
 
 /**
  * GenPrecisionReport
@@ -90,7 +89,7 @@ public class GenPrecisionReport extends ReportGenerator {
         report.setInstrumentResponses(instrumentResponse);
         report.setRelativeStandardDeviation(precision);
 
-        String cylinderConc = param != null ? resolveReportStdGasConcentration(param, record) : "";
+        String cylinderConc = param != null ? resolveReportStdGasConcentration(record) : "";
         report.setGasConcentration(cylinderConc);
 
         boolean pass = QualityControlExecutionLogHelper.readBoolean(executionLogMap, "isPass");
@@ -120,7 +119,7 @@ public class GenPrecisionReport extends ReportGenerator {
         instrumentInfo.put("gas_source_and_no", report.getGasSourceAndNo());
         instrumentInfo.put("gas_source", report.getGasSource());
         instrumentInfo.put("gas_no", report.getGasNo());
-        instrumentInfo.put("gas_concentration", appendConcUnit(stripNumericConcentration(report.getGasConcentration()), report.getGasType()));
+        instrumentInfo.put("gas_concentration", appendConcUnit(report.getGasConcentration(), report.getGasType()));
         boolean pass = qcRecord != null && QualityControlExecutionLogHelper.readIsPass(qcRecord.getExecutionLog());
         instrumentInfo.put("qc_stamp", pass ? "pass" : "fail");
         reportContent.put("instrument_info", instrumentInfo);
@@ -133,7 +132,7 @@ public class GenPrecisionReport extends ReportGenerator {
                 if (report.getDevicesStdGasFromMetrics() != null) {
                     concCells.add(formatPpbWithDisplayUnit(report.getDevicesStdGasFromMetrics(), gasCode));
                 } else {
-                    concCells.add(appendConcUnit(stripNumericConcentration(report.getGasConcentration()), gasCode));
+                    concCells.add(appendConcUnit(report.getGasConcentration(), gasCode));
                 }
             }
         }

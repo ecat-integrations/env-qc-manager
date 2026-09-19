@@ -220,9 +220,11 @@ public class EnvQualityControlCustomTask extends Task implements QcResultFormatt
             BatchResult result = orchestrator.triggerExecution(request,
                     TriggerSource.fromTaskTypeCode(triggerType), triggerUser);
             if (result.getStatus() != BatchResult.Status.ACCEPTED) {
-                // 互斥闸拒绝已落库留痕；向任务框架重抛保持旧可观测契约（QcmCustomServiceImpl 按失败返回 false）
+                // 拒绝已落库留痕；向任务框架重抛保持旧可观测契约（QcmCustomServiceImpl 按失败返回 false）。
+                // 文案按拒绝状态映射（rejectMessageOf）：忙/未接线/预检拒处置方向不同，
+                // 不再一律错报「已有执行中的校准任务」
                 log.error("task rejected: {} batch={}", result.getFailureReason(), result.getBatchId());
-                throw new RuntimeException("校准任务退出 已有执行中的校准任务");
+                throw new RuntimeException(QcmExecutionOrchestrator.rejectMessageOf(result));
             }
             log.info("task success. batch={}", result.getBatchId());
         } catch (Exception e) {

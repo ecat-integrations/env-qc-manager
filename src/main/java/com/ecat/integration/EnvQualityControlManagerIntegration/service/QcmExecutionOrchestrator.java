@@ -81,6 +81,28 @@ public class QcmExecutionOrchestrator {
      */
     static final String COMPOSER_STOP_EVALUATION = "流程被用户手动终止";
 
+    /**
+     * 拒绝回执文案（触发方抛给任务框架，操作员在调度日志可见）：按结构化状态映射——忙 /
+     * 未接线 / 预检拒是三种不同处置方向，不能一律报「已有执行中的校准任务」（会把未接线、
+     * 参数非法误导成去找并不存在的执行中任务）。有固定文案的拒绝复用落库留痕同款常量；
+     * PRE_TRIGGER 无固定文案，透传结构化原因码（INVALID_PARAM / QUEUE_NOT_SUPPORTED）。
+     *
+     * @throws IllegalStateException status 为 ACCEPTED——本方法只对拒绝回执有意义，
+     *                               受理结果走成功路径，调到这里是调用方分支写错
+     */
+    public static String rejectMessageOf(BatchResult result) {
+        switch (result.getStatus()) {
+            case REJECTED_BUSY_CONFLICT:
+                return BUSY_CONFLICT_MESSAGE;
+            case REJECTED_EXECUTOR_TYPE_NOT_READY:
+                return NOT_READY_MESSAGE;
+            case REJECTED_PRE_TRIGGER:
+                return "校准任务退出 " + result.getFailureReason();
+            default:
+                throw new IllegalStateException("ACCEPTED 不是拒绝状态，无拒绝文案：" + result.getStatus());
+        }
+    }
+
     private static final String COMPOSER_INTEGRATION_ID = "integration-env-calibration-composer";
     private static final String SELF_INTEGRATION_ID = "integration-env-qc-manager";
 

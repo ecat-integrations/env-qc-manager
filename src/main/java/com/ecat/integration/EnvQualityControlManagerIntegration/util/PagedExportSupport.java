@@ -3,11 +3,14 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.util;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
+import com.ruoyi.common.exception.ServiceException;
 
 /**
  * 导出分批取数：用「每页一条 SQL」替代单条全量 SQL，避免一次载入全表（含大字段行）撑爆内存。
  * <p>调用方在 loader 内自行设置分页（如 PageHelper.startPage），本类只负责循环与聚合：
  * 按页拉取直到某页不足 pageSize 即止。聚合结果为全部行（导出需要整表），但任一时刻仅一页在途。</p>
+ * <p>聚合行数受 maxRows 硬上限约束：分批只界定单条 SQL 的体积，聚合侧若无上限仍可无限累加成
+ * 全表 List，超限当页即抛明确报错引导缩小范围，禁止静默截断。</p>
  *
  * @author coffee
  */
@@ -20,11 +23,13 @@ public final class PagedExportSupport {
     }
 
     /**
-     * @param loader (pageNum 从 1 起, pageSize) -> 该页数据
-     * @param <T>    行类型
+     * @param maxRows 聚合行数硬上限（超过即抛错，恰等于上限放行）
+     * @param loader  (pageNum 从 1 起, pageSize) -> 该页数据
+     * @param <T>     行类型
      * @return 聚合后的全部行
+     * @throws ServiceException 聚合行数超过 maxRows（跨过上限的当页即抛，不再发起下一页）
      */
-    public static <T> List<T> loadAll(BiFunction<Integer, Integer, List<T>> loader) {
+    public static <T> List<T> loadAll(int maxRows, BiFunction<Integer, Integer, List<T>> loader) {
         List<T> all = new ArrayList<>();
         int pageNum = 1;
         while (true) {
@@ -33,6 +38,9 @@ public final class PagedExportSupport {
                 break;
             }
             all.addAll(page);
+            if (all.size() > maxRows) {
+                throw new ServiceException("导出结果超过 " + maxRows + " 行上限，请缩小时间范围或筛选条件后分次导出");
+            }
             if (page.size() < EXPORT_PAGE_SIZE) {
                 break;
             }

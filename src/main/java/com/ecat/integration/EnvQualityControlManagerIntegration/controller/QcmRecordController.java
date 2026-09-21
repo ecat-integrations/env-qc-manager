@@ -20,6 +20,7 @@ import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.exception.ServiceException;
 import com.ecat.core.EcatCore;
 import com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto.QcmRecordExportVo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto.RecordStopDto;
@@ -62,6 +63,13 @@ public class QcmRecordController extends BaseController
     private EcatCore core;
 
     /**
+     * 导出聚合行数硬上限：导出 VO 为轻量 12 列（execution_log/record_snapshot 大字段已丢），
+     * 云端库实测 VO 列集均值约 118B、Java 物化约 0.6KB/行，20 万行约 120MB——
+     * 与 env-data-manager 报警导出（0.7KB/行 × 20 万 = 133MB）同量级。
+     */
+    static final int MAX_EXPORT_ROWS = 200_000;
+
+    /**
      * 查询质控记录列表
      */
     @PreAuthorize("@ss.hasPermi('quality_control:records:list')")
@@ -86,8 +94,23 @@ public class QcmRecordController extends BaseController
     {
         // 与 list 同一筛选口径（导出跟随当前查询条件）
         query.resolveQueryWindows();
+        requireExportTimeWindow(query);
         List<QcmRecordExportVo> vos = loadExportRows(query);
         writeExcel(response, vos);
+    }
+
+    /**
+     * 导出时间窗必填防呆（与 env-data-manager 导出守卫同口径）：mapper 时间条件双填才拼，
+     * 缺起止即无界全表查询。records 查询有 start_time/end_time 两个时间维度，任一维度起止双填
+     * 即视为已指定数据时间范围（前端 records 页 daterange 走 start_time 窗提交）。
+     */
+    private void requireExportTimeWindow(QcmRecord query)
+    {
+        boolean startWindow = query.getBeginStartTime() != null && query.getEndStartTime() != null;
+        boolean endWindow = query.getBeginEndTime() != null && query.getEndEndTime() != null;
+        if (!startWindow && !endWindow) {
+            throw new ServiceException("导出必须指定数据时间范围（起止时间）");
+        }
     }
 
     /**
@@ -96,7 +119,7 @@ public class QcmRecordController extends BaseController
      */
     List<QcmRecordExportVo> loadExportRows(QcmRecord query)
     {
-        return PagedExportSupport.loadAll((pageNum, pageSize) -> {
+        return PagedExportSupport.loadAll(MAX_EXPORT_ROWS, (pageNum, pageSize) -> {
             PageHelper.startPage(pageNum, pageSize, pageNum == 1);
             try {
                 // 实体 Instant 列在 VO 预格式化为 String（Asia/Shanghai），列集与旧导出一致

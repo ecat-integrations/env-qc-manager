@@ -2,6 +2,7 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.domain;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Data;
+import org.springframework.format.annotation.DateTimeFormat;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -26,7 +27,8 @@ public class QcmReport {
     /** 报表类型（如 zero_span/multi_check/precision_check/accuracy_check） */
     private String reportType;
 
-    /** 报表生成日期（date 列） */
+    /** 报表生成日期（date 列）；作为 query/form 绑定目标时按 yyyy-MM-dd 解析（页面筛选真实下发形态） */
+    @DateTimeFormat(pattern = "yyyy-MM-dd")
     private LocalDate reportDate;
 
     /** 仪器名称 */
@@ -90,8 +92,10 @@ public class QcmReport {
     // ===== 非数据库查询扩展字段（列表筛选）=====
 
     /** 查询窗：起始日期（report_date/create_time 筛选用） */
+    @DateTimeFormat(pattern = "yyyy-MM-dd")
     private LocalDate startDate;
 
     /** 查询窗：结束日期 */
+    @DateTimeFormat(pattern = "yyyy-MM-dd")
     private LocalDate endDate;
 }

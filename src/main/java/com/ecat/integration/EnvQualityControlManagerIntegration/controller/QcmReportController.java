@@ -6,6 +6,7 @@ import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.PagedExportSupport;
@@ -45,6 +46,12 @@ public class QcmReportController extends BaseController
     protected IQcmReportService qcmReportService;
 
     /**
+     * 导出聚合行数硬上限：findPage 列集已瘦身（不含 report_content 大列），云端库实测列集
+     * 均值约 252B、Java 物化约 0.9KB/行，20 万行约 180MB，与 env-data-manager 大表导出上限同量级。
+     */
+    static final int MAX_EXPORT_ROWS = 200_000;
+
+    /**
      * 查询环境质量控制报表列表
      */
     @PreAuthorize("@ss.hasPermi('quality_control:report:list')")
@@ -64,6 +71,10 @@ public class QcmReportController extends BaseController
     @PostMapping("/export")
     public void export(HttpServletResponse response, QcmReport query)
     {
+        // mapper report_date 条件双填才拼，缺起止即无界全表（导出防呆与 env-data-manager 同口径）
+        if (query.getStartDate() == null || query.getEndDate() == null) {
+            throw new ServiceException("导出必须指定数据时间范围（起止时间）");
+        }
         List<QcmReport> list = loadExportRows(query);
         writeExcel(response, list);
     }
@@ -74,7 +85,7 @@ public class QcmReportController extends BaseController
      */
     List<QcmReport> loadExportRows(QcmReport query)
     {
-        return PagedExportSupport.loadAll((pageNum, pageSize) -> {
+        return PagedExportSupport.loadAll(MAX_EXPORT_ROWS, (pageNum, pageSize) -> {
             PageHelper.startPage(pageNum, pageSize, pageNum == 1);
             try {
                 return qcmReportService.findPage(query);

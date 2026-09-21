@@ -1,5 +1,6 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.controller;
 
+import com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto.QcmReportExportVo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmReportService;
 import com.ruoyi.common.core.controller.BaseController;
@@ -75,20 +76,21 @@ public class QcmReportController extends BaseController
         if (query.getStartDate() == null || query.getEndDate() == null) {
             throw new ServiceException("导出必须指定数据时间范围（起止时间）");
         }
-        List<QcmReport> list = loadExportRows(query);
-        writeExcel(response, list);
+        List<QcmReportExportVo> vos = loadExportRows(query);
+        writeExcel(response, vos);
     }
 
     /**
      * 分页循环拉全量（500 行/页）；count 仅首页执行一次。
      * 独立方法便于单测 mock service 验证分批查询次数，不经真实 Excel 写出。
      */
-    List<QcmReport> loadExportRows(QcmReport query)
+    List<QcmReportExportVo> loadExportRows(QcmReport query)
     {
         return PagedExportSupport.loadAll(MAX_EXPORT_ROWS, (pageNum, pageSize) -> {
             PageHelper.startPage(pageNum, pageSize, pageNum == 1);
             try {
-                return qcmReportService.findPage(query);
+                // 逐页加载实体即转轻量 VO（富内容大字段不驻留），同 QcmRecordController 导出模式
+                return QcmReportExportVo.fromList(qcmReportService.findPage(query));
             } finally {
                 PageHelper.clearPage();
             }
@@ -96,10 +98,10 @@ public class QcmReportController extends BaseController
     }
 
     /** Excel 写出独立钩子：单测覆写为空操作，绕开对真实 HttpServletResponse 的依赖。 */
-    protected void writeExcel(HttpServletResponse response, List<QcmReport> list)
+    protected void writeExcel(HttpServletResponse response, List<QcmReportExportVo> vos)
     {
-        ExcelUtil<QcmReport> util = new ExcelUtil<>(QcmReport.class);
-        util.exportExcel(response, list, "质量控制报表数据");
+        ExcelUtil<QcmReportExportVo> util = new ExcelUtil<>(QcmReportExportVo.class);
+        util.exportExcel(response, vos, "质量控制报表数据");
     }
 
     /**

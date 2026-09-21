@@ -136,8 +136,7 @@ import {
   getReportDetail,
   addReport,
   updateReport,
-  deleteReport,
-  batchExportReports
+  deleteReport
 } from '@/api/quality_control/report';
 
 // 引入各报表详情组件
@@ -163,7 +162,6 @@ const searchParams = ref({
   gasType: ''
 });
 const reportList = ref([]);
-const selectedIds = ref([]);
 const selectedRows = ref([]);
 const viewDialogVisible = ref(false);
 const currentReportComponent = ref(null);
@@ -247,26 +245,6 @@ const submitEditForm = () => {
     .catch(() => {
       ElMessage.error('更新失败');
     });
-};
-
-// 导出
-const handleExport = (format = 'xlsx') => {
-  if (selectedIds.value.length === 0) {
-    ElMessage.warning('请选择要导出的记录');
-    return;
-  }
-
-  batchExportReports(selectedIds.value, format).then(response => {
-    const url = window.URL.createObjectURL(new Blob([response]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `reports.${format}`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  }).catch(() => {
-    ElMessage.error('导出失败');
-  });
 };
 
 // 分页

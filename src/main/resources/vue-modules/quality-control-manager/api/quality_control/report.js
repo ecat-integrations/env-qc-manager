@@ -79,18 +79,3 @@ export function deleteReport(ids) {
     method: 'delete'
   });
 }
-
-/**
- * 批量导出环境质量控制报表
- * @param {Array<Number>} ids - 报表ID数组
- * @param {string} format - 导出格式（xlsx/pdf）
- * @returns {Promise}
- */
-export function batchExportReports(ids, format = 'xlsx') {
-  return request({
-    url: `/quality_control/report/export`,
-    method: 'post',
-    data: { ids },
-    responseType: 'blob'
-  });
-}

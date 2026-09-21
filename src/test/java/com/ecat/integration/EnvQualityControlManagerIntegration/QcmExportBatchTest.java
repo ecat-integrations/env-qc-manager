@@ -4,6 +4,7 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.controller.QcmRe
 import com.ecat.integration.EnvQualityControlManagerIntegration.controller.QcmReportController;
 import com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto.QcmRecordExportVo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
+import com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto.QcmReportExportVo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmRecordService;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmReportService;
@@ -49,13 +50,13 @@ class QcmExportBatchTest {
 
     /** 绕开真实 Excel 写出（不依赖 HttpServletResponse 实现细节），只捕获聚合结果。 */
     private static class TestableReportController extends QcmReportController {
-        List<QcmReport> captured;
+        List<QcmReportExportVo> captured;
         TestableReportController(IQcmReportService s) {
             this.qcmReportService = s;
         }
         @Override
-        protected void writeExcel(HttpServletResponse response, List<QcmReport> list) {
-            captured = list;
+        protected void writeExcel(HttpServletResponse response, List<QcmReportExportVo> vos) {
+            captured = vos;
         }
     }
 

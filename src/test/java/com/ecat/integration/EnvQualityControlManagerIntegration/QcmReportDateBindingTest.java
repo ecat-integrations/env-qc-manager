@@ -7,6 +7,7 @@ import java.util.List;
 import javax.servlet.http.HttpServletResponse;
 
 import com.ecat.integration.EnvQualityControlManagerIntegration.controller.QcmReportController;
+import com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto.QcmReportExportVo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmReportService;
 
@@ -47,7 +48,7 @@ class QcmReportDateBindingTest {
             }
 
             @Override
-            protected void writeExcel(HttpServletResponse response, List<QcmReport> list) {
+            protected void writeExcel(HttpServletResponse response, List<QcmReportExportVo> vos) {
             }
         };
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();

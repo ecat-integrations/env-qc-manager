@@ -80,8 +80,12 @@
             <if test="startDate != null and endDate != null"> AND report_date BETWEEN #{startDate} AND #{endDate}
             </if>
         </where>
+        <!-- id 唯一 tiebreaker：一次生成批的行共享同一 update_time（insertBatch 批内一个 now），
+             平键行在 OFFSET 翻页边界会漏行/重行，时间键+id 才构成全序 -->
         ORDER BY
         update_time
+        DESC,
+        id
         DESC
     </select>
 

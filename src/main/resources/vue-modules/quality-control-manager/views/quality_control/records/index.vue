@@ -131,12 +131,24 @@
       </el-table-column>
       <el-table-column label="开始时间" align="center" prop="startTime" />
       <el-table-column label="结束时间" align="center" prop="endTime" />
+      <el-table-column label="批次" align="center" prop="batchId" width="130">
+        <template #default="scope">
+          <el-tooltip v-if="scope.row.batchId" :content="scope.row.batchId" placement="top">
+            <span class="qc-batch-cell" :class="{ 'qc-batch-cell--multi': scope.row.flowType === 'multi_zero_check' }">
+              {{ scope.row.batchId.slice(0, 8) }}{{ scope.row.flowType === 'multi_zero_check' ? ' ·多行' : '' }}
+            </span>
+          </el-tooltip>
+          <span v-else>—</span>
+        </template>
+      </el-table-column>
       <el-table-column label="标准值" align="center" prop="standardValue" v-if="false"/>
       <el-table-column label="监测数据" align="center" prop="monitoringData" v-if="false"/>
       <el-table-column label="计算值" align="center" prop="calculatedValue" v-if="false"/>
       <el-table-column label="执行状态" align="center" prop="executionStatus">
         <template #default="scope">
-          <dict-tag :options="quality_control_execution_status" :value="scope.row.executionStatus"/>
+          <!-- SKIPPED(5) 字典暂无词条，显式渲染「让位未执行」徽章（原因见质控结论列第二行） -->
+          <el-tag v-if="String(scope.row.executionStatus) === '5'" type="warning">让位未执行</el-tag>
+          <dict-tag v-else :options="quality_control_execution_status" :value="scope.row.executionStatus"/>
         </template>
       </el-table-column>
       <el-table-column label="操作" align="center" min-width="210" class-name="small-padding fixed-width qc-record-op-col">
@@ -209,7 +221,7 @@
             }"
           >
             <span class="qc-verdict-tag__text">{{ resolveQcVerdict(scope.row).text }}</span>
-            <!-- 缺设备降级运行角标：第二行人工操作/视检说明（非故障语义） -->
+            <!-- 结论角标第二行说明：缺设备降级运行（人工操作/视检）或同日让位原因 -->
             <span v-if="resolveQcVerdict(scope.row).degradedNote" class="qc-verdict-tag__note">
               {{ resolveQcVerdict(scope.row).degradedNote }}
             </span>
@@ -315,6 +327,16 @@
   line-height: 1.4;
   color: #909399;
   word-break: break-all;
+}
+
+/* 批次列：id 截断展示（tooltip 看全值）；multi 批次的行附「·多行」标记并着色 */
+.qc-batch-cell {
+  font-family: Menlo, Consolas, monospace;
+  color: #606266;
+}
+
+.qc-batch-cell--multi {
+  color: #409eff;
 }
 
 .execution-log-card {
@@ -635,9 +657,9 @@ const DEGRADED_RUN_BADGES = {
   CALIBRATOR_MISSING: '校准仪未配置（人工操作）'
 };
 
-/** 质控结论列宽：本页存在降级运行行时加宽容纳角标第二行，普通页维持原宽 */
+/** 质控结论列宽：本页存在降级运行/让位行时加宽容纳角标第二行，普通页维持原宽 */
 const verdictColumnWidth = computed(() => (
-  recordsList.value.some((r) => !!DEGRADED_RUN_BADGES[String(r.failureReason || '')]) ? 210 : 128
+  recordsList.value.some((r) => !!DEGRADED_RUN_BADGES[String(r.failureReason || '')] || String(r.executionStatus) === '5') ? 210 : 128
 ));
 
 function resolveQcVerdict(row) {
@@ -647,6 +669,10 @@ function resolveQcVerdict(row) {
   const st = String(row.executionStatus);
   if (st === '3') {
     return { text: '执行失败', elType: 'danger' };
+  }
+  if (st === '5') {
+    // 同日让位终态：非成败判定，结论列第二行直接承载让位说明（result_evaluation 落「同日让位：…覆盖同类检查」）
+    return { text: '让位未执行', elType: 'warning', degradedNote: String(row.resultEvaluation || '') };
   }
   if (st !== '2') {
     return { text: '—', elType: 'info' };

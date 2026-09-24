@@ -9,7 +9,9 @@ import java.util.Set;
 
 /**
  * schedule_config JSON → {@link ScheduleSpec} 解析 helper（04 §2 结构：
- * {hour, minute, weekdays[], monthDays[], onceMode, onceAt}，另可内嵌 planStart/planEnd 覆盖空列值）。
+ * {hour, minute, weekdays[], monthDays[], onceMode, onceAt}，
+ * INTERVAL 形态另含 {intervalDays, anchorDate}，WEEKLY 另含 {intervalWeeks}（存量无键=1，见下），
+ * 另可内嵌 planStart/planEnd 覆盖空列值）。
  *
  * <p>应用场景：调度器每轮 fire/misfire 后重算 next_fire_time 时，把 qcm_plan 行的
  * schedule_config 字符串解析回 spec 交给 {@link ScheduleCalculator}。解析失败抛
@@ -44,7 +46,16 @@ public final class ScheduleSpecs {
                     .type(type)
                     .hour(intField(config, "hour", 0))
                     .minute(intField(config, "minute", 0))
+                    // INTERVAL 两参数由保存侧装配恒写入，这里不设默认值：缺失即坏行，
+                    // 交 ScheduleSpec 构造期按「必填集合」拦截（严格模式，不猜默认）
+                    .intervalDays(intField(config, "intervalDays", 0))
+                    .anchorDate(instantField(config, "anchorDate"))
                     .weekdays(intSet(config, "weekdays"))
+                    // WEEKLY intervalWeeks：统一调度模型上线前的存量行 config 无此键，
+                    // 而彼时 WEEKLY 只有「每周」一种语义，无键与 intervalWeeks=1 完全等价
+                    // （=1 时周相位恒命中，锚不参与）——这是全链路唯一解析兼容点，据此归一为 1；
+                    // 新保存行由保存侧恒写该键，不依赖此默认
+                    .intervalWeeks(intField(config, "intervalWeeks", 1))
                     .monthDays(intSet(config, "monthDays"))
                     .onceAt(instantField(config, "onceAt"))
                     .planStartTime(firstNonNull(instantField(config, "planStart"), planStartFallback))

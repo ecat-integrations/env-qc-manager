@@ -79,7 +79,7 @@ class PlanParamValidatorTest {
     @Test
     void unknownScheduleTypeRejected() {
         base.setScheduleType("HOURLY");
-        assertTrue(validate(base).contains("调度类型必须是 DAILY/WEEKLY/MONTHLY/ONCE 之一"));
+        assertTrue(validate(base).contains("调度类型必须是 DAILY/WEEKLY/MONTHLY/ONCE/INTERVAL 之一"));
     }
 
     @Test
@@ -128,6 +128,69 @@ class PlanParamValidatorTest {
         assertTrue(validate(base).contains("周几取值必须在 1-7 之间: 8"));
     }
 
+    // ---------- 统一调度：INTERVAL 锚点依赖 planStartTime / WEEKLY intervalWeeks ----------
+
+    @Test
+    void intervalWithoutPlanStartTimeRejected() {
+        // INTERVAL 锚点日=planStartTime 墙钟日（废除「保存当日」隐式锚），无 planStartTime 必须报错且文案含字段名
+        base.setScheduleType("INTERVAL");
+        base.setIntervalDays(2);
+        List<String> errors = validate(base);
+        assertTrue(errors.stream().anyMatch(e -> e.contains("planStartTime")),
+                "应报含 planStartTime 的错误，实际: " + errors);
+    }
+
+    @Test
+    void intervalWithPlanStartTimeValid() {
+        base.setScheduleType("INTERVAL");
+        base.setIntervalDays(2);
+        base.setPlanStartTime("2026-09-24T00:00:00Z");
+        assertValid(base, validate(base));
+    }
+
+    @Test
+    void weeklyIntervalWeeksOmittedValid() {
+        // 不传 intervalWeeks=每 1 周，与存量 WEEKLY 语义等价（API 兼容口径）
+        base.setScheduleType("WEEKLY");
+        base.setWeekdays(Arrays.asList(1, 3));
+        assertValid(base, validate(base));
+    }
+
+    @Test
+    void weeklyIntervalWeeksBoundariesValid() {
+        base.setScheduleType("WEEKLY");
+        base.setWeekdays(Arrays.asList(1, 3));
+        base.setIntervalWeeks(1);
+        assertValid(base, validate(base));
+        // 上界 52 须配 planStartTime（>1 时周相位锚由其派生）
+        base.setIntervalWeeks(52);
+        base.setPlanStartTime("2026-09-24T00:00:00Z");
+        assertValid(base, validate(base));
+    }
+
+    @Test
+    void weeklyIntervalWeeksOutOfBoundsRejected() {
+        base.setScheduleType("WEEKLY");
+        base.setWeekdays(Arrays.asList(1, 3));
+        base.setIntervalWeeks(0);
+        assertTrue(validate(base).contains("隔周数必须是 1-52 的整数"));
+        base.setIntervalWeeks(53);
+        assertTrue(validate(base).contains("隔周数必须是 1-52 的整数"));
+    }
+
+    @Test
+    void weeklyIntervalWeeksOverOneWithoutPlanStartRejected() {
+        base.setScheduleType("WEEKLY");
+        base.setWeekdays(Arrays.asList(1, 3));
+        base.setIntervalWeeks(2);
+        List<String> errors = validate(base);
+        assertTrue(errors.stream().anyMatch(e -> e.contains("planStartTime")),
+                "应报含 planStartTime 的错误，实际: " + errors);
+        // 补上 planStartTime 即合法
+        base.setPlanStartTime("2026-09-24T00:00:00Z");
+        assertValid(base, validate(base));
+    }
+
     @Test
     void monthlyWithMonthDaysValid() {
         base.setScheduleType("MONTHLY");
@@ -174,6 +237,23 @@ class PlanParamValidatorTest {
     }
 
     @Test
+    void onceScheduledRfc3339OffsetFormValid() {
+        // RFC 3339 偏移形态（墙钟 11:00 东八 = 03:00Z 晚于 NOW）：与 Z 形态同为标准绝对时刻
+        base.setScheduleType("ONCE");
+        base.setOnceMode("SCHEDULED");
+        base.setOnceAt("2026-08-22T11:00:00+08:00");
+        assertValid(base, validate(base));
+    }
+
+    @Test
+    void intervalPlanStartRfc3339OffsetFormValid() {
+        base.setScheduleType("INTERVAL");
+        base.setIntervalDays(2);
+        base.setPlanStartTime("2026-09-23T16:34:00+08:00");
+        assertValid(base, validate(base));
+    }
+
+    @Test
     void onceScheduledMissingOnceAtRejected() {
         base.setScheduleType("ONCE");
         base.setOnceMode("SCHEDULED");
@@ -208,7 +288,7 @@ class PlanParamValidatorTest {
         base.setScheduleType("ONCE");
         base.setOnceMode("SCHEDULED");
         base.setOnceAt("2026-08-22 03:00");
-        assertTrue(validate(base).stream().anyMatch(m -> m.contains("必须是 ISO-8601 时刻")));
+        assertTrue(validate(base).stream().anyMatch(m -> m.contains("必须是 RFC 3339 带时区偏移的时刻")));
     }
 
     // ---------- 质控类型与仪器矩阵 ----------
@@ -417,13 +497,105 @@ class PlanParamValidatorTest {
     @Test
     void windowBadFormatRejected() {
         base.setPlanStartTime("2026-08-22");
-        assertTrue(validate(base).stream().anyMatch(m -> m.contains("有效期起必须是 ISO-8601 时刻")));
+        assertTrue(validate(base).stream().anyMatch(m -> m.contains("有效期起必须是 RFC 3339 带时区偏移的时刻")));
     }
 
     @Test
     void nullDtoRejected() {
         List<String> errors = validator.validate(null);
         assertFalse(errors.isEmpty());
+    }
+
+    // ---------- INTERVAL 调度（intervalDays∈[1,31]；锚点日由 planStartTime 派生，必填） ----------
+
+    @Test
+    void intervalWithTemplateDefaultDaysValid() {
+        base.setScheduleType("INTERVAL");
+        base.setIntervalDays(2);
+        base.setPlanStartTime("2026-09-24T00:00:00Z");
+        assertValid(base, validate(base));
+    }
+
+    @Test
+    void intervalBoundaryDays1And31Valid() {
+        base.setScheduleType("INTERVAL");
+        base.setPlanStartTime("2026-09-24T00:00:00Z");
+        base.setIntervalDays(1);
+        assertValid(base, validate(base));
+        base.setIntervalDays(31);
+        assertValid(base, validate(base));
+    }
+
+    @Test
+    void intervalDaysMissingRejected() {
+        base.setScheduleType("INTERVAL");
+        assertTrue(validate(base).contains("间隔天数必须是 1-31 的整数"));
+    }
+
+    @Test
+    void intervalDaysOutOfRangeRejected() {
+        base.setScheduleType("INTERVAL");
+        base.setIntervalDays(0);
+        assertTrue(validate(base).contains("间隔天数必须是 1-31 的整数"));
+        base.setIntervalDays(32);
+        assertTrue(validate(base).contains("间隔天数必须是 1-31 的整数"));
+    }
+
+    @Test
+    void intervalHourMinuteStillDomainChecked() {
+        base.setScheduleType("INTERVAL");
+        base.setIntervalDays(2);
+        base.setHour(24);
+        assertTrue(validate(base).contains("小时必须是 0-23 的整数"));
+    }
+
+    // ---------- 校准策略（03 设计 §3/§7.4：仅零点/跨度/多仪器零点可设，缺省=STANDARD 落 NULL） ----------
+
+    @Test
+    void calibrationPolicyAbsentValidOnZeroCheck() {
+        assertValid(base, validate(base));
+    }
+
+    @Test
+    void calibrationPolicyBothValuesValidOnApplicableTypes() {
+        base.setCalibrationPolicy("STANDARD");
+        assertValid(base, validate(base));
+        base.setCalibrationPolicy("CALIBRATE_LOW_DRIFT");
+        assertValid(base, validate(base));
+        PlanSaveDto multiZero = multiZeroBase("SO2");
+        multiZero.setCalibrationPolicy("CALIBRATE_LOW_DRIFT");
+        assertValid(multiZero, validate(multiZero));
+    }
+
+    @Test
+    void calibrationPolicyBogusValueRejected() {
+        base.setCalibrationPolicy("ALWAYS_CALIBRATE");
+        assertTrue(validate(base).contains("校准策略必须是 STANDARD/CALIBRATE_LOW_DRIFT 之一: ALWAYS_CALIBRATE"));
+    }
+
+    @Test
+    void calibrationPolicyOnInapplicableTypeRejected() {
+        base.setQcType("multi_check");
+        base.setCalibrationPolicy("STANDARD");
+        assertTrue(validate(base).contains("该质控类型不支持校准策略（仅零点/跨度/多仪器零点可设）"));
+    }
+
+    // ---------- 同日优先级（03 设计 §7.4：计划通用字段，缺省=NONE 落 NULL） ----------
+
+    @Test
+    void sameDayPriorityTriStatesValid() {
+        base.setSameDayPriority("NONE");
+        assertValid(base, validate(base));
+        base.setSameDayPriority("LOW");
+        assertValid(base, validate(base));
+        base.setSameDayPriority("HIGH");
+        assertValid(base, validate(base));
+    }
+
+    @Test
+    void sameDayPriorityBogusRejected() {
+        base.setSameDayPriority("MIDDLE");
+        assertTrue(validate(base).contains("同日优先级必须是 NONE/LOW/HIGH 之一: MIDDLE"));
     }
 
     // ---------- multi_zero_check 多仪器矩阵（FR-01-27/28，Phase 4） ----------
@@ -442,6 +614,13 @@ class PlanParamValidatorTest {
     @Test
     void multiZeroCheckSingleInstrumentValid() {
         assertValid(multiZeroBase("SO2"), validate(multiZeroBase("SO2")));
+    }
+
+    @Test
+    void multiZeroCheckEmptyInstrumentsRejected() {
+        // ≥1 下界锁定（03 设计 §7.4：多仪器列表 ≥1，空列表拒绝而非静默放行）
+        PlanSaveDto dto = multiZeroBase();
+        assertTrue(validate(dto).contains("至少选择 1 台仪器"));
     }
 
     @Test
@@ -524,9 +703,12 @@ class PlanParamValidatorTest {
         plan.setInstruments("[\"SO2\",\"NO2\",\"CO\",\"O3\"]");
         plan.setScheduleType("DAILY");
         plan.setScheduleConfig("{\"hour\":0,\"minute\":0}");
+        plan.setCalibrationPolicy("CALIBRATE_LOW_DRIFT");
         com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.QcExecutionRequest assembled =
                 PlanRequestAssembler.assemble(plan);
         assertEquals("multi_zero_check", assembled.getQcType());
         assertEquals(4, assembled.getInstruments().size());
+        // 校准策略列随装配透传（multi 分支落 flowParams.calibrationPolicy，NULL=STANDARD）
+        assertEquals("CALIBRATE_LOW_DRIFT", assembled.getCalibrationPolicy());
     }
 }

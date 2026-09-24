@@ -1,8 +1,11 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration;
 
+import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto.QcmReportExportVo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport;
 import com.ruoyi.common.annotation.Excel;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -12,6 +15,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -19,9 +23,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 报表导出 VO 回归锁（bugs/bug-record-20260921-173000）：实体直传 ExcelUtil 时零 @Excel 字段
  * 产出全空工作表——本测试锁两件事：① ExcelUtil 视角列数（缺注解即红，正是原病灶形态）
- * ② 实体→VO 映射含编码翻译与时间预格式化。
+ * ② 实体→VO 映射含编码翻译与时间预格式化。预格式化时区源 = ecat 平台时区（DateTimeUtils），
+ * 显式钉住为东八区，断言不依赖运行机器时区。
  */
 class QcmReportExportVoTest {
+
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
+
+    @BeforeEach
+    void pinPlatformZone() {
+        DateTimeUtils.setZone(ZONE);
+    }
+
+    @AfterEach
+    void restorePlatformZone() {
+        DateTimeUtils.setZone(ZoneId.systemDefault());
+    }
 
     /** 173000 病灶回归锁：导出 VO 必须每列带 @Excel，缺一列 ExcelUtil 就输出空单元格。 */
     @Test
@@ -30,7 +47,7 @@ class QcmReportExportVoTest {
                 .filter(f -> !java.lang.reflect.Modifier.isStatic(f.getModifiers()))
                 .filter(f -> !f.isAnnotationPresent(Excel.class))
                 .map(Field::getName)
-                .collect(java.util.stream.Collectors.toList());
+                .collect(Collectors.toList());
         assertTrue(unannotated.isEmpty(), "导出列缺 @Excel 注解（ExcelUtil 会输出空单元格）: " + unannotated);
         long annotated = Arrays.stream(QcmReportExportVo.class.getDeclaredFields())
                 .filter(f -> f.isAnnotationPresent(Excel.class)).count();
@@ -53,7 +70,7 @@ class QcmReportExportVoTest {
         r.setMaintenanceCompany("某维护公司");
         r.setIsDiscarded(false);
         r.setCreatedBy("admin");
-        r.setCreateTime(Instant.from(ZonedDateTime.of(2026, 9, 18, 14, 30, 0, 0, ZoneId.of("Asia/Shanghai"))));
+        r.setCreateTime(Instant.from(ZonedDateTime.of(2026, 9, 18, 14, 30, 0, 0, ZONE)));
 
         QcmReportExportVo vo = QcmReportExportVo.from(r);
 
@@ -90,6 +107,16 @@ class QcmReportExportVoTest {
         assertEquals("", vo.getCreateTime(), "null 时间输出空串");
         assertEquals("", vo.getReportDate());
         assertEquals("", vo.getIsDiscarded(), "null Boolean 输出空串");
+    }
+
+    @Test
+    void createTimeFormattingFollowsPlatformZoneNotHardcoded() {
+        // 时区跟随锁：平台时区切到 UTC 后，报表导出时间必须按 UTC 墙钟格式化。
+        // 若实现回退为硬编码 Asia/Shanghai，本用例红（会输出 22:30:00 而非 14:30:00）。
+        DateTimeUtils.setZone(ZoneId.of("UTC"));
+        QcmReport r = new QcmReport();
+        r.setCreateTime(Instant.parse("2026-09-18T14:30:00Z"));
+        assertEquals("2026-09-18 14:30:00", QcmReportExportVo.from(r).getCreateTime());
     }
 
     @Test

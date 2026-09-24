@@ -3,7 +3,7 @@
  * 列表操作列与执行详情弹窗共用同一套判定，避免两处漂移。
  */
 
-/** 执行状态 → 状态色 CSS 类（0 等待/1 执行中/2 成功/3 失败/4 手动中止） */
+/** 执行状态 → 状态色 CSS 类（0 等待/1 执行中/2 成功/3 失败/4 手动中止；5 让位未执行落 default 灰） */
 export function getExecutionLogStatusClass(executionStatus) {
   const status = String(executionStatus);
   switch (status) {
@@ -60,13 +60,13 @@ export function isQcManualAbortEndRow(row) {
   return s === '3' && rawUserManualAbortSignal(row);
 }
 
-/** 等待中 / 执行中：可中止（与历史逻辑一致：非成功/失败/状态4） */
+/** 等待中 / 执行中：可中止（与历史逻辑一致：非成功/失败/状态4；让位未执行(5)是终态，无事可停） */
 export function canStopQualityControl(row) {
   if (!row) {
     return false;
   }
   const s = String(row.executionStatus);
-  return s !== '2' && s !== '3' && s !== '4';
+  return s !== '2' && s !== '3' && s !== '4' && s !== '5';
 }
 
 /** 执行失败且非用户手动中止：第二格透明占位，与成功行对齐 */

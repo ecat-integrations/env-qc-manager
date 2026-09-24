@@ -67,3 +67,12 @@ export function estimatePlan(data) {
     data: data
   })
 }
+
+// 集合快捷方式创建（日常/周核查模板一次展开多行计划；created=false 为间隔预警拦截，携 force 重提）
+export function createCollection(data) {
+  return request({
+    url: '/quality_control/plan/collection',
+    method: 'post',
+    data: data
+  })
+}

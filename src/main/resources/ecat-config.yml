@@ -20,6 +20,11 @@ dependencies:
   - artifactId: integration-logicdevice-airdevice
     groupId: com.ecat
     version: ^3.0.0
+  # qcm 自 #44 起硬引用 composer 类型（编排/flow 参数/结果回调），必须声明依赖让 core
+  # 拓扑排序把 composer 排在前、类加载器按依赖层级挂载——漏声明即 qcm 先加载触发 CNFE
+  - artifactId: integration-env-calibration-composer
+    groupId: com.ecat
+    version: ^3.0.0
 web-platform:
   ui: true
   api: true

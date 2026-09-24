@@ -1,5 +1,6 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.service;
 
+import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto.PlanSaveDto;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -18,7 +20,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 计划参数校验器（FR-01-30 全表 + FR-01-27 类型矩阵）：REST / SDK / 页面三源共用的
+ * 计划参数校验器（FR-01-30 全表 + FR-01-27 类型矩阵 + 03 设计 §7.4 增列矩阵
+ * 「INTERVAL 调度 / 校准策略 / 同日优先级」）：REST / SDK / 页面三源共用的
  * 单一事实源（FR-03-17）——service 保存前必经，非法逐字段收集为错误清单返回，
  * 由 controller 转逐条展示（不静默修正、不猜默认）。
  *
@@ -63,7 +66,19 @@ public class PlanParamValidator {
             "multiPointPercents", "accuracyPointPercents"));
 
     private static final List<String> ONCE_MODES = Arrays.asList("IMMEDIATE", "SCHEDULED");
-    private static final List<String> SCHEDULE_TYPES = Arrays.asList("DAILY", "WEEKLY", "MONTHLY", "ONCE");
+    private static final List<String> SCHEDULE_TYPES = Arrays.asList("DAILY", "WEEKLY", "MONTHLY", "ONCE", "INTERVAL");
+
+    /** 校准策略值域（03 设计 §3）：与 composer 侧 CalibrationPolicy 契约同词汇；跨仓并行，本仓按字符串闭集校验不引 composer 枚举。 */
+    private static final Set<String> CALIBRATION_POLICIES = new HashSet<>(Arrays.asList(
+            "STANDARD", "CALIBRATE_LOW_DRIFT"));
+
+    /** 可设校准策略的质控类型（03 设计 §3）：零点/跨度/多仪器零点；人工核查与其余类型不适用。 */
+    private static final Set<String> POLICY_APPLICABLE_TYPES = new HashSet<>(Arrays.asList(
+            QualityControlTypeEnum.ZERO_CHECK.getName(), QualityControlTypeEnum.SPAN_CHECK.getName(),
+            QualityControlTypeEnum.MULTI_ZERO_CHECK.getName()));
+
+    /** 同日优先级值域（03 设计 §7.4）：行级三态，计划通用字段不限类型。 */
+    private static final Set<String> SAME_DAY_PRIORITIES = new HashSet<>(Arrays.asList("NONE", "LOW", "HIGH"));
 
     /** 星期展示名（1=周一..7=周日，摘要文案与校验共用下标语义）。 */
     public static final List<String> WEEKDAY_NAMES = Arrays.asList("周一", "周二", "周三", "周四", "周五", "周六", "周日");
@@ -96,6 +111,8 @@ public class PlanParamValidator {
         validatePointPercents(dto, qcEnum, errors);
         validateFlowRate(dto, qcEnum, errors);
         validateDurationOverrides(dto, qcEnum, errors);
+        validateCalibrationPolicy(dto, qcEnum, errors);
+        validateSameDayPriority(dto, errors);
         validateWindow(dto, errors);
         return errors;
     }
@@ -127,7 +144,7 @@ public class PlanParamValidator {
             errors.add("计划名称长度不能超过 100 字符");
         }
         if (dto.getScheduleType() == null || !SCHEDULE_TYPES.contains(dto.getScheduleType())) {
-            errors.add("调度类型必须是 DAILY/WEEKLY/MONTHLY/ONCE 之一");
+            errors.add("调度类型必须是 DAILY/WEEKLY/MONTHLY/ONCE/INTERVAL 之一");
             return;
         }
         Integer hour = dto.getHour();
@@ -140,6 +157,14 @@ public class PlanParamValidator {
         }
         if ("WEEKLY".equals(dto.getScheduleType())) {
             validateDaySet(dto.getWeekdays(), 1, 7, "周几", errors);
+            // 隔周数可空=每 1 周（与存量无键语义等价）；>1 时周相位锚由 planStartTime 派生，须提供
+            Integer intervalWeeks = dto.getIntervalWeeks();
+            if (intervalWeeks != null && (intervalWeeks < 1 || intervalWeeks > 52)) {
+                errors.add("隔周数必须是 1-52 的整数");
+            }
+            if (intervalWeeks != null && intervalWeeks > 1 && isBlank(dto.getPlanStartTime())) {
+                errors.add("隔周数大于 1 时必须提供有效期起 planStartTime（周相位锚点由其派生）");
+            }
         }
         if ("MONTHLY".equals(dto.getScheduleType())) {
             validateDaySet(dto.getMonthDays(), 1, 31, "几号", errors);
@@ -147,6 +172,22 @@ public class PlanParamValidator {
         if ("ONCE".equals(dto.getScheduleType())) {
             validateOnce(dto, errors);
         }
+        if ("INTERVAL".equals(dto.getScheduleType())) {
+            // 间隔天数必填（模板默认 2 由前端预填）；锚点日 anchorDate 由服务端从
+            // planStartTime 墙钟日派生写入 config——无 planStartTime 无从派生，必须报错
+            Integer intervalDays = dto.getIntervalDays();
+            if (intervalDays == null || intervalDays < 1 || intervalDays > 31) {
+                errors.add("间隔天数必须是 1-31 的整数");
+            }
+            if (isBlank(dto.getPlanStartTime())) {
+                errors.add("按天间隔调度必须提供有效期起 planStartTime（间隔锚点日由其派生）");
+            }
+        }
+    }
+
+    /** 空串语义统一：null 或纯空白都视为未填（与 blankToNull 落库口径一致）。 */
+    private static boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 
     /** 非空子集校验（WEEKLY weekdays 1-7 / MONTHLY monthDays 1-31）。 */
@@ -355,16 +396,57 @@ public class PlanParamValidator {
         }
     }
 
-    /** ISO-8601 解析（可空字段空串视为未填）；解析失败逐条报错返回 null。 */
+    /**
+     * 校准策略（03 设计 §3/§7.4）：可空=STANDARD（落库 NULL）；提供时值须在闭集内，
+     * 且类型须属零点/跨度/多仪器零点（人工核查与其余类型不适用——裁决「不适用」而非默认 STANDARD）。
+     */
+    private void validateCalibrationPolicy(PlanSaveDto dto, QualityControlTypeEnum qcEnum, List<String> errors) {
+        if (qcEnum == null) {
+            return;
+        }
+        String policy = dto.getCalibrationPolicy();
+        if (policy == null || policy.trim().isEmpty()) {
+            return;
+        }
+        if (!CALIBRATION_POLICIES.contains(policy)) {
+            errors.add("校准策略必须是 STANDARD/CALIBRATE_LOW_DRIFT 之一: " + policy);
+            return;
+        }
+        if (!POLICY_APPLICABLE_TYPES.contains(qcEnum.getName())) {
+            errors.add("该质控类型不支持校准策略（仅零点/跨度/多仪器零点可设）");
+        }
+    }
+
+    /** 同日优先级（03 设计 §7.4）：可空=NONE（落库 NULL）；提供时须 ∈ NONE/LOW/HIGH。计划通用字段，不限类型。 */
+    private void validateSameDayPriority(PlanSaveDto dto, List<String> errors) {
+        String priority = dto.getSameDayPriority();
+        if (priority == null || priority.trim().isEmpty()) {
+            return;
+        }
+        if (!SAME_DAY_PRIORITIES.contains(priority)) {
+            errors.add("同日优先级必须是 NONE/LOW/HIGH 之一: " + priority);
+        }
+    }
+
+    /** RFC 3339 解析（可空字段空串视为未填）；解析失败逐条报错返回 null。 */
     private static Instant parseInstant(String text, String label, List<String> errors) {
         if (text == null || text.trim().isEmpty()) {
             return null;
         }
         try {
-            return Instant.parse(text.trim());
+            return parseApiInstant(text);
         } catch (DateTimeParseException e) {
-            errors.add(label + "必须是 ISO-8601 时刻: " + text);
+            errors.add(label + "必须是 RFC 3339 带时区偏移的时刻（如 2026-09-23T16:34:56+08:00）: " + text);
             return null;
         }
+    }
+
+    /**
+     * API 时刻字段唯一解析口径：RFC 3339 带偏移绝对时刻，+08:00 与 Z 两形态等价
+     * （均为标准表示）；拒绝无时区裸墙钟——接收方只能猜时区，正是历史漂移缺陷的根源。
+     * 保存链（校验器与服务装配）共用，不各自为政。
+     */
+    public static Instant parseApiInstant(String text) {
+        return OffsetDateTime.parse(text.trim()).toInstant();
     }
 }

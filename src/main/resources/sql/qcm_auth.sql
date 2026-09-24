@@ -10,22 +10,24 @@
 --   段位选择依据：部署库侦察（2026-08-20）max(menu_id)=2106；asm_auth.sql 用动态 max+1
 --   不占固定段（其插入会取当时 max+1，落在 2107+ 顺延），qcm 固定段 2200+ 与其不冲突。
 --   其他模块新增固定段 seed 请避开 2200~2210。
--- 菜单挂载：parent_id=2000（「数据管理」目录）——与现有「质控记录」菜单(menu_id=2064)
---   同父平级（FR-05-09 侦察结论：qcm 现有 4 页中仅质控记录有 sys_menu 行，其 parent=2000）。
+-- 菜单挂载：parent_id=2000（「数据管理」目录，public.sql 中 visible='1' 侧边栏隐藏）。
+--   同代老种子 C 行（质控记录 2064、station 2002~2008）component 均指向插件页面路径，
+--   宿主 loadView 只解析宿主 src/views，路由必白屏——该批死行已从 public.sql 种子删除。
 -- ============================================================================
 
 DO $$
 DECLARE
     p text;
     mid bigint;
-    menu bigint := 2200;   -- 「质控任务计划」菜单（C）
+    menu bigint := 2200;   -- 「质控任务计划」菜单（C，落库即停用）
 BEGIN
-    -- 菜单项（C，可见；与 2064「质控记录」同挂 parent=2000）
+    -- 菜单项（C，落库即停用 status='1'）：component 指向插件页面路径，宿主 loadView 不可解析，
+    --   行体保留仅作 F 按钮 parent；计划 perms 由下方 F 行（status='0'）承载，授权收集不受影响
     IF NOT EXISTS (SELECT 1 FROM sys_menu WHERE menu_name = '质控任务计划' AND menu_type = 'C') THEN
         INSERT INTO sys_menu(menu_id, menu_name, parent_id, order_num, path, component, query, is_frame, is_cache,
                              menu_type, visible, status, perms, icon, create_time, update_time, remark)
         VALUES (menu, '质控任务计划', 2000, 65, 'quality_control_plan', 'quality_control/quality_control_plan/index', '', 1, 0,
-                'C', '0', '0', 'quality_control:plan:list', 'date', now(), now(),
+                'C', '0', '1', 'quality_control:plan:list', 'date', now(), now(),
                 'qcm 质控任务计划页（调度计划 CRUD/启停/立即执行）；页面实体在 qcm vue-modules module-config.json');
     END IF;
     -- 授 admin 角色(role_id=1)

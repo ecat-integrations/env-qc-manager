@@ -1,5 +1,6 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto;
 
+import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmReport;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ReportTypeEnum;
@@ -8,7 +9,6 @@ import lombok.Data;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,7 +18,7 @@ import java.util.List;
  * （bugs/bug-record-20260921-173000），改走与 QcmRecordExportVo 同款专用 VO。
  *
  * <p>列集轻量化：report_content/report_data/component 富内容与大字段不进导出；
- * 实体 Instant/LocalDate 列预格式化为 String（Asia/Shanghai），实体保持纯净。
+ * 实体 Instant/LocalDate 列预格式化为 String（ecat 平台时区，与前端展示同源），实体保持纯净。
  * report_type/gas_type 落库为编码，导出时译为展示名，未知编码透传原值（不猜默认）。</p>
  *
  * @author coffee
@@ -26,11 +26,12 @@ import java.util.List;
 @Data
 public class QcmReportExportVo {
 
-    /** 导出时间列格式（与前端展示时区一致，Asia/Shanghai）；日期列为纯日期格式。 */
+    /** 导出时间列格式（与前端展示时区一致）。时区不在此固化：平台时区 volatile 可变（启动时从配置加载），
+     * 格式化时动态挂 {@code DateTimeUtils.getZone()}；日期列为纯日期格式（LocalDate 与时区无关）。 */
     private static final DateTimeFormatter EXPORT_TIME_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Asia/Shanghai"));
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter EXPORT_DATE_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.of("Asia/Shanghai"));
+            DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     @Excel(name = "报表名称")
     private String reportName;
@@ -121,7 +122,7 @@ public class QcmReportExportVo {
     }
 
     private static String fmtTime(Instant time) {
-        return time != null ? EXPORT_TIME_FORMATTER.format(time) : "";
+        return time != null ? EXPORT_TIME_FORMATTER.withZone(DateTimeUtils.getZone()).format(time) : "";
     }
 
     private static String fmtDate(LocalDate date) {

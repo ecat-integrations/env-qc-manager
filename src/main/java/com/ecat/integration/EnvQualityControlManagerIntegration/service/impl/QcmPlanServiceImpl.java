@@ -1,6 +1,7 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.service.impl;
 
 import com.ecat.core.EcatCore;
+import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.integration.EnvCalibrationComposerIntegration.EnvCalibrationComposerIntegration;
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorType;
 import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseInfo;
@@ -33,7 +34,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -47,7 +47,9 @@ import java.util.TreeSet;
  * 计划服务实现：状态机（FR-01-15..19）/ 保存重算 next_fire_time（FR-01-16/43）/
  * 立即执行共用装配（{@link PlanRequestAssembler}）/ 阶段预估走 composer 只读能力（FR-01-32 同源）。
  *
- * <p>时钟注入：next_fire_time 计算与 ONCE 时序判断共用同一 {@link Clock}，测试固定时钟保证确定性。</p>
+ * <p>时钟注入：next_fire_time 计算与 ONCE 时序判断共用同一 {@link Clock}（纯 instant 源），
+ * 测试固定时钟保证确定性；墙钟语义（锚点日/摘要文案）的时区统一取 ecat 平台时区
+ * {@link DateTimeUtils#getZone()}，不各自散落取 JVM 默认。</p>
  *
  * @author coffee
  */
@@ -56,9 +58,8 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
 
     private static final Logger log = LoggerFactory.getLogger(QcmPlanServiceImpl.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    /** 摘要文案时区：面向中文运维页面统一东八区墙钟。 */
-    private static final ZoneId SUMMARY_ZONE = ZoneId.of("Asia/Shanghai");
-    private static final DateTimeFormatter SUMMARY_DATETIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private static final DateTimeFormatter SUMMARY_MONTH_DAY = DateTimeFormatter.ofPattern("MM-dd");
+    private static final DateTimeFormatter SUMMARY_SHORT_DATETIME = DateTimeFormatter.ofPattern("MM-dd HH:mm");
     private static final String COMPOSER_INTEGRATION_ID = "integration-env-calibration-composer";
 
     private final QcmPlanMapper planMapper;
@@ -94,7 +95,7 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
             throw new IllegalArgumentException(String.join("；", errors));
         }
         Instant now = clock.instant();
-        QcmPlan plan = toEntity(dto, now);
+        QcmPlan plan = toEntity(dto);
         plan.setUpdatedBy(caller);
         plan.setUpdateTime(now);
         if (dto.getId() == null) {
@@ -105,7 +106,7 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
             planMapper.insert(plan);
             if (isOnceImmediate(dto)) {
                 // 「立刻」模式创建即触发一次（FR-01-15）：编排器执行异步落库，ONCE→FINISHED 由其收口（D11）
-                log.info("[诊断调试] qcm 计划 {}({}) 为一次性立刻执行，创建即触发", plan.getId(), plan.getPlanName());
+                log.info("qcm 计划 {}({}) 为一次性立刻执行，创建即触发", plan.getId(), plan.getPlanName());
                 orchestrator.triggerExecution(PlanRequestAssembler.assemble(plan), TriggerSource.MANUAL, caller);
             }
         } else {
@@ -167,12 +168,14 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
 
     @Override
     public List<QcmPlan> selectList(QcmPlan query) {
+        // 原地富化、返回 mapper 容器引用（同仓 report findPage 惯例）：分页时 mapper 返回
+        // PageHelper Page（承载 COUNT total），拷贝成新 List 会丢 total——ruoyi getDataTable
+        // 的 PageInfo 对普通 List 退化为 list.size()=pageSize，前端总数错（total=页行数缺陷）
         List<QcmPlan> plans = planMapper.selectList(query);
-        List<QcmPlan> decorated = new ArrayList<>(plans.size());
         for (QcmPlan plan : plans) {
-            decorated.add(decorate(plan));
+            decorate(plan);
         }
-        return decorated;
+        return plans;
     }
 
     @Override
@@ -187,8 +190,13 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
         }
         QualityControlTypeEnum qcEnum = enumByName(dto.getQcType());
         List<String> instruments = dto.getInstruments();
-        if (instruments == null || instruments.size() != 1) {
-            throw new IllegalArgumentException("预估必须指定 1 台仪器");
+        // multi_zero_check 开多仪器预估（G5：1~4 台，与 PlanParamValidator 多仪器白名单同口径）；
+        // 其余类型保持单仪器 API 语义
+        boolean multiZero = qcEnum == QualityControlTypeEnum.MULTI_ZERO_CHECK;
+        if (instruments == null || instruments.isEmpty()
+                || (!multiZero && instruments.size() != 1)
+                || (multiZero && instruments.size() > 4)) {
+            throw new IllegalArgumentException(multiZero ? "multi_zero_check 预估必须指定 1~4 台仪器" : "预估必须指定 1 台仪器");
         }
         // 与执行同一条 flowParams 组装路径（FR-01-32 预估=实际，禁止双源）
         QcExecutionRequest req = QcExecutionRequest.builder()
@@ -201,6 +209,8 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
                 .build();
         Map<String, Object> flowParams = QcmExecutionOrchestrator.buildFlowParams(req, qcEnum);
         EnvCalibrationComposerIntegration composer = (EnvCalibrationComposerIntegration) composer();
+        // MULTI_ZERO_CHECK 下 gas 单参不参与设备解析（composer 契约：构线走 flowParams.instruments），
+        // 取首气仅是签名占位；其余类型 gas 定位气路设备
         String gas = LogicDeviceBindingIds.composerGasKeyFromParameterName(instruments.get(0));
         List<PhaseInfo> phases = composer.estimatePhases(
                 ExecutorType.getEnum(qcEnum.getClassName()), gas, flowParams.isEmpty() ? null : flowParams);
@@ -274,18 +284,40 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
     public String scheduleSummary(QcmPlan plan) {
         JsonNode config = parseConfig(plan);
         String time = String.format("%02d:%02d", intOr(config, "hour", 0), intOr(config, "minute", 0));
+        String sinceStart = planStartSuffix(plan);
         switch (plan.getScheduleType()) {
             case "DAILY":
-                return "每天 " + time;
+                // 存量类型（新 UI 不再产出），调度行为不动，仅展示译作「每 1 天」
+                return "每 1 天 " + time + sinceStart;
             case "WEEKLY":
-                return "每周 " + joinWeekdays(config) + " " + time;
+                return "每 " + intOr(config, "intervalWeeks", 1) + " 周 "
+                        + joinWeekdays(config) + " " + time + sinceStart;
             case "MONTHLY":
-                return "每月 " + joinMonthDays(config) + " 日 " + time;
+                return "每月 " + joinMonthDays(config) + " 日 " + time + sinceStart;
             case "ONCE":
                 return onceSummary(config);
+            case "INTERVAL":
+                return "每 " + intervalDaysOrThrow(config) + " 天 " + time + sinceStart;
             default:
                 throw new IllegalArgumentException("未知调度类型: " + plan.getScheduleType());
         }
+    }
+
+    /** 「起MM-DD」后缀：有效期起有值才拼（平台时区墙钟日）；ONCE 触发时刻即自身，不拼此段。 */
+    private static String planStartSuffix(QcmPlan plan) {
+        if (plan.getPlanStartTime() == null) {
+            return "";
+        }
+        return " 起" + SUMMARY_MONTH_DAY.format(plan.getPlanStartTime().atZone(DateTimeUtils.getZone()));
+    }
+
+    /** INTERVAL 摘要间隔天数：行内缺失/非法即坏行，明确抛错（同 onceSummary 对缺 onceAt 的处理，不打印「每 0 天」掩盖）。 */
+    private static int intervalDaysOrThrow(JsonNode config) {
+        JsonNode node = config.get("intervalDays");
+        if (node == null || node.isNull() || !node.isInt() || node.asInt() < 1) {
+            throw new IllegalArgumentException("间隔天数计划缺少 intervalDays，无法生成调度摘要");
+        }
+        return node.asInt();
     }
 
     // ==================== 私有辅助 ====================
@@ -295,7 +327,7 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
     }
 
     /** dto → 实体：jsonb 列组 JSON 串（稀疏列空值落 null）。 */
-    private static QcmPlan toEntity(PlanSaveDto dto, Instant now) {
+    private static QcmPlan toEntity(PlanSaveDto dto) {
         QcmPlan plan = new QcmPlan();
         plan.setId(dto.getId());
         plan.setPlanName(dto.getPlanName().trim());
@@ -309,15 +341,38 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
                 ? null : toJson(dto.getDurationOverrides()));
         plan.setPointPercents(dto.getPointPercents() == null || dto.getPointPercents().isEmpty()
                 ? null : toJson(dto.getPointPercents()));
+        // 未提供即落 NULL 列（NULL=STANDARD / NULL=NONE 的缺省语义由列承载，不落空串）
+        plan.setCalibrationPolicy(blankToNull(dto.getCalibrationPolicy()));
+        plan.setSameDayPriority(blankToNull(dto.getSameDayPriority()));
         plan.setPlanStartTime(parseOrNull(dto.getPlanStartTime()));
         plan.setPlanEndTime(parseOrNull(dto.getPlanEndTime()));
         return plan;
+    }
+
+    /** 空/白串归 null（与校验器「空=未填」同一口径，避免空串落库绕过 NULL 缺省语义）。 */
+    private static String blankToNull(String value) {
+        return value == null || value.trim().isEmpty() ? null : value;
     }
 
     private static String toScheduleConfigJson(PlanSaveDto dto) {
         ObjectNode config = MAPPER.createObjectNode();
         config.put("hour", dto.getHour());
         config.put("minute", dto.getMinute());
+        Instant planStart = parseOrNull(dto.getPlanStartTime());
+        if ("INTERVAL".equals(dto.getScheduleType())) {
+            // 锚点=有效期起墙钟日：写入 planStart 原值，calculator 只取其 zone 墙钟日
+            // （同一 Instant 在任一 zone 必得同一日期差，时区无关）；planStart 由校验器保证非空
+            config.put("intervalDays", dto.getIntervalDays());
+            config.put("anchorDate", planStart.toString());
+        }
+        if ("WEEKLY".equals(dto.getScheduleType())) {
+            // 恒写 intervalWeeks（空=每 1 周；存量无键行的解析兼容点在 ScheduleSpecs）；
+            // 周相位锚=含 planStart 的周，有 planStart 即落 anchorDate（=1 不参与计算但留作编辑基准）
+            config.put("intervalWeeks", dto.getIntervalWeeks() == null ? 1 : dto.getIntervalWeeks());
+            if (planStart != null) {
+                config.put("anchorDate", planStart.toString());
+            }
+        }
         if (dto.getWeekdays() != null && !dto.getWeekdays().isEmpty()) {
             ArrayNode weekdays = config.putArray("weekdays");
             dto.getWeekdays().forEach(weekdays::add);
@@ -330,7 +385,9 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
             config.put("onceMode", dto.getOnceMode());
         }
         if (dto.getOnceAt() != null && !dto.getOnceAt().trim().isEmpty()) {
-            config.put("onceAt", dto.getOnceAt().trim());
+            // config 内嵌时刻统一存转换后的 UTC instant 串（与 anchorDate 同形态），
+            // ScheduleSpecs 按 Instant.parse 读取——API 偏移原串不得入库
+            config.put("onceAt", parseOrNull(dto.getOnceAt()).toString());
         }
         return config.toString();
     }
@@ -345,7 +402,7 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
         }
         ScheduleSpec spec = ScheduleSpecs.fromConfig(plan.getScheduleType(), plan.getScheduleConfig(),
                 plan.getPlanStartTime(), plan.getPlanEndTime());
-        Optional<Instant> next = ScheduleCalculator.nextFire(spec, now, clock.getZone());
+        Optional<Instant> next = ScheduleCalculator.nextFire(spec, now, DateTimeUtils.getZone());
         return next.orElse(null);
     }
 
@@ -418,7 +475,7 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
         return sb.toString();
     }
 
-    /** 每月摘要日段：数字升序，如「1、15」。 */
+    /** 每月摘要日段：数字升序中点连，如「1·15」。 */
     private static String joinMonthDays(JsonNode config) {
         TreeSet<Integer> days = new TreeSet<>();
         JsonNode node = config.get("monthDays");
@@ -430,14 +487,14 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
         StringBuilder sb = new StringBuilder();
         for (Integer d : days) {
             if (sb.length() > 0) {
-                sb.append("、");
+                sb.append("·");
             }
             sb.append(d);
         }
         return sb.toString();
     }
 
-    /** 一次性摘要：立刻执行 / 指定时刻（东八区墙钟）。 */
+    /** 一次性摘要：立刻执行 / 指定时刻（平台时区墙钟 MM-dd HH:mm）。 */
     private String onceSummary(JsonNode config) {
         if ("IMMEDIATE".equals(config.path("onceMode").asText(null))) {
             return "一次性 · 立刻执行";
@@ -446,8 +503,8 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
         if (onceAt == null || onceAt.isNull()) {
             throw new IllegalArgumentException("一次性计划缺少 onceAt，无法生成调度摘要");
         }
-        ZonedDateTime wall = Instant.parse(onceAt.asText()).atZone(SUMMARY_ZONE);
-        return "一次性 · " + SUMMARY_DATETIME.format(wall);
+        ZonedDateTime wall = Instant.parse(onceAt.asText()).atZone(DateTimeUtils.getZone());
+        return "一次性 " + SUMMARY_SHORT_DATETIME.format(wall);
     }
 
     private static String toJsonArray(List<String> values) {
@@ -467,6 +524,6 @@ public class QcmPlanServiceImpl implements IQcmPlanService {
     }
 
     private static Instant parseOrNull(String text) {
-        return text == null || text.trim().isEmpty() ? null : Instant.parse(text.trim());
+        return text == null || text.trim().isEmpty() ? null : PlanParamValidator.parseApiInstant(text);
     }
 }

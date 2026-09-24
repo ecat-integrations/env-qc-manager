@@ -1,6 +1,7 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.tasks;
 
 import com.ecat.core.EcatCore;
+import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
 import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.Device.DeviceRegistry;
@@ -39,7 +40,6 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -77,10 +77,10 @@ import static com.ecat.integration.EnvQualityControlManagerIntegration.util.Qual
 public class ReportGenerator {
 
     /**
-     * 与质控记录 {@code start_time} 归日一致，用于日报分桶与 {@code report_date}。
-     * 与 QcmRecord.QUERY_WINDOW_ZONE / EnvQualityControlGenReportTask.ZONE 同值不合并：查询窗、调度窗、报表归日三个域各自独立演进。
+     * 记录 {@code start_time} 归日时区（日报分桶与 {@code report_date}）：
+     * 取 {@code DateTimeUtils.getZone()}（平台时区启动时从配置加载、volatile 可变，
+     * 故不做成静态常量固化），与计划调度/查询窗/导出展示同源，避免与 core 时区配置漂移。
      */
-    public static final ZoneId QC_REPORT_ZONE = ZoneId.of("Asia/Shanghai");
 
     private EcatCore core;
     protected EcatCoreRuoyiIntegration mry;
@@ -536,7 +536,7 @@ public class ReportGenerator {
             }
         }
 
-        // 遍历 zeroSpanLineMap：按参数、按自然日（start_time 在 QC_REPORT_ZONE）分桶后择优配对，每日至多一张零跨报告
+        // 遍历 zeroSpanLineMap：按参数、按自然日（start_time 在平台时区下归日）分桶后择优配对，每日至多一张零跨报告
         for (Map.Entry<String, List<QcmRecord>> entry : zeroSpanLineMap.entrySet()) {
             List<QcmRecord> zeroSpanLine = entry.getValue();
             if (zeroSpanLine.isEmpty()) {
@@ -548,7 +548,7 @@ public class ReportGenerator {
                 if (r.getStartTime() == null) {
                     continue;
                 }
-                LocalDate day = r.getStartTime().atZone(QC_REPORT_ZONE).toLocalDate();
+                LocalDate day = r.getStartTime().atZone(DateTimeUtils.getZone()).toLocalDate();
                 byDay.computeIfAbsent(day, d -> new ArrayList<>()).add(r);
             }
             for (Map.Entry<LocalDate, List<QcmRecord>> dayEntry : byDay.entrySet()) {
@@ -589,7 +589,7 @@ public class ReportGenerator {
         if (r.getStartTime() == null) {
             throw new IllegalArgumentException("record.startTime is required");
         }
-        LocalDate day = r.getStartTime().atZone(QC_REPORT_ZONE).toLocalDate();
+        LocalDate day = r.getStartTime().atZone(DateTimeUtils.getZone()).toLocalDate();
         String qcType = r.getQualityControlType();
         Object gen;
         if (ZERO_CHECK.getCode().equals(qcType) || SPAN_CHECK.getCode().equals(qcType)) {

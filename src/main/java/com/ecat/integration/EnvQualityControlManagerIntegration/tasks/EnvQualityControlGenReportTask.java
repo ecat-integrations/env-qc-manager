@@ -3,6 +3,7 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.tasks;
 import com.ecat.core.EcatCore;
 import com.ecat.integration.EcatCoreRuoyiIntegration.EcatCoreRuoyiIntegration;
 import com.ecat.core.Task.Task;
+import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.core.Utils.DynamicConfig.ConfigDefinition;
 import com.ecat.core.Utils.DynamicConfig.ConfigItem;
 import com.ecat.core.Utils.DynamicConfig.ConfigItemBuilder;
@@ -45,11 +46,13 @@ public class EnvQualityControlGenReportTask extends Task {
 
     protected final Logger log = LoggerFactory.getLogger(this.getClass());
 
-    /** 与前端/调度入参一致的时间串格式（Asia/Shanghai 本地时间） */
+    /** 与前端/调度入参一致的时间串格式（平台时区本地时间） */
     DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    /** 调度窗时区。与 QcmRecord.QUERY_WINDOW_ZONE / ReportGenerator.QC_REPORT_ZONE 同值不合并：查询窗、调度窗、报表归日三个域各自独立演进。 */
-    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
+    /**
+     * 调度窗时区 = ecat 平台时区（{@code DateTimeUtils.getZone()}，启动时从配置加载、volatile 可变，
+     * 故不做成静态常量固化），与查询窗/报表归日/导出展示同源。使用点见 executeImpl 内局部变量。
+     */
 
     @Override
     public String getTaskName() {
@@ -91,15 +94,16 @@ public class EnvQualityControlGenReportTask extends Task {
             String endTimeString = (String) parameters.get("endTime");
             Instant beginTime;
             Instant endTime;
+            ZoneId zone = DateTimeUtils.getZone();
             try {
                 // 如果不传入开始结束时间，默认生成前一天的[preZeroTime, todayZeroTime]的报告，否则生成beginTime~endTime时间内的报告
                 if (beginTimeString == null || beginTimeString.isEmpty()) {
-                    ZonedDateTime todayZero = LocalDate.now(ZONE).atStartOfDay(ZONE);
+                    ZonedDateTime todayZero = LocalDate.now(zone).atStartOfDay(zone);
                     endTime = Instant.now();
                     beginTime = todayZero.minusDays(1).toInstant();
                 } else {
-                    beginTime = LocalDateTime.parse(beginTimeString, formatter).atZone(ZONE).toInstant();
-                    endTime = LocalDateTime.parse(endTimeString, formatter).atZone(ZONE).toInstant();
+                    beginTime = LocalDateTime.parse(beginTimeString, formatter).atZone(zone).toInstant();
+                    endTime = LocalDateTime.parse(endTimeString, formatter).atZone(zone).toInstant();
                 }
             } catch (DateTimeParseException e) {
                 throw new RuntimeException("日期格式错误");

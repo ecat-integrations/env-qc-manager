@@ -40,6 +40,9 @@ public class QcExecutionRequest {
     /** 用户覆盖的时长参数（稀疏）：stableTimeSeconds / sampleCount / sampleIntervalSeconds 等，key 沿用 composer flowParams 契约 */
     Map<String, Object> durationOverrides;
 
+    /** 校准策略（CalibrationPolicy 枚举名，plan 列透传）；null=不落 flowParams 键，composer 缺省 STANDARD */
+    String calibrationPolicy;
+
     /** 触发时的计划配置快照 JSON（名称/类型/仪器/参数摘要）；计划删除后记录仍可溯源（FR-04-09） */
     String planSnapshotJson;
 }

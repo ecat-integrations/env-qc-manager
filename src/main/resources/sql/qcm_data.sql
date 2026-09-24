@@ -38,6 +38,10 @@
 --   --    触发与停止都写 displayOperator，PLATFORM 形态 name@ip[:port]（含 IPv6）可超 50。
 --   ALTER TABLE qcm_record ALTER COLUMN trigger_user TYPE varchar(100);
 --   ALTER TABLE qcm_record ALTER COLUMN updated_by   TYPE varchar(100);
+--   -- 5) 同日优先级与校准策略增列（幂等可重跑；nullable 缺省语义由 NULL 承载，
+--   --    存量行不补值即取缺省 STANDARD / NONE）：
+--   ALTER TABLE qcm_plan ADD COLUMN IF NOT EXISTS calibration_policy varchar(30);
+--   ALTER TABLE qcm_plan ADD COLUMN IF NOT EXISTS same_day_priority varchar(10);
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -55,6 +59,8 @@ CREATE TABLE IF NOT EXISTS qcm_plan (
     flow_rate_lpm      numeric,
     duration_overrides jsonb,
     point_percents     jsonb,
+    calibration_policy varchar(30),
+    same_day_priority  varchar(10),
     plan_start_time    timestamptz,
     plan_end_time      timestamptz,
     status             varchar(20)   NOT NULL,
@@ -71,12 +77,14 @@ COMMENT ON COLUMN qcm_plan.id IS '计划 ID';
 COMMENT ON COLUMN qcm_plan.plan_name IS '计划名称';
 COMMENT ON COLUMN qcm_plan.qc_type IS '质控类型 code（QualityControlTypeEnum.name：zero_check/span_check/multi_check/precision_check/accuracy_check/conversion_check/audit_span_check + 新增 multi_zero_check）';
 COMMENT ON COLUMN qcm_plan.instruments IS '仪器代码数组（SO2/NO2/CO/O3）；单仪器类型长度恒 1';
-COMMENT ON COLUMN qcm_plan.schedule_type IS '调度类型：DAILY / WEEKLY / MONTHLY / ONCE';
-COMMENT ON COLUMN qcm_plan.schedule_config IS '调度配置 {hour, minute, weekdays[], monthDays[], onceMode: IMMEDIATE|SCHEDULED, onceAt}；按 schedule_type 取相关字段';
+COMMENT ON COLUMN qcm_plan.schedule_type IS '调度类型：DAILY / WEEKLY / MONTHLY / ONCE / INTERVAL（每 N 天）';
+COMMENT ON COLUMN qcm_plan.schedule_config IS '调度配置 {hour, minute, weekdays[], monthDays[], onceMode: IMMEDIATE|SCHEDULED, onceAt, intervalDays, anchorDate}；按 schedule_type 取相关字段（INTERVAL 另含间隔天数与锚点日，anchorDate 由服务端保存时写入）';
 COMMENT ON COLUMN qcm_plan.concentration_ppb IS '标气浓度 ppb；仅需要绝对浓度的类型（跨度/人工核查），零点类 NULL';
 COMMENT ON COLUMN qcm_plan.flow_rate_lpm IS '标气流量 L/min；零点类 NULL';
 COMMENT ON COLUMN qcm_plan.duration_overrides IS '用户覆盖的时长参数（稀疏，仅存改过项）';
 COMMENT ON COLUMN qcm_plan.point_percents IS '线性/准确度的量程百分比序列（0~1 小数，如 [0,0.1,0.2,0.4,0.6,0.8]；界面以百分比呈现）';
+COMMENT ON COLUMN qcm_plan.calibration_policy IS '校准策略：STANDARD / CALIBRATE_LOW_DRIFT；NULL=STANDARD。仅 zero_check/span_check/multi_zero_check 可设';
+COMMENT ON COLUMN qcm_plan.same_day_priority IS '同日优先级：NONE / LOW / HIGH；NULL=NONE。同日同类让位判定用（低让高，整行 SKIPPED 留痕）';
 COMMENT ON COLUMN qcm_plan.plan_start_time IS '计划有效期起（沿用原表 plan_start_time 设计，D18）；NULL=立即生效';
 COMMENT ON COLUMN qcm_plan.plan_end_time IS '计划有效期止（沿用原表 plan_end_time 设计，D18）；NULL=长期有效，窗口外调度不触发';
 COMMENT ON COLUMN qcm_plan.status IS '计划状态：ACTIVE / PAUSED / FINISHED';

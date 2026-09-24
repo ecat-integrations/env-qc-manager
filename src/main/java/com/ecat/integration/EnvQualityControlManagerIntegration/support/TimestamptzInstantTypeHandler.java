@@ -63,6 +63,6 @@ public class TimestamptzInstantTypeHandler extends BaseTypeHandler<Instant> {
             return ((Timestamp) obj).toInstant();
         }
         throw new IllegalStateException(
-                "[诊断调试] TimestamptzInstantTypeHandler 遇未知时间类型:" + obj.getClass().getName());
+                "TimestamptzInstantTypeHandler 遇未知时间类型:" + obj.getClass().getName());
     }
 }

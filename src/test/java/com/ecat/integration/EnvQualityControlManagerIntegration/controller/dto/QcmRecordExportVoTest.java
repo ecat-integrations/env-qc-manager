@@ -10,14 +10,30 @@ import java.time.ZoneId;
 
 import org.junit.jupiter.api.Test;
 
+import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 
 /**
- * 质控记录导出 VO 拷贝与 Instant 预格式化（Asia/Shanghai）单测。
+ * 质控记录导出 VO 拷贝与 Instant 预格式化单测。预格式化时区源 = ecat 平台时区
+ * （DateTimeUtils），显式钉住为东八区，断言不依赖运行机器时区。
  *
  * @author coffee
  */
 public class QcmRecordExportVoTest {
+
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
+
+    @BeforeEach
+    public void pinPlatformZone() {
+        DateTimeUtils.setZone(ZONE);
+    }
+
+    @AfterEach
+    public void restorePlatformZone() {
+        DateTimeUtils.setZone(ZoneId.systemDefault());
+    }
 
     @Test
     public void from_instantFormattedAsShanghaiWallClock() {
@@ -92,10 +108,20 @@ public class QcmRecordExportVoTest {
     }
 
     @Test
+    public void from_exportFormattingFollowsPlatformZoneNotHardcoded() {
+        // 时区跟随锁：平台时区切到 UTC 后，导出时间必须按 UTC 墙钟格式化。
+        // 若实现回退为硬编码 Asia/Shanghai，本用例红（会输出 08:00:00 而非 00:00:00）。
+        DateTimeUtils.setZone(ZoneId.of("UTC"));
+        QcmRecord r = new QcmRecord();
+        r.setStartTime(Instant.parse("2026-08-14T00:00:00Z"));
+        assertEquals("2026-08-14 00:00:00", QcmRecordExportVo.from(r).getStartTime());
+    }
+
+    @Test
     public void formatter_roundTripWithQueryWindowParse() {
         Instant t = LocalDateTime.parse("2026-01-02 03:04:05",
                         java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-                .atZone(ZoneId.of("Asia/Shanghai")).toInstant();
+                .atZone(ZONE).toInstant();
         QcmRecord r = new QcmRecord();
         r.setStartTime(t);
         assertEquals("2026-01-02 03:04:05", QcmRecordExportVo.from(r).getStartTime());

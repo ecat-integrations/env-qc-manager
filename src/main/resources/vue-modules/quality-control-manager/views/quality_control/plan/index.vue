@@ -43,43 +43,72 @@
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
-    <el-table v-loading="loading" :data="planList">
-      <el-table-column label="计划名称" align="center" prop="planName" min-width="200" show-overflow-tooltip />
-      <el-table-column label="质控类型" align="center" prop="qcType" width="110">
+    <el-table v-loading="loading" :data="displayPlans" class="qc-plan-table">
+      <!-- 行展开收纳低频信息：上次触发 / 校准策略 / 创建人 / 创建时间（主列一屏不丢信息） -->
+      <el-table-column type="expand">
         <template #default="scope">
-          <span>{{ qcTypeLabel(scope.row.qcType) }}</span>
+          <el-descriptions :column="2" border size="small" class="qc-plan-expand-desc">
+            <el-descriptions-item label="上次触发时间">{{ formatDateTime(scope.row.lastFireTime) }}</el-descriptions-item>
+            <el-descriptions-item label="校准策略">{{ calibrationPolicyLabel(scope.row.calibrationPolicy) }}</el-descriptions-item>
+            <el-descriptions-item label="创建人">{{ scope.row.createdBy || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="创建时间">{{ formatDateTime(scope.row.createTime) }}</el-descriptions-item>
+          </el-descriptions>
         </template>
       </el-table-column>
-      <el-table-column label="仪器" align="center" prop="instruments" width="120">
+      <!-- 列宽策略：名称/调度/下次触发为弹性列按 280/170/150 比例分摊剩余宽度（名称不再独吞），操作/状态固定宽 -->
+      <el-table-column label="计划名称" prop="planName" min-width="280" align="left">
         <template #default="scope">
-          <span>{{ instrumentsLabel(scope.row.instruments) }}</span>
+          <div class="qc-plan-name-cell">
+            <div class="qc-plan-name-main" :title="scope.row.planName">{{ scope.row.planName }}</div>
+            <div class="qc-plan-name-sub">
+              <span class="qc-plan-name-subtext">{{ qcTypeLabel(scope.row.qcType) }} · {{ instrumentsLabel(scope.row.instruments) }}</span>
+              <el-tag
+                v-if="scope.row.sameDayPriority === 'LOW' || scope.row.sameDayPriority === 'HIGH'"
+                size="small"
+                :type="scope.row.sameDayPriority === 'HIGH' ? 'warning' : 'info'"
+                class="qc-plan-priority-tag"
+              >{{ sameDayPriorityLabel(scope.row.sameDayPriority) }}</el-tag>
+            </div>
+          </div>
         </template>
       </el-table-column>
-      <el-table-column label="调度摘要" align="center" prop="scheduleSummary" min-width="260" show-overflow-tooltip />
-      <el-table-column label="状态" align="center" prop="status" width="90">
+      <el-table-column label="调度" align="center" prop="scheduleSummary" min-width="170" show-overflow-tooltip />
+      <el-table-column label="下次触发" align="center" prop="nextFireTime" min-width="150">
+        <template #default="scope">
+          <div v-if="fireParts(scope.row.nextFireTime)" class="qc-plan-fire-cell">
+            <div>{{ fireParts(scope.row.nextFireTime)[0] }}</div>
+            <div class="qc-plan-fire-time">{{ fireParts(scope.row.nextFireTime)[1] }}</div>
+          </div>
+          <span v-else>{{ scope.row.nextFireTime || '—' }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="状态" align="center" prop="status" width="80">
         <template #default="scope">
           <el-tag :type="statusTagType(scope.row.status)">{{ statusLabel(scope.row.status) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="下次触发时间" align="center" prop="nextFireTime" width="170" />
-      <el-table-column label="上次触发时间" align="center" prop="lastFireTime" width="170" />
-      <el-table-column label="创建人" align="center" prop="createdBy" width="110" />
-      <el-table-column label="操作" align="center" width="230" class-name="small-padding fixed-width">
+      <el-table-column label="操作" align="center" width="200" class-name="small-padding fixed-width">
         <template #default="scope">
           <template v-if="scope.row.status === 'ACTIVE'">
             <el-button link type="warning" @click="handleStatus(scope.row, 'pause')">暂停</el-button>
-            <el-button link type="success" @click="handleRun(scope.row)">立即执行</el-button>
+            <el-button link type="success" @click="handleRun(scope.row)">执行</el-button>
           </template>
-          <template v-else-if="scope.row.status === 'PAUSED'">
-            <el-button link type="success" @click="handleStatus(scope.row, 'enable')">启用</el-button>
-          </template>
+          <el-button v-else-if="scope.row.status === 'PAUSED'" link type="success" @click="handleStatus(scope.row, 'enable')">启用</el-button>
           <el-button
             v-if="scope.row.status === 'ACTIVE' || scope.row.status === 'PAUSED'"
             link
             type="primary"
             @click="handleEdit(scope.row)"
           >编辑</el-button>
-          <el-button link type="danger" @click="handleDelete(scope.row)">删除</el-button>
+          <!-- 低频动作（删除）收纳进「···」更多下拉，主列保持内联三项一屏 -->
+          <el-dropdown trigger="click" @command="cmd => handleRowCommand(cmd, scope.row)">
+            <el-button link type="primary" class="qc-plan-more-btn">···</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="delete">删除</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </template>
       </el-table-column>
     </el-table>
@@ -100,7 +129,7 @@
 </template>
 
 <script setup>
-import { getCurrentInstance, onMounted, ref, reactive, toRefs } from 'vue';
+import { computed, getCurrentInstance, onMounted, ref, reactive, toRefs } from 'vue';
 import { ElMessageBox, ElMessage } from 'element-plus';
 import { listPlan, getPlan, delPlan, changePlanStatus, runPlan } from '@/api/quality_control/plan';
 import PlanEditDialog from './PlanEditDialog.vue';
@@ -167,6 +196,72 @@ function instrumentsLabel(instrumentsJson) {
   }
 }
 
+/** 校准策略列：NULL/STANDARD=标准判定（落库缺省语义），CALIBRATE_LOW_DRIFT=低偏差也校准 */
+function calibrationPolicyLabel(policy) {
+  if (policy === 'CALIBRATE_LOW_DRIFT') {
+    return '低偏差也校准';
+  }
+  return '标准判定';
+}
+
+/** 同日优先级列：NULL/NONE=不参与（落库缺省语义） */
+function sameDayPriorityLabel(priority) {
+  if (priority === 'LOW') {
+    return '低优先级';
+  }
+  if (priority === 'HIGH') {
+    return '高优先级';
+  }
+  return '不参与';
+}
+
+/**
+ * 集合快捷方式命名模板：{集合名}-{四气|气种「、」拼接}-{零点|跨度}。
+ * 前缀聚合排序（仅展示分组，非实体）：命中模板的行按集合前缀聚到一起，
+ * 组间保持原有先后（整体时间序不动），组内零点行在前、跨度按槽位序 O3/CO/NOx/SO2。
+ */
+const COLLECTION_NAME_PATTERN = /^(.+)-(四气|(?:O3|NOx|CO|SO2)(?:、(?:O3|NOx|CO|SO2))*)-(零点|跨度)$/;
+const SPAN_SLOT_ORDER = ['O3', 'CO', 'NOx', 'SO2'];
+
+/** 行的集合前缀（命中模板才有；组内排序键：零点行 0，跨度行按槽位序 1..4） */
+function collectionGroup(row) {
+  const m = COLLECTION_NAME_PATTERN.exec(row.planName || '');
+  if (!m) {
+    return null;
+  }
+  return {
+    key: m[1],
+    rank: m[3] === '零点' ? 0 : 1 + SPAN_SLOT_ORDER.indexOf(m[2])
+  };
+}
+
+/** 前缀聚合排序后的展示列表（页内展示层重排，不动服务端分页与排序语义） */
+const displayPlans = computed(() => {
+  const rows = planList.value;
+  const groupOrder = [];
+  const groups = new Map();
+  rows.forEach(row => {
+    const g = collectionGroup(row);
+    const key = g ? g.key : '@single:' + row.id + ':' + row.planName;
+    if (!groups.has(key)) {
+      groups.set(key, { rows: [] });
+      groupOrder.push(key);
+    }
+    groups.get(key).rows.push(row);
+  });
+  const result = [];
+  for (const key of groupOrder) {
+    const group = groups.get(key);
+    group.rows.sort((a, b) => {
+      const ra = collectionGroup(a);
+      const rb = collectionGroup(b);
+      return (ra ? ra.rank : 0) - (rb ? rb.rank : 0);
+    });
+    result.push(...group.rows);
+  }
+  return result;
+});
+
 function statusLabel(status) {
   const hit = STATUS_OPTIONS.find(s => s.value === status);
   return hit ? hit.label : (status || '—');
@@ -207,9 +302,33 @@ function resetQuery() {
   handleQuery();
 }
 
-/** 新建计划 */
+/** 新建计划（弹窗内首行选创建方式：日常/周核查集合或自定义单计划） */
 function handleAdd() {
   planEditRef.value.open(null);
+}
+
+/** 触发时间 ISO 形（T 或空格分隔）拆日期/时间两段；非该形态返回 null 由调用方原样展示 */
+const FIRE_TIME_PATTERN = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/;
+
+function fireParts(value) {
+  if (!value) {
+    return null;
+  }
+  const m = FIRE_TIME_PATTERN.exec(String(value));
+  return m ? [m[1], m[2]] : null;
+}
+
+/** 展开行时间统一单行展示：ISO 形截到分钟，其余原样 */
+function formatDateTime(value) {
+  const parts = fireParts(value);
+  return parts ? parts[0] + ' ' + parts[1] : (value || '—');
+}
+
+/** 操作列「···」更多下拉命令分发（当前仅删除） */
+function handleRowCommand(command, row) {
+  if (command === 'delete') {
+    handleDelete(row);
+  }
 }
 
 /** 编辑计划：拉取详情回填（列表行 jsonb 为字符串，详情同源更稳） */
@@ -300,5 +419,57 @@ onMounted(() => {
 <style>
 .qc-plan-filter-input {
   width: 200px;
+}
+
+/* 计划名称列两行单元格：主行名称截断悬浮 title 看全量，副行小字收纳类型/仪器/同日优先级 */
+.qc-plan-name-cell {
+  line-height: 1.4;
+}
+
+.qc-plan-name-main {
+  font-weight: 600;
+  color: #303133;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qc-plan-name-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #909399;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.qc-plan-priority-tag {
+  flex-shrink: 0;
+  transform: scale(0.9);
+}
+
+.qc-plan-fire-cell {
+  line-height: 1.4;
+  font-size: 13px;
+}
+
+.qc-plan-fire-time {
+  font-size: 12px;
+  color: #909399;
+}
+
+.qc-plan-expand-desc {
+  padding: 4px 24px;
+}
+
+/* 操作列收紧按钮间距：链接按钮默认 12px 左距，四项动作（含「···」下拉）单行排布 */
+.qc-plan-table .el-button + .el-button {
+  margin-left: 6px;
+}
+
+.qc-plan-table .qc-plan-more-btn {
+  margin-left: 6px;
 }
 </style>

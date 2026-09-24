@@ -122,7 +122,7 @@ public class QcmRecordController extends BaseController
         return PagedExportSupport.loadAll(MAX_EXPORT_ROWS, (pageNum, pageSize) -> {
             PageHelper.startPage(pageNum, pageSize, pageNum == 1);
             try {
-                // 实体 Instant 列在 VO 预格式化为 String（Asia/Shanghai），列集与旧导出一致
+                // 实体 Instant 列在 VO 预格式化为 String（ecat 平台时区），列集与旧导出一致
                 return QcmRecordExportVo.fromList(qcmRecordService.selectQcmRecordList(query));
             } finally {
                 PageHelper.clearPage();

@@ -1,5 +1,6 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto;
 
+import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.ParameterEnum;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.QualityControlTypeEnum;
@@ -9,7 +10,6 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,16 +19,17 @@ import java.util.List;
  * 首列由「任务类型」升级为「触发来源」（taskType 展示名 + 触发者/来源，与 records 页展示规则一致）。
  *
  * <p>实体 QcmRecord 的 start/end 时间为 {@link Instant}（ExcelUtil 无法识别），
- * 在此处预格式化为 yyyy-MM-dd HH:mm:ss（Asia/Shanghai）String；实体保持 Instant 纯净。</p>
+ * 在此处预格式化为 yyyy-MM-dd HH:mm:ss（ecat 平台时区，与前端展示同源）String；实体保持 Instant 纯净。</p>
  *
  * @author coffee
  */
 @Data
 public class QcmRecordExportVo {
 
-    /** 导出时间列格式（与前端展示时区一致，Asia/Shanghai；同值不合并：与 QcmRecord.QUERY_WINDOW_ZONE 各域独立演进） */
+    /** 导出时间列格式（与前端展示时区一致）。时区不在此固化：平台时区 volatile 可变（启动时从配置加载），
+     * 格式化时动态挂 {@code DateTimeUtils.getZone()}。 */
     private static final DateTimeFormatter EXPORT_TIME_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Asia/Shanghai"));
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Excel(name = "触发来源")
     private String taskType;
@@ -124,6 +125,6 @@ public class QcmRecordExportVo {
     }
 
     private static String fmt(Instant t) {
-        return t != null ? EXPORT_TIME_FORMATTER.format(t) : "";
+        return t != null ? EXPORT_TIME_FORMATTER.withZone(DateTimeUtils.getZone()).format(t) : "";
     }
 }

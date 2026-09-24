@@ -1,14 +1,6 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.service;
 
 import com.ecat.core.EcatCore;
-import com.ecat.integration.EnvCalibrationComposerIntegration.AbstractCalibrationFlow;
-import com.ecat.integration.EnvCalibrationComposerIntegration.EnvCalibrationComposerIntegration;
-import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorResultBase;
-import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorStoppedException;
-import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorType;
-import com.ecat.integration.EnvCalibrationComposerIntegration.MissingDevice;
-import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseExecutionRecord;
-import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseInfo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.EnvQualityControlManagerIntegration;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
@@ -38,8 +30,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -56,6 +46,13 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>future 异常回调不再向 future 重抛（G-BUG-4）——一律落库终态 FAILED + execution_log 留因。</li>
  * </ul>
  *
+ * <p>字节码隔离边界：本类是 ruoyi 延迟加载路径上的 Spring bean，注册后立即被 preInstantiateSingletons
+ * 内省（触发 JVM 链接+类型校验），彼时 composer 集成（独立 jar）往往尚未进共享 loader——
+ * 本类字节码（含方法体局部变量帧/checkcast/方法描述符）不得引用任何 composer 类型，否则
+ * 校验强制解析即 NoClassDefFoundError、bean 创建失败级联拖垮执行链。全部 composer 触碰段
+ * （执行启动/停止/结果回调/逐气分发/桩结果）收敛在非 bean 协作类 {@link ComposerExecutionBridge}
+ * （首执行才加载，彼时 composer 必已就位），经其方法签名只传 Object/JDK/qcm 类型。</p>
+ *
  * @author coffee
  */
 @Service
@@ -63,7 +60,10 @@ public class QcmExecutionOrchestrator {
 
     static final String BUSY_CONFLICT_REASON = "EXECUTOR_BUSY_CONFLICT";
     static final String BUSY_CONFLICT_MESSAGE = "校准任务退出 已有执行中的校准任务";
-    /** multi_zero_check 等 composer 未接线类型的结构化失败原因（FR-02-14 中间态，与 BUSY 留痕同构）。 */
+    /**
+     * 历史结构化失败原因（multi_zero_check 接线前的闸前拒绝留痕）：multi 已解闸受理，编排器
+     * 不再产生该状态；词汇保留供既有台账行与拒绝回执的文案映射（SDK 词汇翻译同源）。
+     */
     static final String NOT_READY_REASON = "EXECUTOR_TYPE_NOT_READY";
     static final String NOT_READY_MESSAGE = "多仪器零点 flow 未接线";
     /** 缺监测仪降级运行的结构化失败原因（人工视检，监测数据无效；终态 SUCCESS + is_pass=false 留痕进报告）。 */
@@ -108,10 +108,11 @@ public class QcmExecutionOrchestrator {
 
     private static final Logger log = LoggerFactory.getLogger(QcmExecutionOrchestrator.class);
 
-    private final IQcmRecordService recordService;
+    /** 协作件对同包 bridge 开放（包私有）：bean 类自身不做 composer 触碰，落库细节由 bridge 复用本类件。 */
+    final IQcmRecordService recordService;
     private final QcmPlanMapper planMapper;
     private final QcmRecordMapper recordMapper;
-    private final EcatCore core;
+    final EcatCore core;
     private final ResultSnapshotWriter snapshotWriter;
 
     /**
@@ -155,9 +156,7 @@ public class QcmExecutionOrchestrator {
      * @param source       触发源（决定 qcm_record.task_type 落 TaskTypeEnum code）
      * @param triggerUser  触发者（MANUAL=用户名 / SCHEDULED=system / REMOTE=来源名）
      * @return ACCEPTED（含 batchId+recordIds，执行结果异步落库）/ REJECTED_BUSY_CONFLICT（执行器被占，
-     *         N 条记录已写 FAILED+EXECUTOR_BUSY_CONFLICT 终态留痕）/ REJECTED_EXECUTOR_TYPE_NOT_READY
-     *         （multi_zero_check 等 composer 未接线类型，闸前拒绝，N 条记录已写
-     *         FAILED+EXECUTOR_TYPE_NOT_READY 终态留痕，FR-02-14 中间态）
+     *         N 条记录已写 FAILED+EXECUTOR_BUSY_CONFLICT 终态留痕）
      */
     public BatchResult triggerExecution(QcExecutionRequest req, TriggerSource source, String triggerUser) {
         // 1. 防御性复校（2.4 Validator / ScheduleSpecs 为第一道）
@@ -173,7 +172,8 @@ public class QcmExecutionOrchestrator {
 
         QualityControlTypeEnum qcEnum = QualityControlTypeEnum.valueOf(req.getQcType().trim().toUpperCase());
         QcResultFormatter formatter = formatterFor(qcEnum);
-        EnvCalibrationComposerIntegration composer = (EnvCalibrationComposerIntegration) composer();
+        // composer 实例与 flow 句柄全程以 Object 流转（字节码隔离边界，见类注释）
+        Object composer = composer();
         Map<Long, Object> executorMapRaw = executorMap();
 
         BatchResult outcome;
@@ -192,18 +192,8 @@ public class QcmExecutionOrchestrator {
                 recordIds.add(r.getId());
             }
 
-            // 3. 执行器类型闸（先于互斥闸，不占 BUSY 语义）：multi_zero_check 的 ExecutorType
-            //    在 composer 未接线（getEnum 会抛），不猜不降级（RED-8）——N 条记录落
-            //    FAILED + EXECUTOR_TYPE_NOT_READY 终态留痕，与 BUSY 拒绝同构（FR-02-14 中间态）
-            if (qcEnum == QualityControlTypeEnum.MULTI_ZERO_CHECK) {
-                log.error("Calibration task exit: multi_zero_check executor type not wired yet (EXECUTOR_TYPE_NOT_READY).");
-                markBatch(records, ExecutionStatusEnum.FAILED, NOT_READY_MESSAGE, NOT_READY_REASON, NOT_READY_MESSAGE);
-                advancePlanAfterTrigger(req.getPlanId());
-                return BatchResult.rejectedExecutorTypeNotReady(batchId, recordIds, triggerRequestId);
-            }
-
-            // 4. 互斥闸：忙 → N 条记录 FAILED + EXECUTOR_BUSY_CONFLICT 终态（D10 不 throw 留痕）
-            if (Boolean.TRUE.equals(composer.isRunning())) {
+            // 3. 互斥闸：忙 → N 条记录 FAILED + EXECUTOR_BUSY_CONFLICT 终态（D10 不 throw 留痕）
+            if (ComposerExecutionBridge.isRunning(composer)) {
                 log.error("Calibration task exit: Other calibration task is currently running.");
                 markBatch(records, ExecutionStatusEnum.FAILED, BUSY_CONFLICT_MESSAGE, BUSY_CONFLICT_REASON, BUSY_CONFLICT_MESSAGE);
                 advancePlanAfterTrigger(req.getPlanId());
@@ -215,25 +205,23 @@ public class QcmExecutionOrchestrator {
             Map<String, Object> logParams = buildLogParams(req, triggerUser);
             String instrument = req.getInstruments().get(0);
             String gasForComposer = LogicDeviceBindingIds.composerGasKeyFromParameterName(instrument);
-            ExecutorType execType = ExecutorType.getEnum(qcEnum.getClassName());
+            // 执行器枚举解析维持 try 外原位：未知质控类型的解析失败语义（向调用方抛出）与内联时期一致
+            Object execType = ComposerExecutionBridge.executorTypeOf(qcEnum);
             Map<String, Object> flowParams = buildFlowParams(req, qcEnum);
 
-            CompletableFuture<ExecutorResultBase> calibrationFuture;
+            Object calibrationFuture;
             try {
-                if (flowParams.isEmpty()) {
-                    calibrationFuture = composer.execute(execType, gasForComposer);
-                } else {
-                    calibrationFuture = composer.execute(execType, gasForComposer, flowParams);
-                }
+                calibrationFuture = ComposerExecutionBridge.execute(composer, execType, gasForComposer, flowParams);
             } catch (Exception launchEx) {
                 // 启动失败（含未知 ExecutorType 等编排前置异常）：落库终态 FAILED 留痕，不再向调用方重抛旧 RuntimeException
                 log.error("Calibration task failed before async execution: {}", launchEx.getMessage(), launchEx);
-                persistStubTerminal(records, formatter, logParams, qcEnum, cleanExceptionMessage(launchEx));
+                ComposerExecutionBridge.persistStubTerminal(this, records, formatter, logParams, qcEnum,
+                        cleanExceptionMessage(launchEx));
                 advancePlanAfterTrigger(req.getPlanId());
                 return BatchResult.accepted(batchId, recordIds, triggerRequestId);
             }
 
-            AbstractCalibrationFlow executor = composer.getRunningExecutor();
+            Object executor = ComposerExecutionBridge.runningExecutor(composer);
             if (executor != null) {
                 for (QcmRecord r : records) {
                     executorMapRaw.put(r.getId(), executor);
@@ -245,11 +233,12 @@ public class QcmExecutionOrchestrator {
                 return BatchResult.accepted(batchId, recordIds, triggerRequestId);
             }
 
-            attachResultCallback(calibrationFuture, records, formatter, logParams, qcEnum, executorMapRaw, flowStartMillis);
+            ComposerExecutionBridge.attachResultCallback(this, calibrationFuture, records, formatter, logParams,
+                    qcEnum, executorMapRaw, flowStartMillis);
             outcome = BatchResult.accepted(batchId, recordIds, triggerRequestId);
         }
 
-        // 5. ONCE 计划触发后 FINISHED（无论成败，D11）；所有源都更新 last_fire_time（锁外，非互斥语义）
+        // 4. ONCE 计划触发后 FINISHED（无论成败，D11）；所有源都更新 last_fire_time（锁外，非互斥语义）
         advancePlanAfterTrigger(req.getPlanId());
         return outcome;
     }
@@ -308,14 +297,14 @@ public class QcmExecutionOrchestrator {
                 target.getId(), target.getBatchId(), rowIds.size(), executorMap.size());
         Instant now = Instant.now();
         // 同批 N 行共享同一 flow：先窥视不摘除，stop 只调一次
-        AbstractCalibrationFlow flow = (AbstractCalibrationFlow) firstFlowOf(rowIds, executorMap);
+        Object flow = firstFlowOf(rowIds, executorMap);
         if (flow != null) {
             if (target.getBatchId() != null) {
                 // 停止者暂存先于 stop 写入：stop 会触发（甚至同步触发）终态回调，回调必须读得到停止者
                 stopOperatorsByBatch.put(target.getBatchId(), displayOperator);
             }
             // 先停后清（缺陷 #2）：停止回调从 executorMap 取 flow 解析阶段时间线，先摘除会得空时间线
-            flow.stop();
+            ComposerExecutionBridge.stopFlow(flow);
             int marked = 0;
             for (Long rowId : rowIds) {
                 marked += recordMapper.markStopInProgressClearEndTime(
@@ -383,7 +372,7 @@ public class QcmExecutionOrchestrator {
     }
 
     /** 批次行内窥视第一个挂着的执行器句柄（不摘除；同批 N 行共享同一实例，stop 只调一次）。
-     *  值类型 Object（签名无 composer 类型，理由同 composer()）；取用点强转 AbstractCalibrationFlow。 */
+     *  值类型 Object（字节码隔离边界，见类注释）；stop 经 bridge 强转。 */
     private static Object firstFlowOf(List<Long> rowIds, Map<Long, Object> executorMap) {
         for (Long rowId : rowIds) {
             Object candidate = executorMap.get(rowId);
@@ -406,193 +395,27 @@ public class QcmExecutionOrchestrator {
         return "批次已结束，无需中止";
     }
 
-    /** 停止终态文案（行内留痕矩阵 §7）：把操作者带进「被停」语义，来源可辨（缺陷 #3）。 */
-    private static String stopEvaluation(String displayOperator) {
-        return "流程被 " + displayOperator + " 手动终止";
-    }
-
-    /**
-     * 降级运行评定后缀（拼进 result_evaluation，人工操作/人工视检措辞，非故障语义）：
-     * 缺设备是部署形态不是设备故障，文案按「本次由人工承担哪段操作」表述。
-     */
-    private static String degradedRunSuffix(boolean targetAnalyzerMissing, boolean calibratorMissing) {
-        StringBuilder sb = new StringBuilder();
-        if (targetAnalyzerMissing) {
-            sb.append("；监测仪器未配置，人工视检（监测数据无效）");
-        }
-        if (calibratorMissing) {
-            sb.append("；校准仪未配置，产气由人工操作");
-        }
-        return sb.toString();
-    }
-
     /**
      * 取走本批的停止者暂存（读后清）：调用点在终态回调体内——displayOperator 由 stopExecution
      * 在受理时写入，回调发生在其后的任意时刻与线程，必须回调时读取而非回调装配时。
      * 无 batch_id 的历史行没有暂存槽位（stopExecution 同样只对有批次的行暂存），返回 null 属正常。
+     * 包私有：bridge 结果回调消费。
      */
-    private String takeStopOperator(List<QcmRecord> records) {
+    String takeStopOperator(List<QcmRecord> records) {
         String batchId = records.get(0).getBatchId();
         return batchId == null ? null : stopOperatorsByBatch.remove(batchId);
     }
 
-    /** 结果回调：thenAccept/exceptionally 平移自旧 Task（异常分支不再重抛，G-BUG-4），批次 N 行逐行落终态。 */
-    @SuppressWarnings("unchecked")
-    private void attachResultCallback(CompletableFuture<?> futureRaw,
-                                      List<QcmRecord> records,
-                                      QcResultFormatter formatter,
-                                      Map<String, Object> logParams,
-                                      QualityControlTypeEnum qcEnum,
-                                      Map<Long, Object> executorMap,
-                                      long flowStartMillis) {
-        CompletableFuture<ExecutorResultBase> future = (CompletableFuture<ExecutorResultBase>) futureRaw;
-        final boolean auditLikeFailureOnNotPass = qcEnum == QualityControlTypeEnum.AUDIT_SPAN_CHECK;
-        // lambda 参数显式 Object（javac 会为 lambda 生成合成方法，参数类型进方法描述符——
-        // 签名含 composer 类型会让 Spring 内省在 ruoyi 类加载器下 CNFE，体 内强转）
-        future.thenAccept((Object resultObj) -> {
-            ExecutorResultBase result = (ExecutorResultBase) resultObj;
-            log.info("Calibration result " + result.toString());
-            // 降级运行缺失标记（体内读 composer 类型，CNFE 约束同 result 强转惯例）：
-            // 缺监测仪=人工视检数据无效；缺校准仪=产气人工操作。执行时序照常走完，只影响留痕语义
-            List<MissingDevice> missingDevices = result.getMissingDevices();
-            final boolean targetAnalyzerMissing =
-                    missingDevices != null && missingDevices.contains(MissingDevice.TARGET_ANALYZER);
-            final boolean calibratorMissing =
-                    missingDevices != null && missingDevices.contains(MissingDevice.CALIBRATOR);
-            // 停止者暂存须在回调执行时（而非本方法装配时）读取：stop 发生在受理之后的任意时刻，
-            // 读后清保证本批终态回调只消费一次（thenAccept 体抛异常会再进 exceptionally，取到 null 不重复换算）
-            final String stopOperator = takeStopOperator(records);
-            for (QcmRecord record : records) {
-                // 编排器已在 result 上附带 phaseRecords，须入库，勿先 throw 否则 exceptionally 无法拿到 result
-                if (result.isException()) {
-                    // 裸结果（ExecutorResultBase 精确类型，非 CheckResult 子类，如零点/跨度收到的裸异常完成）
-                    // 走 stub 落库：format 通道按 CheckResult 强转会 ClassCastException，phaseRecords 也会丢
-                    String resultContentJson = isBareExecutorResultOutcome(result)
-                            ? formatter.formatStub(core, logParams, result,
-                                    record.getQualityControlType(), record.getId())
-                            : formatter.format(core, logParams, result,
-                            record.getQualityControlType(), record.getId());
-                    String eval = result.getErrorMessage() != null && !result.getErrorMessage().isEmpty()
-                            ? result.getErrorMessage()
-                            : result.getResultMessage();
-                    // 停止者留痕（缺陷 #3）：composer 把停止异常经 handle 转成结果对象完成 future，
-                    // 本分支才是被停的真实落库通道；仅「原文案 + 本批有停止者暂存」双条件成立才换算，
-                    // 普通执行失败（同分支落库）不得冒名成被停
-                    boolean stoppedByOperator = stopOperator != null && COMPOSER_STOP_EVALUATION.equals(eval);
-                    if (stoppedByOperator) {
-                        eval = stopEvaluation(stopOperator);
-                        // 行内留痕矩阵 §7：updated_by 同落 displayOperator，
-                        // 压掉创建期残留在 record 对象上、会被 update 原样回写的旧 updatedBy
-                        record.setUpdatedBy(stopOperator);
-                    }
-                    record.setExecutionLog(resultContentJson);
-                    record.setResultEvaluation(eval != null ? eval : "校准过程异常");
-                    record.setEndTime(recordService.resolveTerminalEndTime(record.getId()));
-                    record.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode().intValue());
-                    recordService.updateQcmRecord(record);
-                    // 冻结晚于通用 update：停止行必须把操作者穿透进冻结层，否则 updated_by 被覆写回系统账号
-                    freezeSnapshotFromLog(record, resultContentJson, qcEnum, flowStartMillis,
-                            stoppedByOperator ? stopOperator : null);
-                    executorMap.remove(record.getId());
-                    continue;
-                }
-                String resultContentJson = formatter.format(core, logParams, result,
-                        record.getQualityControlType(), record.getId());
-                String message;
-                ExecutionStatusEnum status;
-                if (result.isPass()) {
-                    log.info("Calibration task completed successfully.");
-                    // 标准质控沿用旧语义：完成即 SUCCESS（未通过也 SUCCESS）；人工核查：未通过 FAILED
-                    message = auditLikeFailureOnNotPass
-                            ? "校准任务成功完成 " + result.getResultMessage()
-                            : "校准任务完成，且已通过 " + result.getResultMessage();
-                    status = ExecutionStatusEnum.SUCCESS;
-                } else {
-                    log.error("Calibration task not pass: " + result.getResultMessage());
-                    message = auditLikeFailureOnNotPass
-                            ? "校准任务未通过 " + result.getResultMessage()
-                            : "校准任务完成，但未通过 " + result.getResultMessage();
-                    status = auditLikeFailureOnNotPass ? ExecutionStatusEnum.FAILED : ExecutionStatusEnum.SUCCESS;
-                }
-                if (targetAnalyzerMissing || calibratorMissing) {
-                    // 降级运行：流程已按完整时序执行完毕（人工操作/人工视检节拍），终态一律 SUCCESS
-                    // 留痕进报告——FAILED 行会被报告过滤，降级执行不能缺席报告（含人工核查未通过的场景）。
-                    // 两者并存记 TARGET_ANALYZER_MISSING：闭域枚举不记组合串，数据无效比产气跳过更根本
-                    //（完整缺失集在 execution_log.statusMap.missingDevices，供详情/备注解释）
-                    status = ExecutionStatusEnum.SUCCESS;
-                    record.setFailureReason(targetAnalyzerMissing
-                            ? TARGET_ANALYZER_MISSING_REASON : CALIBRATOR_MISSING_REASON);
-                    message = message + degradedRunSuffix(targetAnalyzerMissing, calibratorMissing);
-                }
-                record.setEndTime(Instant.now());
-                record.setExecutionLog(resultContentJson);
-                record.setResultEvaluation(message);
-                record.setExecutionStatus(status.getCode().intValue());
-                recordService.updateQcmRecord(record);
-                freezeSnapshotFromLog(record, resultContentJson, qcEnum, flowStartMillis, null);
-                executorMap.remove(record.getId());
-            }
-        }).exceptionally(ex -> {
-            Throwable cause = ex;
-            if (cause instanceof CompletionException && cause.getCause() != null) {
-                cause = cause.getCause();
-            }
-            final String stopOperator = takeStopOperator(records);
-            if (cause instanceof ExecutorStoppedException) {
-                ExecutorStoppedException stopped = (ExecutorStoppedException) cause;
-                for (QcmRecord record : records) {
-                    ExecutorResultBase stopResult = stopped.toResult();
-                    if (stopOperator != null) {
-                        // 停止者留痕（缺陷 #3）：异常分支可辨「确为被停」，直接换算来源文案；
-                        // updated_by 同步落 displayOperator（行内留痕矩阵 §7）
-                        stopResult.setErrorMessage(stopEvaluation(stopOperator));
-                        record.setUpdatedBy(stopOperator);
-                    }
-                    AbstractCalibrationFlow flow = (AbstractCalibrationFlow) executorMap.remove(record.getId());
-                    stopResult.setPhaseRecords((List<PhaseExecutionRecord>) phaseRecordsOf(flow));
-                    String resultContentJson = formatter.formatStub(core, logParams, stopResult,
-                            record.getQualityControlType(), record.getId());
-                    record.setExecutionLog(resultContentJson);
-                    record.setResultEvaluation(stopResult.getErrorMessage());
-                    record.setEndTime(recordService.resolveTerminalEndTime(record.getId()));
-                    record.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode().intValue());
-                    recordService.updateQcmRecord(record);
-                    // 冻结晚于通用 update：停止行把操作者穿透进冻结层（行内留痕矩阵 §7）
-                    freezeSnapshotFromLog(record, resultContentJson, qcEnum, flowStartMillis, stopOperator);
-                }
-                return null;
-            }
-            // G-BUG-4：异常不 throw 进 future，一律落库终态 FAILED + execution_log 留因
-            // 带 full stack：thenAccept 内部抛出的异常会包成 CompletionException 进本分支，
-            // 只打 message 无法定位（2026-08-23 失败分支 NPE 无栈排查实证）
-            log.error("Calibration task executed exception", ex);
-            String message = "校准任务过程异常 " + cleanExceptionMessage(cause);
-            for (QcmRecord record : records) {
-                ExecutorResultBase stub = new ExecutorResultBase(false, true);
-                stub.setErrorMessage(cleanExceptionMessage(cause));
-                AbstractCalibrationFlow flow = (AbstractCalibrationFlow) executorMap.remove(record.getId());
-                stub.setPhaseRecords((List<PhaseExecutionRecord>) phaseRecordsOf(flow));
-                String resultContentJson = formatter.formatStub(core, logParams, stub,
-                        record.getQualityControlType(), record.getId());
-                record.setExecutionLog(resultContentJson);
-                record.setResultEvaluation(message);
-                record.setEndTime(Instant.now());
-                record.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode().intValue());
-                recordService.updateQcmRecord(record);
-                freezeSnapshotFromLog(record, resultContentJson, qcEnum, flowStartMillis, null);
-            }
-            return null;
-        });
-    }
-
     /**
+     * 完成时冻结结果快照（§4.0）：对刚落库的 execution_log JSON 解析一次
      * 完成时冻结结果快照（§4.0）：对刚落库的 execution_log JSON 解析一次
      * （result 判定标量/qcPhaseTimelines/keyParametersSnapshot/keyParametersSamplingWindow），
      * 全量喂给 {@link ResultSnapshotWriter}（避免四个回调分支各自重复解析）。
      * 失败留痕路径（启动失败/NOT_READY/冲突）不调用本方法——无执行事实可冻结。
+     * 包私有：bridge 各结果分支复用（避免四个回调分支各自重复解析同构冻结逻辑）。
      */
     @SuppressWarnings("unchecked")
-    private void freezeSnapshotFromLog(QcmRecord record, String executionLogJson,
+    void freezeSnapshotFromLog(QcmRecord record, String executionLogJson,
                                        QualityControlTypeEnum qcEnum, long flowStartMillis,
                                        String terminalActor) {
         Map<String, Object> root = QualityControlExecutionLogHelper.parseRootMap(executionLogJson);
@@ -673,33 +496,6 @@ public class QcmExecutionOrchestrator {
         }
     }
 
-    /** 裸结果判定（平移自旧 Task）：精确 ExecutorResultBase 类型（非 CheckResult 等子类）。 */
-    private static boolean isBareExecutorResultOutcome(Object resultObj) {
-        if (!(resultObj instanceof ExecutorResultBase)) { return false; }
-        ExecutorResultBase result = (ExecutorResultBase) resultObj;
-        return result != null && result.getClass() == ExecutorResultBase.class;
-    }
-
-    /** flow 阶段时间线 → PhaseExecutionRecord 列表（stop/异常落库留因用）；flow 为 null 返回空表。
-     * 参数 Object + 体 内强转（Spring bean 方法签名禁 composer 类型，理由见 composer()）。 */
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List phaseRecordsOf(Object flowObj) {
-        List<PhaseExecutionRecord> recs = new ArrayList<>();
-        if (flowObj == null) {
-            return recs;
-        }
-        AbstractCalibrationFlow flow = (AbstractCalibrationFlow) flowObj;
-        for (PhaseInfo pi : flow.getExecutorPhases()) {
-            if (pi == null) {
-                continue;
-            }
-            recs.add(new PhaseExecutionRecord(
-                    pi.getId(), pi.getDisplayName(), pi.getStartInstant(), pi.getEndInstant(),
-                    pi.getEstimatedSeconds()));
-        }
-        return recs;
-    }
-
     /**
      * N 仪器 × N 条 qcm_record：batch_id/task_type(source.code)/trigger_user/plan_id/快照/WAITING，
      * 外加钢瓶气一本账受理定格（gas 四列）。拒绝留痕（persistRejectedBatch）同走此组装——
@@ -715,7 +511,10 @@ public class QcmExecutionOrchestrator {
             record.setBatchId(batchId);
             record.setPlanId(req.getPlanId());
             record.setTaskType(source.getCode());
-            record.setQualityControlType(qcEnum.getCode());
+            // multi 台账行落零点码：与单气零点同报表配对域（配对/统计按码聚合），multi 身份由
+            // flow_type 溯源（air.monitor.calibration.multi_zero_check）
+            record.setQualityControlType(qcEnum == QualityControlTypeEnum.MULTI_ZERO_CHECK
+                    ? QualityControlTypeEnum.ZERO_CHECK.getCode() : qcEnum.getCode());
             record.setTriggerRequestId(triggerRequestId);
             record.setFlowType(qcEnum.getClassName());
             String gasCode = ParameterEnum.valueOf(instrument).getCode();
@@ -773,6 +572,7 @@ public class QcmExecutionOrchestrator {
             if (req.getDurationOverrides() != null) {
                 flowParams.putAll(req.getDurationOverrides());
             }
+            putCalibrationPolicyIfPresent(flowParams, req.getCalibrationPolicy());
         } else if (QualityControlTypeEnum.SPAN_CHECK.getCode().equals(code)) {
             if (req.getDurationOverrides() != null) {
                 flowParams.putAll(req.getDurationOverrides());
@@ -787,6 +587,7 @@ public class QcmExecutionOrchestrator {
                         : FlowDefaults.DEFAULT_SPAN_CONCENTRATION_PPB;
             }
             flowParams.put("spanConcentrationPpb", spanPpb);
+            putCalibrationPolicyIfPresent(flowParams, req.getCalibrationPolicy());
         } else if (QualityControlTypeEnum.AUDIT_SPAN_CHECK.getCode().equals(code)) {
             // 人工核查：时长序列从 durationOverrides（适配层已映射 stableTimeSeconds/sampleCount/sampleIntervalSeconds）
             if (req.getDurationOverrides() != null) {
@@ -796,6 +597,22 @@ public class QcmExecutionOrchestrator {
                 // 适配层已换算为 ppb（旧语义 genGasConc[ppm]×1000）
                 flowParams.put("spanConcentrationPpb", req.getConcentrationPpb().floatValue());
             }
+        } else if (QualityControlTypeEnum.MULTI_ZERO_CHECK.getCode().equals(code)) {
+            // 多仪器同时零点（composer 契约）：instruments=gas key 列表 List 直传（序=仪器序=信封
+            // 子结果 key 序，勿 JSON 化——composer 按 List<String> 读取）；零点浓度恒 0；流量缺省 5
+            // （计划行不预填）；校准策略非空透传（null 不落键=composer 缺省 STANDARD）
+            List<String> gasKeys = new ArrayList<>(req.getInstruments().size());
+            for (String instrument : req.getInstruments()) {
+                gasKeys.add(LogicDeviceBindingIds.composerGasKeyFromParameterName(instrument));
+            }
+            if (req.getDurationOverrides() != null) {
+                flowParams.putAll(req.getDurationOverrides());
+            }
+            flowParams.put("spanConcentrationPpb", 0f);
+            flowParams.put("instruments", gasKeys);
+            putCalibrationPolicyIfPresent(flowParams, req.getCalibrationPolicy());
+            flowParams.put("flowRateLpm", req.getFlowRateLpm() != null
+                    ? req.getFlowRateLpm().floatValue() : 5f);
         } else {
             // 多点/精密度/准确度/转换率：用户覆盖项透传；量程百分比按类型走 composer 契约 key
             if (req.getDurationOverrides() != null) {
@@ -815,6 +632,18 @@ public class QcmExecutionOrchestrator {
         return flowParams;
     }
 
+    /**
+     * 校准策略非空落键（null/空白不落 = STANDARD 缺省语义），两处共用同一缺省规则：
+     * flowParams 侧——零点/跨度/同时零点三 flow 透传 composer（人工核查 audit_span_check
+     * 按验收 A6 不接该参数，只在对应分支调用、不在此处判断类型）；
+     * logParams 侧——execution_log 任务参数留痕（A7，事后可反推当时策略）。
+     */
+    private static void putCalibrationPolicyIfPresent(Map<String, Object> params, String policy) {
+        if (policy != null && !policy.trim().isEmpty()) {
+            params.put("calibrationPolicy", policy);
+        }
+    }
+
     /** execution_log 的任务参数白名单源（格式化器再滤非标量）：沿用旧 Task parameters 里的标量键语义。 */
     private static Map<String, Object> buildLogParams(QcExecutionRequest req, String triggerUser) {
         Map<String, Object> params = new LinkedHashMap<>();
@@ -831,38 +660,34 @@ public class QcmExecutionOrchestrator {
         if (req.getFlowRateLpm() != null) {
             params.put("targetFlowLpm", req.getFlowRateLpm());
         }
+        // A7 留痕：策略非空才落 execution_log 任务参数（事后可反推当时策略；null 不落=STANDARD 缺省语义）
+        putCalibrationPolicyIfPresent(params, req.getCalibrationPolicy());
         if (req.getDurationOverrides() != null) {
             params.putAll(req.getDurationOverrides());
         }
         return params;
     }
 
-    /** 批次统一落库：状态/结果评价/执行日志/结构化失败原因 + end_time=now。 */
+    /** 批次统一落库：状态/结果评价/执行日志/结构化失败原因；end_time 仅终态行写 now。
+     *  RUNNING 受理行 endTime 留空（end_time 列义=结束时刻，运行中行没有），由终态回调
+     *  （bridge 各终态路径 setEndTime）或终止 SQL 回填；不设 endTime 时 mapper 条件写
+     *  天然不动 DB 的 end_time 列（insert 侧本就 null）。 */
     private void markBatch(List<QcmRecord> records, ExecutionStatusEnum status, String evaluation,
                            String failureReason, String executionLog) {
         Instant now = Instant.now();
+        // 终态集（成功/失败/让位）与台账读侧「已结束」口径一致；WAITING/STOPPING 不经本方法，
+        // 若未来流入也属非终态、不该带 endTime，故无 else 补写
+        boolean terminal = status == ExecutionStatusEnum.SUCCESS
+                || status == ExecutionStatusEnum.FAILED
+                || status == ExecutionStatusEnum.SKIPPED;
         for (QcmRecord record : records) {
-            record.setEndTime(now);
+            if (terminal) {
+                record.setEndTime(now);
+            }
             record.setExecutionStatus(status.getCode().intValue());
             record.setResultEvaluation(evaluation);
             record.setFailureReason(failureReason);
             record.setExecutionLog(executionLog);
-            recordService.updateQcmRecord(record);
-        }
-    }
-
-    /** 启动失败桩结果落库（格式化器走 stub 通道，避免零点/跨度 (CheckResult) 强转失败）。 */
-    private void persistStubTerminal(List<QcmRecord> records, QcResultFormatter formatter,
-                                     Map<String, Object> logParams, QualityControlTypeEnum qcEnum,
-                                     String cleanMessage) {
-        String message = "校准任务过程异常 " + cleanMessage;
-        for (QcmRecord record : records) {
-            ExecutorResultBase stub = new ExecutorResultBase(false, true);
-            stub.setErrorMessage(cleanMessage);
-            record.setExecutionLog(formatter.formatStub(core, logParams, stub, qcEnum.getCode(), record.getId()));
-            record.setResultEvaluation(message);
-            record.setEndTime(Instant.now());
-            record.setExecutionStatus(ExecutionStatusEnum.FAILED.getCode().intValue());
             recordService.updateQcmRecord(record);
         }
     }
@@ -877,7 +702,7 @@ public class QcmExecutionOrchestrator {
         }
         QcmPlan plan = planMapper.selectById(planId);
         if (plan == null) {
-            log.warn("[诊断调试] qcm 计划 {} 触发后推进时行已不存在，跳过", planId);
+            log.warn("qcm 计划 {} 触发后推进时行已不存在，跳过", planId);
             return;
         }
         Instant now = Instant.now();
@@ -898,12 +723,12 @@ public class QcmExecutionOrchestrator {
         throw new IllegalStateException("无可用结果格式化器（集成入口未注册），质控类型: " + qcEnum.getName());
     }
 
-    /** 返回 Object（签名不得引用 composer 类型：Spring 内省在 ruoyi 类加载器下解析签名会 CNFE），调用点体内强转。 */
+    /** 返回 Object（字节码隔离边界：本 bean 类常量池不得出现 composer 类型名），bridge 体内强转。 */
     private Object composer() {
         return core.getIntegrationRegistry().getIntegration(COMPOSER_INTEGRATION_ID);
     }
 
-    /** 值类型 Object（签名无 composer 类型，理由同 composer()）；取用点强转 AbstractCalibrationFlow。 */
+    /** 值类型 Object（字节码隔离边界，理由同 composer()）；句柄的强转/停止经 bridge。 */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private Map<Long, Object> executorMap() {
         EnvQualityControlManagerIntegration entry = (EnvQualityControlManagerIntegration)
@@ -911,7 +736,8 @@ public class QcmExecutionOrchestrator {
         return (Map) entry.executorMap;
     }
 
-    private static String cleanExceptionMessage(Throwable ex) {
+    /** 包私有静态：bridge 异常分支与启动失败留痕共用同一清洗规则。 */
+    static String cleanExceptionMessage(Throwable ex) {
         String message = ex.getMessage();
         return message != null ? message.replaceAll("^(java\\.lang\\.[A-Za-z]+: )", "") : "";
     }
@@ -959,5 +785,34 @@ public class QcmExecutionOrchestrator {
         // 与 BUSY_CONFLICT 留痕同构：execution_log 承载同一拒绝消息（无执行事实，不冻结快照）
         markBatch(records, ExecutionStatusEnum.FAILED, message, reasonCode, message);
         return BatchResult.rejectedPreTrigger(batchId, recordIds, triggerRequestId, reasonCode);
+    }
+
+    /**
+     * 同日优先级让位留痕：SCHEDULED 链路被高优先级计划覆盖时不调 composer（不查忙闸、不占
+     * 互斥闸），按正常台账形状受理后整批直接收敛 SKIPPED 终态——N 仪器 N 条、气种 parameter、
+     * gas 四列受理定格与执行受理同一语义（让位行记的也是「当时要用的什么气」）。触发源与
+     * 触发者在本方法内固定为 SCHEDULED/system：让位只发生在调度链路，不把 source/user 开放成
+     * 调用面防误用。next_fire 推进由调度器 fireInternal 统一的 advancePlan 承担，此处不参与。
+     *
+     * @param suppressedByPlanName 压制方计划名（写入 result_evaluation，留痕注明被谁覆盖）
+     */
+    public void skipExecution(QcExecutionRequest req, String suppressedByPlanName) {
+        if (req == null || req.getQcType() == null || req.getQcType().trim().isEmpty()) {
+            throw new IllegalArgumentException("qcType is required to persist skipped quality control batch");
+        }
+        if (req.getInstruments() == null || req.getInstruments().isEmpty()) {
+            throw new IllegalArgumentException("instruments is required to persist skipped quality control batch");
+        }
+        if (suppressedByPlanName == null || suppressedByPlanName.trim().isEmpty()) {
+            throw new IllegalArgumentException("suppressedByPlanName is required to persist skipped quality control batch");
+        }
+        QualityControlTypeEnum qcEnum = QualityControlTypeEnum.valueOf(req.getQcType().trim().toUpperCase());
+        String evaluation = "同日让位：当日已由高优先级计划「" + suppressedByPlanName + "」覆盖同类检查";
+        String batchId = UUID.randomUUID().toString();
+        List<QcmRecord> records = buildRecords(req, TriggerSource.SCHEDULED, "system", qcEnum, batchId,
+                UUID.randomUUID().toString());
+        recordService.insertQcmRecordBatch(records);
+        // 与拒绝留痕同构：无执行事实，execution_log 承载同一说明，不冻结快照
+        markBatch(records, ExecutionStatusEnum.SKIPPED, evaluation, "SUPPRESSED_BY_PRIORITY", evaluation);
     }
 }

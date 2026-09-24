@@ -29,7 +29,7 @@ public class PlanSaveDto {
     /** 仪器代码列表（单仪器类型恒 1 台；multi 预留多台） */
     private List<String> instruments;
 
-    /** 调度类型：DAILY / WEEKLY / MONTHLY / ONCE */
+    /** 调度类型：DAILY / WEEKLY / MONTHLY / ONCE / INTERVAL */
     private String scheduleType;
 
     /** 时（0-23） */
@@ -37,6 +37,18 @@ public class PlanSaveDto {
 
     /** 分（0-59） */
     private Integer minute;
+
+    /** INTERVAL：间隔天数（1-31，INTERVAL 必填；日常核查模板预填 2）。锚点日 anchorDate 由服务端从 planStartTime 派生写入 config，不收 */
+    private Integer intervalDays;
+
+    /** WEEKLY：隔周数（1-52；空=每 1 周，与存量无键语义等价；&gt;1 时须提供 planStartTime——周相位锚由其派生） */
+    private Integer intervalWeeks;
+
+    /** 校准策略：STANDARD / CALIBRATE_LOW_DRIFT；空=STANDARD（落库 NULL）。仅零点/跨度/多仪器零点类型可设 */
+    private String calibrationPolicy;
+
+    /** 同日优先级：NONE / LOW / HIGH；空=NONE（落库 NULL）。计划通用字段，同日同类让位判定用 */
+    private String sameDayPriority;
 
     /** WEEKLY：星期几（1=周一..7=周日），非空 */
     private List<Integer> weekdays;

@@ -77,7 +77,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <!-- records 页「开始时间」筛选：start_time between 含边界（与 selectByFilter 时间窗语义一致） -->
             <if test="beginStartTime != null and endStartTime != null"> and start_time between #{beginStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP} and #{endStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP}</if>
         </where>
-        order by create_time desc
+        <!-- id 唯一 tiebreaker：受理批内 N 行共享同一 create_time（buildRecords 批内一个 now），
+             平键行在 OFFSET 翻页边界会漏行/重行，时间键+id 才构成全序 -->
+        order by create_time desc, id desc
     </select>
 
     <!--支持多种参数查询；executionStatus 缺省取 2=执行成功完成的质控记录（沿用旧语义）-->

@@ -20,12 +20,11 @@ public enum QualityControlTypeEnum {
     CONVERSION_CHECK("5", "conversion_check", "air.monitor.calibration.conversion_check", "转换率检查"),
     AUDIT_SPAN_CHECK("6", "audit_span_check", "air.monitor.calibration.audit-span-check", "人工核查"),
     /**
-     * 多仪器零点质控（FR-02-14）：一次触发对 N 台分析仪（1~4）并行做零点核查。
-     * composer 接线契约：composer 侧未来新增 multi_zero_check ExecutorType，以
-     * {@code execute(instruments[], 零点参数)} 一次 flow 并行驱动 N 台、保持单飞模型
-     * （同一时刻全局仍只允许一个校准 flow）。接线前该 className 在 ExecutorType 中
-     * 无映射（getEnum 抛 IllegalArgumentException），编排器按 EXECUTOR_TYPE_NOT_READY
-     * 闸前拒绝（N 条记录落 FAILED 留痕），不做任何猜测降级。
+     * 多仪器零点质控（FR-02-14）：一次触发对 N 台分析仪（1~4）同时做零点核查。
+     * composer 已接线 ExecutorType.MULTI_ZERO_CHECK：{@code execute(instruments[], 零点参数)}
+     * 一次 flow 驱动 N 条独立线（串行下发、统一收尾）、保持单飞模型（同一时刻全局仍只允许
+     * 一个校准 flow）。台账 N 行落零点码（与单气零点同报表配对域），multi 身份由
+     * flow_type 溯源，逐气子结果经信封（MultiZeroCheckResult）独立判定分发。
      */
     MULTI_ZERO_CHECK("7", "multi_zero_check", "air.monitor.calibration.multi_zero_check", "多仪器零点质控");
 

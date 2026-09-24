@@ -11,7 +11,9 @@ public enum ExecutionStatusEnum {
     RUNNING(1L, "执行中"),
     SUCCESS(2L, "成功"),
     FAILED(3L, "失败"),
-    STOPPING(4L, "手动中止");
+    STOPPING(4L, "手动中止"),
+    /** 同日优先级让位（03 设计 §7.3）：当日被同类高优先级行覆盖，整行不执行留痕；非 SUCCESS，报表天然排除。 */
+    SKIPPED(5L, "让位未执行");
 
     @Getter
     private final Long code;

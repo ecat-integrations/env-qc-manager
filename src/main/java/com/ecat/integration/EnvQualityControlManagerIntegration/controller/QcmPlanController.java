@@ -1,9 +1,11 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.controller;
 
+import com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto.CollectionCreateDto;
 import com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto.PlanEstimateDto;
 import com.ecat.integration.EnvQualityControlManagerIntegration.controller.dto.PlanSaveDto;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmPlanService;
+import com.ecat.integration.EnvQualityControlManagerIntegration.service.PlanCollectionFactory;
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
@@ -36,6 +38,9 @@ public class QcmPlanController extends BaseController {
 
     @Autowired
     private IQcmPlanService qcmPlanService;
+
+    @Autowired
+    private PlanCollectionFactory planCollectionFactory;
 
     /**
      * 查询计划列表（status/qcType/planName 筛选，FR-01-25；出参含调度摘要/next/last）
@@ -70,6 +75,21 @@ public class QcmPlanController extends BaseController {
     public AjaxResult add(@RequestBody PlanSaveDto dto) {
         try {
             return success(qcmPlanService.save(dto, getUsername()));
+        } catch (IllegalArgumentException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    /**
+     * 集合快捷方式创建（03 设计 §6 工厂）：一次展开「同时零点 + 逐气跨度」多行计划；
+     * created=false 为间隔预警拦截（前端确认后携 force 重提），行级校验错误一次带全。
+     */
+    @PreAuthorize("@ss.hasPermi('quality_control:plan:add')")
+    @Log(title = "质控任务计划", businessType = BusinessType.INSERT)
+    @PostMapping("/collection")
+    public AjaxResult createCollection(@RequestBody CollectionCreateDto dto) {
+        try {
+            return success(planCollectionFactory.createCollection(dto, getUsername()));
         } catch (IllegalArgumentException e) {
             return error(e.getMessage());
         }

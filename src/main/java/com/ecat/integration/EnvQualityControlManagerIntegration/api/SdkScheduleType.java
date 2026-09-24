@@ -18,5 +18,8 @@ public enum SdkScheduleType {
     MONTHLY,
 
     /** 一次性指定时刻触发（onceAt） */
-    ONCE
+    ONCE,
+
+    /** 每 intervalDays 天固定时刻触发（1..31；anchorDate 为服务端写入的起算锚点日） */
+    INTERVAL
 }

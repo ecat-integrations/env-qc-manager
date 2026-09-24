@@ -100,9 +100,6 @@
             :color="getPhaseStatusColor(row.executionStatus)"
             size="large"
           >
-            <template #icon>
-              <el-icon><VideoPlay /></el-icon>
-            </template>
             <div class="timeline-content">
               <h4>开始</h4>
 
@@ -113,11 +110,11 @@
           <el-timeline-item
             v-for="(phase, index) in phaseList"
             :key="(phase.phaseCode || phase.phaseId || 'p') + '-' + index"
-            :type="phaseTimelineType(phase)"
-            :color="phaseTimelineColor(phase)"
             :timestamp="phaseTimelineTimestamp(phase)"
           >
-            <template #icon>
+            <!-- 相位状态图标经 #dot 插槽渲染（el-timeline-item 仅支持 dot 自定义节点插槽）：
+                 图标即轴点本体，状态色由修饰类承载（spin 蓝/done 绿/fail 红/pending 灰） -->
+            <template #dot>
               <el-icon v-if="phase.state === 'active'" class="qc-phase-icon qc-phase-icon--spin"><Loading /></el-icon>
               <el-icon v-else-if="phase.state === 'failed'" class="qc-phase-icon qc-phase-icon--fail"><CircleClose /></el-icon>
               <el-icon v-else-if="phase.state === 'completed'" class="qc-phase-icon qc-phase-icon--done"><CircleCheck /></el-icon>
@@ -148,9 +145,6 @@
             color="#67C23A"
             size="large"
           >
-            <template #icon>
-              <el-icon><CircleCheck /></el-icon>
-            </template>
             <div class="timeline-content">
               <h4>成功结束</h4>
             </div>
@@ -162,9 +156,6 @@
             color="#F56C6C"
             size="large"
           >
-            <template #icon>
-              <el-icon><CircleClose /></el-icon>
-            </template>
             <div class="timeline-content">
               <h4>失败结束</h4>
               <p v-if="row.resultEvaluation" class="failure-reason">
@@ -179,9 +170,6 @@
             color="#E6A23C"
             size="large"
           >
-            <template #icon>
-              <el-icon><CircleClose /></el-icon>
-            </template>
             <div class="timeline-content timeline-content--aborted">
               <h4>手动中止</h4>
               <p v-if="row.resultEvaluation" class="abort-reason">
@@ -219,7 +207,7 @@
 
 <script setup name="ExecutionLogDetailDialog">
 import { getCurrentInstance, nextTick, ref, computed } from 'vue';
-import { VideoPlay, CircleCheck, CircleClose, Loading, Clock } from '@element-plus/icons-vue';
+import { CircleCheck, CircleClose, Loading, Clock } from '@element-plus/icons-vue';
 import { getRecords, getExecutionPhases } from '@/api/quality_control/records';
 import { useExecutionPolling } from '../../composables/useExecutionPolling';
 import QcRecordProcessPanel from './QcRecordProcessPanel.vue';
@@ -1040,38 +1028,6 @@ function phaseTimelineTimestamp(phase) {
   return '';
 }
 
-function phaseTimelineType(phase) {
-  if (!phase) {
-    return 'info';
-  }
-  if (phase.state === 'failed') {
-    return 'danger';
-  }
-  if (phase.state === 'active') {
-    return 'primary';
-  }
-  if (phase.state === 'completed') {
-    return 'success';
-  }
-  return 'info';
-}
-
-function phaseTimelineColor(phase) {
-  if (!phase) {
-    return '#C0C4CC';
-  }
-  if (phase.state === 'failed') {
-    return '#F56C6C';
-  }
-  if (phase.state === 'active') {
-    return '#409EFF';
-  }
-  if (phase.state === 'completed') {
-    return '#67C23A';
-  }
-  return '#C0C4CC';
-}
-
 // 获取阶段状态颜色
 function getPhaseStatusColor(status) {
   // 状态为0-等待中，1-执行中，2-成功，3-失败，4-手动中止
@@ -1345,8 +1301,16 @@ defineExpose({ open });
   border-radius: 4px;
 }
 
+/* 相位状态图标 = 轴点本体（#dot 插槽下 EP 不再渲染默认圆点节点）：
+   14px 与节点尺寸同级可读；修正 dot 盒左/上偏移使图标中心对齐轴线（tail left 4px+2px 边框，
+   节点默认中心 x=6px）与节点纵向中心 y=6px */
+.phase-section .custom-timeline .el-timeline-item__dot {
+  left: -1px;
+  top: -1px;
+}
+
 .qc-phase-icon {
-  font-size: 18px;
+  font-size: 14px;
 }
 
 .qc-phase-icon--spin {

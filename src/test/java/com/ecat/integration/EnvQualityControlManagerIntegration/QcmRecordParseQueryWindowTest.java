@@ -1,6 +1,9 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration;
 
+import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -15,12 +18,23 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * 查询时间窗桥接（params[end_time 窗]/params[start_time 窗] → 直字段 Instant）解析测试。
+ * 解析时区源 = ecat 平台时区（DateTimeUtils），显式钉住为东八区，断言不依赖运行机器时区。
  *
  * @author coffee
  */
 class QcmRecordParseQueryWindowTest {
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
+
+    @BeforeEach
+    void pinPlatformZone() {
+        DateTimeUtils.setZone(ZONE);
+    }
+
+    @AfterEach
+    void restorePlatformZone() {
+        DateTimeUtils.setZone(ZoneId.systemDefault());
+    }
 
     @Test
     void parseQueryWindow_legalFormatParsesToInstant() {
@@ -32,6 +46,15 @@ class QcmRecordParseQueryWindowTest {
         // null / 空串 = 未提交该键
         assertNull(QcmRecord.parseQueryWindow("beginEndTime", null));
         assertNull(QcmRecord.parseQueryWindow("beginEndTime", "  "));
+    }
+
+    @Test
+    void parseQueryWindow_followsPlatformZoneNotHardcoded() {
+        // 时区跟随锁：平台时区切到 UTC 后，同一墙钟串解析出的 Instant 必须随 UTC 走。
+        // 若实现回退为硬编码 Asia/Shanghai，本用例红（东八解析出的 Instant 比 UTC 早 8 小时）。
+        DateTimeUtils.setZone(ZoneId.of("UTC"));
+        Instant expectedUtc = LocalDateTime.of(2026, 8, 20, 0, 0, 0).atZone(ZoneId.of("UTC")).toInstant();
+        assertEquals(expectedUtc, QcmRecord.parseQueryWindow("beginEndTime", "2026-08-20 00:00:00"));
     }
 
     @Test

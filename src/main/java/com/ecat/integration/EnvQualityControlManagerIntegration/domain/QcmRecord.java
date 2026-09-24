@@ -1,12 +1,12 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.domain;
 
+import com.ecat.core.Utils.DateTimeUtils;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Map;
@@ -23,10 +23,10 @@ import java.util.Map;
 public class QcmRecord {
 
     /**
-     * 查询串时间窗解析时区（与前端 el-date-picker 提交的本地时间一致）。
-     * 与 EnvQualityControlGenReportTask.ZONE / ReportGenerator.QC_REPORT_ZONE 同值不合并：查询窗、调度窗、报表归日三个域各自独立演进。
+     * 查询串时间窗按 ecat 平台时区解析（与前端 el-date-picker 提交的本地时间一致）：
+     * 取 {@code DateTimeUtils.getZone()}（每次调用取，平台时区启动时从配置加载、volatile 可变，
+     * 故不做成静态常量固化），与计划调度/报表归日/导出展示同源，避免 core 时区配置与各域漂移。
      */
-    public static final ZoneId QUERY_WINDOW_ZONE = ZoneId.of("Asia/Shanghai");
 
     /** 前端 el-date-picker value-format="YYYY-MM-DD HH:mm:ss" 提交的时间串格式 */
     public static final DateTimeFormatter QUERY_WINDOW_FORMATTER =
@@ -185,7 +185,7 @@ public class QcmRecord {
     private Map<String, Object> params;
 
     /**
-     * 解析查询时间窗串（{@code yyyy-MM-dd HH:mm:ss}，Asia/Shanghai 本地时间）为 Instant。
+     * 解析查询时间窗串（{@code yyyy-MM-dd HH:mm:ss}，平台时区本地时间）为 Instant。
      *
      * @param key   参数名（用于异常信息定位）
      * @param value 时间串
@@ -199,7 +199,7 @@ public class QcmRecord {
         String s = value.trim();
         try {
             LocalDateTime ldt = LocalDateTime.parse(s, QUERY_WINDOW_FORMATTER);
-            return ldt.atZone(QUERY_WINDOW_ZONE).toInstant();
+            return ldt.atZone(DateTimeUtils.getZone()).toInstant();
         } catch (DateTimeParseException e) {
             throw new IllegalArgumentException(
                     "params[" + key + "] 时间格式非法，期望 yyyy-MM-dd HH:mm:ss，实际: " + s, e);

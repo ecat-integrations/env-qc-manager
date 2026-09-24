@@ -3,11 +3,14 @@ package com.ecat.integration.EnvQualityControlManagerIntegration.service;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.integration.EnvCalibrationComposerIntegration.AbstractCalibrationFlow;
+import com.ecat.integration.EnvCalibrationComposerIntegration.CheckResult;
+import com.ecat.integration.EnvCalibrationComposerIntegration.CheckStatus;
 import com.ecat.integration.EnvCalibrationComposerIntegration.EnvCalibrationComposerIntegration;
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorResultBase;
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorStoppedException;
 import com.ecat.integration.EnvCalibrationComposerIntegration.MissingDevice;
 import com.ecat.integration.EnvCalibrationComposerIntegration.ExecutorType;
+import com.ecat.integration.EnvCalibrationComposerIntegration.MultiZeroCheckResult;
 import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseExecutionRecord;
 import com.ecat.integration.EnvCalibrationComposerIntegration.PhaseInfo;
 import com.ecat.integration.EnvQualityControlManagerIntegration.EnvQualityControlManagerIntegration;
@@ -35,6 +38,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -43,8 +47,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -96,9 +102,9 @@ class QcmExecutionOrchestratorTest {
         when(registry.getIntegration("integration-env-qc-manager")).thenReturn(entry);
         formatter = mock(QcResultFormatter.class);
         when(formatter.supports(anyString())).thenReturn(true);
-        when(formatter.format(any(), any(), any(), anyString(), org.mockito.ArgumentMatchers.anyLong()))
+        when(formatter.format(any(), any(), any(), anyString(), anyLong()))
                 .thenReturn("{}");
-        when(formatter.formatStub(any(), any(), any(), anyString(), org.mockito.ArgumentMatchers.anyLong()))
+        when(formatter.formatStub(any(), any(), any(), anyString(), anyLong()))
                 .thenReturn("{}");
         snapshotWriter = mock(ResultSnapshotWriter.class);
         orchestrator = new QcmExecutionOrchestrator(recordService, planMapper, recordMapper, core, snapshotWriter);
@@ -191,6 +197,21 @@ class QcmExecutionOrchestratorTest {
         // 单仪器 flow 只注册一次，但批次全部行都挂到 executorMap
         assertEquals(3, entry.executorMap.size());
         verify(composer, times(1)).execute(any(ExecutorType.class), anyString(), any(Map.class));
+    }
+
+    /** RUNNING 受理行 endTime 必须留空：end_time 的列义是「结束时刻」，运行中行没有结束时刻，
+     *  受理即写等于拿受理时刻冒充结束时刻（报表结束时刻展示、耗时推算都会失真）；真实结束
+     *  时刻由终态回调（bridge 各终态路径 setEndTime）或终止 SQL 回填。 */
+    @Test
+    void runningAcceptance_endTimeStaysNull() {
+        stubIdleAndRunningFlow();
+        BatchResult result = orchestrator.triggerExecution(
+                singleInstrumentRequest().build(), TriggerSource.MANUAL, "user");
+        assertEquals(BatchResult.Status.ACCEPTED, result.getStatus());
+        // 捕获的插入对象与 markBatch 更新共用同一引用：受理推进 RUNNING 后 endTime 仍须为空
+        QcmRecord inserted = captureInsertedBatch(1).get(0);
+        assertEquals(ExecutionStatusEnum.RUNNING.getCode().intValue(), inserted.getExecutionStatus().intValue());
+        assertNull(inserted.getEndTime());
     }
 
     // ---------- 钢瓶气一本账（2026-09-18 定案）：受理定格 gas 四列，qcm_record 为唯一真相源 ----------
@@ -452,8 +473,8 @@ class QcmExecutionOrchestratorTest {
         // stub 通道被调用（phaseRecords 保留），非裸异常格式通道不被调用
         ArgumentCaptor<ExecutorResultBase> stubCaptor = ArgumentCaptor.forClass(ExecutorResultBase.class);
         verify(formatter, times(1)).formatStub(any(), any(), stubCaptor.capture(), anyString(),
-                org.mockito.ArgumentMatchers.anyLong());
-        verify(formatter, never()).format(any(), any(), any(), anyString(), org.mockito.ArgumentMatchers.anyLong());
+                anyLong());
+        verify(formatter, never()).format(any(), any(), any(), anyString(), anyLong());
         assertEquals(1, stubCaptor.getValue().getPhaseRecords().size());
 
         ArgumentCaptor<QcmRecord> recordCaptor = ArgumentCaptor.forClass(QcmRecord.class);
@@ -465,31 +486,43 @@ class QcmExecutionOrchestratorTest {
         assertEquals("zero check aborted by device", terminal.getResultEvaluation());
     }
 
-    // ---------- multi_zero_check 中间态：EXECUTOR_TYPE_NOT_READY（FR-02-14，Phase 4） ----------
+    // ---------- multi_zero_check 解闸受理 + 逐气分发（composer 已接线 MULTI_ZERO_CHECK） ----------
 
     @Test
-    void multiZeroCheck_rejectedNotReady_NFailedRecords_noComposerExecute() {
+    void multiZeroCheck_acceptedFourGasBatch_executesMultiFlow() {
+        stubIdleAndRunningFlow();
         QcExecutionRequest req = QcExecutionRequest.builder()
                 .qcType("multi_zero_check")
-                .instruments(java.util.Arrays.asList("SO2", "NO2", "CO", "O3"))
+                .instruments(Arrays.asList("SO2", "NO2", "CO", "O3"))
                 .planSnapshotJson("{\"planName\":\"零点质控-全部仪器\"}")
                 .build();
+
         BatchResult result = orchestrator.triggerExecution(req, TriggerSource.SCHEDULED, "system");
-        assertEquals(BatchResult.Status.REJECTED_EXECUTOR_TYPE_NOT_READY, result.getStatus());
-        assertEquals("EXECUTOR_TYPE_NOT_READY", result.getFailureReason());
+
+        assertEquals(BatchResult.Status.ACCEPTED, result.getStatus());
         assertEquals(4, result.getRecordIds().size());
-        // 闸前拒绝：不查互斥闸、不触达 composer execute
-        verify(composer, never()).isRunning();
-        verify(composer, never()).execute(any(ExecutorType.class), anyString());
-        verify(composer, never()).execute(any(ExecutorType.class), anyString(), any(Map.class));
-        ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
-        verify(recordService, times(4)).updateQcmRecord(captor.capture());
-        for (QcmRecord r : captor.getAllValues()) {
-            assertEquals(ExecutionStatusEnum.FAILED.getCode().intValue(), r.getExecutionStatus());
-            assertEquals("EXECUTOR_TYPE_NOT_READY", r.getFailureReason());
-            assertEquals("多仪器零点 flow 未接线", r.getExecutionLog());
-            assertNotNull(r.getEndTime());
+        // 台账形状：N 行零点码（与单气零点同报表配对域）+ multi flow 溯源 + 同 batch + 气种 parameter 代码
+        List<QcmRecord> inserted = captureInsertedBatch(4);
+        String batchId = inserted.get(0).getBatchId();
+        String[] expectedParameters = {"1", "2", "4", "3"};
+        for (int i = 0; i < 4; i++) {
+            assertEquals("0", inserted.get(i).getQualityControlType(), "multi 台账行落零点码 0");
+            assertEquals("air.monitor.calibration.multi_zero_check", inserted.get(i).getFlowType());
+            assertEquals(batchId, inserted.get(i).getBatchId());
+            assertEquals(expectedParameters[i], inserted.get(i).getParameter());
         }
+        // execute 契约：真枚举 MULTI_ZERO_CHECK + 名义首气（设备解析不依赖 gas）+ gas key 列表
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> paramsCaptor = ArgumentCaptor.forClass((Class) Map.class);
+        verify(composer).execute(eq(ExecutorType.getEnum("air.monitor.calibration.multi_zero_check")),
+                eq("so2"), paramsCaptor.capture());
+        Object instruments = paramsCaptor.getValue().get("instruments");
+        assertTrue(instruments instanceof List, "instruments 必须 List<String> 直传，不得 JSON 化");
+        assertEquals(Arrays.asList("so2", "no", "co", "o3"), instruments);
+        assertEquals(0f, paramsCaptor.getValue().get("spanConcentrationPpb"));
+        assertEquals(5f, paramsCaptor.getValue().get("flowRateLpm"));
+        assertFalse(paramsCaptor.getValue().containsKey("calibrationPolicy"),
+                "null 策略不落键（composer 缺省 STANDARD）");
     }
 
     @Test
@@ -498,19 +531,20 @@ class QcmExecutionOrchestratorTest {
         plan.setId(21L);
         plan.setScheduleType("ONCE");
         when(planMapper.selectById(21L)).thenReturn(plan);
+        stubIdleAndRunningFlow();
         QcExecutionRequest req = QcExecutionRequest.builder()
                 .qcType("multi_zero_check")
                 .instruments(Collections.singletonList("SO2"))
                 .planId(21L)
                 .build();
         BatchResult result = orchestrator.triggerExecution(req, TriggerSource.MANUAL, "user");
-        assertEquals(BatchResult.Status.REJECTED_EXECUTOR_TYPE_NOT_READY, result.getStatus());
+        assertEquals(BatchResult.Status.ACCEPTED, result.getStatus());
         verify(planMapper).updateStatus(21L, "FINISHED", "qcm-orchestrator");
     }
 
     @Test
     void multiZeroCheck_idleComposer_unaffected_zeroCheckRegression() {
-        // 零点单仪器回归：NOT_READY 闸只拦 multi_zero_check，zero_check 照常受理
+        // 零点单仪器回归：multi 解闸不扰单仪器类型，zero_check 照常受理
         stubIdleAndRunningFlow();
         BatchResult result = orchestrator.triggerExecution(
                 singleInstrumentRequest().build(), TriggerSource.MANUAL, "user");
@@ -518,12 +552,142 @@ class QcmExecutionOrchestratorTest {
         verify(composer, times(1)).execute(eq(ExecutorType.ZERO_CHECK), anyString(), any(Map.class));
     }
 
+    @Test
+    void multiZeroCheck_dispatchMatrix_perGasTerminalStates() {
+        CompletableFuture<ExecutorResultBase> future = new CompletableFuture<>();
+        when(composer.isRunning()).thenReturn(false);
+        when(composer.getRunningExecutor()).thenReturn(mock(AbstractCalibrationFlow.class));
+        when(composer.execute(any(ExecutorType.class), anyString(), any(Map.class))).thenReturn(future);
+        QcExecutionRequest req = QcExecutionRequest.builder()
+                .qcType("multi_zero_check")
+                .instruments(Arrays.asList("SO2", "NO2", "CO", "O3"))
+                .build();
+        orchestrator.triggerExecution(req, TriggerSource.MANUAL, "user");
+
+        // 信封四气分态：正常通过 / 线级出局（status=null+isException）/ NO_DATA / 判定未通过
+        MultiZeroCheckResult envelope = new MultiZeroCheckResult();
+        envelope.getGasResults().put("so2", new CheckResult(CheckStatus.PASS, 1.2f));
+        CheckResult outLine = new CheckResult();
+        outLine.setErrorMessage("NOx 线下发超时");
+        envelope.getGasResults().put("no", outLine);
+        envelope.getGasResults().put("co", new CheckResult(CheckStatus.NO_DATA, null));
+        envelope.getGasResults().put("o3", new CheckResult(CheckStatus.EXCEED_LIMIT, 9.9f));
+        List<PhaseExecutionRecord> sharedPhases = Collections.singletonList(
+                new PhaseExecutionRecord("p1", "阶段一", Instant.now(), Instant.now(), 10));
+        envelope.setPhaseRecords(sharedPhases);
+        future.complete(envelope);
+
+        // 出局线走 formatStub、他线走 format，且子结果共享信封级 phaseRecords（时间线唯一事实源）
+        ArgumentCaptor<ExecutorResultBase> subCaptor = ArgumentCaptor.forClass(ExecutorResultBase.class);
+        verify(formatter, times(3)).format(any(), any(), subCaptor.capture(), eq("0"), anyLong());
+        verify(formatter, times(1)).formatStub(any(), any(), any(), eq("0"), anyLong());
+        for (ExecutorResultBase sub : subCaptor.getAllValues()) {
+            assertEquals(1, sub.getPhaseRecords().size(), "子结果须共享信封级 phaseRecords");
+        }
+        // 每行 logParams 指向本行气种（白名单 parameter/gas 覆盖首气默认值）
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> paramsCaptor = ArgumentCaptor.forClass((Class) Map.class);
+        verify(formatter, times(3)).format(any(), paramsCaptor.capture(), any(), eq("0"), anyLong());
+        assertEquals(Arrays.asList("SO2", "CO", "O3"), paramsCaptor.getAllValues().stream()
+                .map(p -> p.get("parameter")).collect(Collectors.toList()));
+
+        // 4 行受理 RUNNING + 4 行终态；按气种代码核对分态终局
+        ArgumentCaptor<QcmRecord> recordCaptor = ArgumentCaptor.forClass(QcmRecord.class);
+        verify(recordService, times(8)).updateQcmRecord(recordCaptor.capture());
+        Map<String, QcmRecord> byParameter = new LinkedHashMap<>();
+        for (QcmRecord r : recordCaptor.getAllValues().subList(4, 8)) {
+            byParameter.put(r.getParameter(), r);
+        }
+        QcmRecord so2 = byParameter.get("1");
+        assertEquals(ExecutionStatusEnum.SUCCESS.getCode().intValue(), so2.getExecutionStatus());
+        assertTrue(so2.getResultEvaluation().contains("已通过"), so2.getResultEvaluation());
+        QcmRecord no2 = byParameter.get("2");
+        assertEquals(ExecutionStatusEnum.FAILED.getCode().intValue(), no2.getExecutionStatus());
+        assertEquals("NOx 线下发超时", no2.getResultEvaluation());
+        assertNull(no2.getFailureReason(), "线级出局是执行结局不是结构化拒绝码");
+        QcmRecord co = byParameter.get("4");
+        assertEquals(ExecutionStatusEnum.SUCCESS.getCode().intValue(), co.getExecutionStatus());
+        assertTrue(co.getResultEvaluation().contains("未通过"), co.getResultEvaluation());
+        QcmRecord o3 = byParameter.get("3");
+        assertEquals(ExecutionStatusEnum.SUCCESS.getCode().intValue(), o3.getExecutionStatus());
+        assertTrue(o3.getResultEvaluation().contains("未通过"), o3.getResultEvaluation());
+        // 批内执行器登记全数清账（停止批次级寻址依赖的登记面）
+        assertTrue(entry.executorMap.isEmpty());
+    }
+
+    // ---------- A7 execution_log 留痕：logParams 白名单含 calibrationPolicy（非空落/null 不落，与 flowParams 同构） ----------
+
+    @Test
+    void executionLogParams_carryCalibrationPolicy_whenPresent() {
+        CompletableFuture<ExecutorResultBase> future = new CompletableFuture<>();
+        when(composer.isRunning()).thenReturn(false);
+        when(composer.getRunningExecutor()).thenReturn(mock(AbstractCalibrationFlow.class));
+        when(composer.execute(any(ExecutorType.class), anyString(), any(Map.class))).thenReturn(future);
+        orchestrator.triggerExecution(singleInstrumentRequest()
+                .calibrationPolicy("CALIBRATE_LOW_DRIFT").build(), TriggerSource.MANUAL, "user");
+        future.complete(new CheckResult(CheckStatus.PASS, 1.2f));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> logCaptor = ArgumentCaptor.forClass((Class) Map.class);
+        verify(formatter).format(any(), logCaptor.capture(), any(), anyString(),
+                anyLong());
+        assertEquals("CALIBRATE_LOW_DRIFT", logCaptor.getValue().get("calibrationPolicy"),
+                "A7：策略非空时 execution_log 任务参数须能反推当时策略");
+    }
+
+    @Test
+    void executionLogParams_noPolicyKey_whenNull() {
+        CompletableFuture<ExecutorResultBase> future = new CompletableFuture<>();
+        when(composer.isRunning()).thenReturn(false);
+        when(composer.getRunningExecutor()).thenReturn(mock(AbstractCalibrationFlow.class));
+        when(composer.execute(any(ExecutorType.class), anyString(), any(Map.class))).thenReturn(future);
+        orchestrator.triggerExecution(singleInstrumentRequest().build(), TriggerSource.MANUAL, "user");
+        future.complete(new CheckResult(CheckStatus.PASS, 1.2f));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> logCaptor = ArgumentCaptor.forClass((Class) Map.class);
+        verify(formatter).format(any(), logCaptor.capture(), any(), anyString(),
+                anyLong());
+        assertFalse(logCaptor.getValue().containsKey("calibrationPolicy"),
+                "null 策略不落键（STANDARD 缺省语义，与 flowParams 同构）");
+    }
+
+    @Test
+    void multiZeroCheck_missingEnvelopeKeyFailsWholeBatchLoudly() {
+        CompletableFuture<ExecutorResultBase> future = new CompletableFuture<>();
+        when(composer.isRunning()).thenReturn(false);
+        AbstractCalibrationFlow flow = mock(AbstractCalibrationFlow.class);
+        when(flow.getExecutorPhases()).thenReturn(Collections.emptyList());
+        when(composer.getRunningExecutor()).thenReturn(flow);
+        when(composer.execute(any(ExecutorType.class), anyString(), any(Map.class))).thenReturn(future);
+        QcExecutionRequest req = QcExecutionRequest.builder()
+                .qcType("multi_zero_check")
+                .instruments(Arrays.asList("SO2", "NO2"))
+                .build();
+        orchestrator.triggerExecution(req, TriggerSource.MANUAL, "user");
+
+        MultiZeroCheckResult envelope = new MultiZeroCheckResult();
+        envelope.getGasResults().put("so2", new CheckResult(CheckStatus.PASS, 1.0f));
+        future.complete(envelope);
+
+        // 契约破裂（信封缺该气子结果）：先于任何行落库抛出，整批走通用异常通道 FAILED 留因
+        ArgumentCaptor<QcmRecord> captor = ArgumentCaptor.forClass(QcmRecord.class);
+        verify(recordService, times(4)).updateQcmRecord(captor.capture());
+        for (QcmRecord r : captor.getAllValues().subList(2, 4)) {
+            assertEquals(ExecutionStatusEnum.FAILED.getCode().intValue(), r.getExecutionStatus());
+            assertTrue(r.getResultEvaluation().contains("校准任务过程异常"), r.getResultEvaluation());
+            assertTrue(r.getResultEvaluation().contains("gasKey=no"),
+                    "须点名缺失 gas key 便于定位: " + r.getResultEvaluation());
+        }
+        assertTrue(entry.executorMap.isEmpty());
+    }
+
     // ---------- buildFlowParams（G-BUG-16：zero/span 丢 durationOverrides） ----------
 
     @Test
     void buildFlowParamsZeroCheckIncludesDurationOverrides() {
         QcExecutionRequest req = singleInstrumentRequest()
-                .durationOverrides(new java.util.LinkedHashMap<>())
+                .durationOverrides(new LinkedHashMap<>())
                 .build();
         req.getDurationOverrides().put("sampleCount", 20);
         req.getDurationOverrides().put("stableTimeSeconds", 600);
@@ -540,7 +704,7 @@ class QcmExecutionOrchestratorTest {
                 .qcType("span_check")
                 .instruments(Collections.singletonList("SO2"))
                 .concentrationPpb(BigDecimal.valueOf(400))
-                .durationOverrides(new java.util.LinkedHashMap<>())
+                .durationOverrides(new LinkedHashMap<>())
                 .build();
         req.getDurationOverrides().put("sampleCount", 20);
         req.getDurationOverrides().put("stableTimeSeconds", 600);
@@ -549,6 +713,77 @@ class QcmExecutionOrchestratorTest {
         assertEquals(400f, flowParams.get("spanConcentrationPpb"));
         assertEquals(20, flowParams.get("sampleCount"));
         assertEquals(600, flowParams.get("stableTimeSeconds"));
+    }
+
+    @Test
+    void buildFlowParamsMultiZeroCheckShape() {
+        QcExecutionRequest req = QcExecutionRequest.builder()
+                .qcType("multi_zero_check")
+                .instruments(Arrays.asList("SO2", "NO2"))
+                .durationOverrides(new LinkedHashMap<>())
+                .build();
+        req.getDurationOverrides().put("sampleCount", 20);
+        Map<String, Object> flowParams = QcmExecutionOrchestrator.buildFlowParams(req,
+                QualityControlTypeEnum.MULTI_ZERO_CHECK);
+        assertEquals(Arrays.asList("so2", "no"), flowParams.get("instruments"));
+        assertEquals(0f, flowParams.get("spanConcentrationPpb"));
+        assertEquals(5f, flowParams.get("flowRateLpm"));
+        assertEquals(20, flowParams.get("sampleCount"));
+        assertFalse(flowParams.containsKey("calibrationPolicy"), "null 策略不落键（composer 缺省 STANDARD）");
+    }
+
+    @Test
+    void buildFlowParamsMultiZeroCheckPolicyAndFlowOverride() {
+        QcExecutionRequest req = QcExecutionRequest.builder()
+                .qcType("multi_zero_check")
+                .instruments(Collections.singletonList("CO"))
+                .flowRateLpm(BigDecimal.valueOf(4.5))
+                .calibrationPolicy("CALIBRATE_LOW_DRIFT")
+                .build();
+        Map<String, Object> flowParams = QcmExecutionOrchestrator.buildFlowParams(req,
+                QualityControlTypeEnum.MULTI_ZERO_CHECK);
+        assertEquals(Collections.singletonList("co"), flowParams.get("instruments"));
+        assertEquals(4.5f, flowParams.get("flowRateLpm"));
+        assertEquals("CALIBRATE_LOW_DRIFT", flowParams.get("calibrationPolicy"));
+    }
+
+    // ---------- A6：策略三 flow 均生效（zero/span 透传；人工核查不受影响） ----------
+
+    @Test
+    void buildFlowParamsZeroCheckPolicyPassedThrough() {
+        QcExecutionRequest req = singleInstrumentRequest()
+                .calibrationPolicy("CALIBRATE_LOW_DRIFT")
+                .build();
+        Map<String, Object> flowParams = QcmExecutionOrchestrator.buildFlowParams(req,
+                QualityControlTypeEnum.ZERO_CHECK);
+        assertEquals("CALIBRATE_LOW_DRIFT", flowParams.get("calibrationPolicy"));
+    }
+
+    @Test
+    void buildFlowParamsSpanCheckPolicyPassedThrough() {
+        QcExecutionRequest req = QcExecutionRequest.builder()
+                .qcType("span_check")
+                .instruments(Collections.singletonList("SO2"))
+                .concentrationPpb(BigDecimal.valueOf(400))
+                .calibrationPolicy("CALIBRATE_LOW_DRIFT")
+                .build();
+        Map<String, Object> flowParams = QcmExecutionOrchestrator.buildFlowParams(req,
+                QualityControlTypeEnum.SPAN_CHECK);
+        assertEquals("CALIBRATE_LOW_DRIFT", flowParams.get("calibrationPolicy"));
+    }
+
+    @Test
+    void buildFlowParamsAuditSpanCheckPolicyNotPassedThrough() {
+        QcExecutionRequest req = QcExecutionRequest.builder()
+                .qcType("audit_span_check")
+                .instruments(Collections.singletonList("SO2"))
+                .concentrationPpb(BigDecimal.valueOf(400))
+                .calibrationPolicy("CALIBRATE_LOW_DRIFT")
+                .build();
+        Map<String, Object> flowParams = QcmExecutionOrchestrator.buildFlowParams(req,
+                QualityControlTypeEnum.AUDIT_SPAN_CHECK);
+        assertFalse(flowParams.containsKey("calibrationPolicy"),
+                "人工核查 flow 不受校准策略影响（验收 A6）");
     }
 
     // ---------- §4.0.1 trigger_request_id + §4.0 完成时快照冻结 ----------
@@ -574,7 +809,7 @@ class QcmExecutionOrchestratorTest {
                 + "\"estimatedSeconds\":300,\"startTimeMillis\":1700000000000,\"endTimeMillis\":1700000100000}],"
                 + "\"keyParametersSnapshot\":[{\"tName\":\"主浓度\",\"tValue\":\"102.5 ppb\",\"tRange\":\"80~120\"}],"
                 + "\"keyParametersSamplingWindow\":{\"startTimeMillis\":1700000000000,\"endTimeMillis\":1700000100000}}";
-        when(formatter.format(any(), any(), any(), anyString(), org.mockito.ArgumentMatchers.anyLong()))
+        when(formatter.format(any(), any(), any(), anyString(), anyLong()))
                 .thenReturn(logJson);
         ExecutorResultBase pass = new ExecutorResultBase(true, false);
         CompletableFuture<ExecutorResultBase> future = new CompletableFuture<>();
@@ -591,7 +826,7 @@ class QcmExecutionOrchestratorTest {
         verify(snapshotWriter).freezeResultSnapshot(eq(100L), eq("air.monitor.calibration.zero_check"),
                 judgementCaptor.capture(), any(List.class), any(List.class),
                 eq(Instant.ofEpochMilli(1700000000000L)), eq(Instant.ofEpochMilli(1700000100000L)),
-                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                anyLong(), anyString(),
                 isNull());
         Map<String, Object> judgement = judgementCaptor.getValue();
         assertEquals(100.5, ((Number) judgement.get("stdValue")).doubleValue(), 1e-9);
@@ -601,7 +836,7 @@ class QcmExecutionOrchestratorTest {
     @Test
     void successCallback_flowExecutionRefUsesTriggerTimeMillis() {
         String logJson = "{\"result\":{},\"statusMap\":{\"isPass\":true}}";
-        when(formatter.format(any(), any(), any(), anyString(), org.mockito.ArgumentMatchers.anyLong()))
+        when(formatter.format(any(), any(), any(), anyString(), anyLong()))
                 .thenReturn(logJson);
         ExecutorResultBase pass = new ExecutorResultBase(true, false);
         CompletableFuture<ExecutorResultBase> future = new CompletableFuture<>();
@@ -617,7 +852,7 @@ class QcmExecutionOrchestratorTest {
         org.mockito.ArgumentCaptor<Long> millisCaptor = org.mockito.ArgumentCaptor.forClass(Long.class);
         verify(snapshotWriter).freezeResultSnapshot(eq(100L), anyString(), any(Map.class),
                 any(List.class), any(List.class), isNull(), isNull(), millisCaptor.capture(),
-                org.mockito.ArgumentMatchers.anyString(), isNull());
+                anyString(), isNull());
         assertTrue(millisCaptor.getValue() >= before && millisCaptor.getValue() <= after,
                 "flowStartMillis 应取受理时刻");
     }
@@ -626,9 +861,9 @@ class QcmExecutionOrchestratorTest {
     void busyConflict_neverFreezesSnapshot() {
         when(composer.isRunning()).thenReturn(true);
         orchestrator.triggerExecution(singleInstrumentRequest().build(), TriggerSource.SCHEDULED, "system");
-        verify(snapshotWriter, never()).freezeResultSnapshot(org.mockito.ArgumentMatchers.anyLong(),
+        verify(snapshotWriter, never()).freezeResultSnapshot(anyLong(),
                 anyString(), any(Map.class), any(List.class), any(List.class),
-                isNull(), isNull(), org.mockito.ArgumentMatchers.anyLong(),
+                isNull(), isNull(), anyLong(),
                 org.mockito.ArgumentMatchers.any(), isNull());
     }
 
@@ -779,9 +1014,9 @@ class QcmExecutionOrchestratorTest {
         // 只写库不启动执行：executorMap 不挂 flow，计划推进也不参与（planId=null）
         assertTrue(entry.executorMap.isEmpty());
         verify(planMapper, never()).updateLastFireTime(any(), any(Instant.class), anyString());
-        verify(snapshotWriter, never()).freezeResultSnapshot(org.mockito.ArgumentMatchers.anyLong(),
+        verify(snapshotWriter, never()).freezeResultSnapshot(anyLong(),
                 anyString(), any(Map.class), any(List.class), any(List.class),
-                isNull(), isNull(), org.mockito.ArgumentMatchers.anyLong(),
+                isNull(), isNull(), anyLong(),
                 org.mockito.ArgumentMatchers.any(), isNull());
     }
 
@@ -1088,7 +1323,7 @@ class QcmExecutionOrchestratorTest {
 
         ArgumentCaptor<ExecutorResultBase> stubCaptor = ArgumentCaptor.forClass(ExecutorResultBase.class);
         verify(formatter, times(1)).formatStub(any(), any(), stubCaptor.capture(), anyString(),
-                org.mockito.ArgumentMatchers.anyLong());
+                anyLong());
         assertEquals("流程被 tester 手动终止", stubCaptor.getValue().getErrorMessage());
         assertEquals(1, stubCaptor.getValue().getPhaseRecords().size());
         ArgumentCaptor<QcmRecord> recordCaptor = ArgumentCaptor.forClass(QcmRecord.class);
@@ -1152,5 +1387,56 @@ class QcmExecutionOrchestratorTest {
         when(recordMapper.selectStopTargetById(anyLong())).thenReturn(null);
         entry.executorMap.put(11L, mock(AbstractCalibrationFlow.class));
         assertThrows(IllegalStateException.class, () -> orchestrator.runningBatchId());
+    }
+
+    // ---------- 同日优先级让位留痕（03 设计 §7.3，验收 F1/F2 台账形状） ----------
+
+    @Test
+    void skipExecution_spanWritesSingleSkippedRecord() {
+        QcExecutionRequest req = QcExecutionRequest.builder()
+                .planId(30L)
+                .qcType("span_check")
+                .instruments(Collections.singletonList("SO2"))
+                .build();
+
+        orchestrator.skipExecution(req, "周核查-SO2-跨度");
+
+        List<QcmRecord> inserted = captureInsertedBatch(1);
+        QcmRecord row = inserted.get(0);
+        assertEquals(Long.valueOf(30L), row.getPlanId());
+        assertEquals(TriggerSource.SCHEDULED.getCode(), row.getTaskType());
+        assertEquals("system", row.getTriggerUser());
+        assertEquals(ParameterEnum.SO2.getCode(), row.getParameter());
+        // 终态留痕（受理批次 → SKIPPED）
+        ArgumentCaptor<QcmRecord> updated = ArgumentCaptor.forClass(QcmRecord.class);
+        verify(recordService).updateQcmRecord(updated.capture());
+        QcmRecord marked = updated.getValue();
+        assertEquals(ExecutionStatusEnum.SKIPPED.getCode().intValue(), marked.getExecutionStatus().intValue());
+        assertEquals("SUPPRESSED_BY_PRIORITY", marked.getFailureReason());
+        assertNotNull(marked.getEndTime());
+        assertTrue(marked.getResultEvaluation().contains("周核查-SO2-跨度"), marked.getResultEvaluation());
+        // 让位=不调 composer：不查忙、不启动 flow
+        verify(composer, never()).isRunning();
+        verify(composer, never()).execute(any(ExecutorType.class), anyString());
+        verify(composer, never()).execute(any(ExecutorType.class), anyString(), any(Map.class));
+    }
+
+    @Test
+    void skipExecution_multiZeroWritesRowShapeRecords() {
+        // multi_zero 台账形状 = N 条（parameter=各气）；让位路径不经过执行器类型闸，composer 未接线亦可留痕
+        QcExecutionRequest req = QcExecutionRequest.builder()
+                .planId(31L)
+                .qcType("multi_zero_check")
+                .instruments(Arrays.asList("SO2", "NO2"))
+                .build();
+
+        orchestrator.skipExecution(req, "周核查-四气-零点");
+
+        List<QcmRecord> inserted = captureInsertedBatch(2);
+        assertEquals(ParameterEnum.SO2.getCode(), inserted.get(0).getParameter());
+        assertEquals(ParameterEnum.NO2.getCode(), inserted.get(1).getParameter());
+        assertEquals(inserted.get(0).getBatchId(), inserted.get(1).getBatchId());
+        verify(recordService, times(2)).updateQcmRecord(any(QcmRecord.class));
+        verify(composer, never()).isRunning();
     }
 }

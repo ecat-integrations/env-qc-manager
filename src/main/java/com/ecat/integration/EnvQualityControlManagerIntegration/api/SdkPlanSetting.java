@@ -16,7 +16,9 @@ import java.util.Set;
  * SDK 不掺协议语义。</p>
  *
  * <p>调度字段与 qcm 内部 ScheduleSpec 同构：DAILY 用 hour/minute；WEEKLY 另用 weekdays
- * （1=周一..7=周日）；MONTHLY 另用 monthDays（1..31）；ONCE 用 onceAt。未涉及的集合为 null。</p>
+ * （1=周一..7=周日）；MONTHLY 另用 monthDays（1..31）；ONCE 用 onceAt；INTERVAL 另用
+ * intervalDays + anchorDate（锚点日=有效期起 planStartTime 的墙钟日，服务端派生写入）。
+ * 未涉及的调度字段为 null。</p>
  *
  * @author coffee
  */
@@ -55,6 +57,12 @@ public class SdkPlanSetting {
 
     /** 一次性触发时刻；仅 ONCE 非空 */
     Instant onceAt;
+
+    /** 间隔天数（1..31）；仅 INTERVAL 非空 */
+    Integer intervalDays;
+
+    /** 间隔起算锚点日（服务端在创建/编辑调度时写入=当日）；仅 INTERVAL 非空，消费方据此推算 fire 日序列 */
+    Instant anchorDate;
 
     /** 计划状态 */
     SdkPlanStatus status;

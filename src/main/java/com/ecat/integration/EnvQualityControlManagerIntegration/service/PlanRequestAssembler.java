@@ -39,6 +39,7 @@ public final class PlanRequestAssembler {
                 .pointPercents(parsePointPercents(plan.getPointPercents()))
                 .flowRateLpm(plan.getFlowRateLpm())
                 .durationOverrides(parseDurationOverrides(plan.getDurationOverrides()))
+                .calibrationPolicy(plan.getCalibrationPolicy())
                 .planSnapshotJson(buildSnapshotJson(plan))
                 .build();
     }

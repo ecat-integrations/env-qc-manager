@@ -16,6 +16,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="flowRateLpm"    column="flow_rate_lpm"    />
         <result property="durationOverrides"    column="duration_overrides"    />
         <result property="pointPercents"    column="point_percents"    />
+        <result property="calibrationPolicy"    column="calibration_policy"    />
+        <result property="sameDayPriority"    column="same_day_priority"    />
         <result property="planStartTime"    column="plan_start_time"
                 typeHandler="com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler"    />
         <result property="planEndTime"    column="plan_end_time"
@@ -35,7 +37,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <sql id="selectQcmPlanVo">
         select id, plan_name, qc_type, instruments, schedule_type, schedule_config, concentration_ppb,
-               flow_rate_lpm, duration_overrides, point_percents, plan_start_time, plan_end_time,
+               flow_rate_lpm, duration_overrides, point_percents, calibration_policy, same_day_priority,
+               plan_start_time, plan_end_time,
                status, next_fire_time, last_fire_time,
                created_by, updated_by, create_time, update_time
         from qcm_plan
@@ -53,7 +56,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="qcType != null and qcType != ''"> and qc_type = #{qcType}</if>
             <if test="planName != null and planName != ''"> and plan_name like concat('%', #{planName}, '%')</if>
         </where>
-        order by create_time desc
+        <!-- id 唯一 tiebreaker：create_time 平键行（集合工厂微秒级相邻）在 OFFSET 翻页边界
+             会漏行/重行，时间键+id 才构成全序 -->
+        order by create_time desc, id desc
     </select>
 
     <insert id="insert" parameterType="com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan" useGeneratedKeys="true" keyProperty="id">
@@ -68,6 +73,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="flowRateLpm != null">flow_rate_lpm,</if>
             <if test="durationOverrides != null">duration_overrides,</if>
             <if test="pointPercents != null">point_percents,</if>
+            <if test="calibrationPolicy != null and calibrationPolicy != ''">calibration_policy,</if>
+            <if test="sameDayPriority != null and sameDayPriority != ''">same_day_priority,</if>
             <if test="planStartTime != null">plan_start_time,</if>
             <if test="planEndTime != null">plan_end_time,</if>
             <if test="status != null and status != ''">status,</if>
@@ -88,6 +95,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="flowRateLpm != null">#{flowRateLpm},</if>
             <if test="durationOverrides != null">#{durationOverrides}::jsonb,</if>
             <if test="pointPercents != null">#{pointPercents}::jsonb,</if>
+            <if test="calibrationPolicy != null and calibrationPolicy != ''">#{calibrationPolicy},</if>
+            <if test="sameDayPriority != null and sameDayPriority != ''">#{sameDayPriority},</if>
             <if test="planStartTime != null">#{planStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
             <if test="planEndTime != null">#{planEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
             <if test="status != null and status != ''">#{status},</if>
@@ -112,6 +121,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="flowRateLpm != null">flow_rate_lpm = #{flowRateLpm},</if>
             <if test="durationOverrides != null">duration_overrides = #{durationOverrides}::jsonb,</if>
             <if test="pointPercents != null">point_percents = #{pointPercents}::jsonb,</if>
+            <if test="calibrationPolicy != null and calibrationPolicy != ''">calibration_policy = #{calibrationPolicy},</if>
+            <if test="sameDayPriority != null and sameDayPriority != ''">same_day_priority = #{sameDayPriority},</if>
             <if test="planStartTime != null">plan_start_time = #{planStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
             <if test="planEndTime != null">plan_end_time = #{planEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
             <if test="nextFireTime != null">next_fire_time = #{nextFireTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},</if>
@@ -134,6 +145,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             flow_rate_lpm = #{flowRateLpm,jdbcType=NUMERIC},
             duration_overrides = #{durationOverrides,jdbcType=OTHER}::jsonb,
             point_percents = #{pointPercents,jdbcType=OTHER}::jsonb,
+            calibration_policy = #{calibrationPolicy},
+            same_day_priority = #{sameDayPriority},
             plan_start_time = #{planStartTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
             plan_end_time = #{planEndTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},
             next_fire_time = #{nextFireTime,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP},

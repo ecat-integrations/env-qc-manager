@@ -33,6 +33,7 @@ import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecord
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordPhaseMapper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmRecordPointMapper;
 import com.ecat.integration.EnvQualityControlManagerIntegration.schedule.ScheduleSpec;
+import com.ecat.integration.EnvQualityControlManagerIntegration.schedule.ScheduleType;
 import com.ecat.integration.EnvQualityControlManagerIntegration.schedule.ScheduleSpecs;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.BatchResult;
 import com.ecat.integration.EnvQualityControlManagerIntegration.service.dto.QcExecutionRequest;
@@ -454,6 +455,10 @@ public class QualityControlSdkImpl implements QualityControlSdk {
                 .weekdays(spec.getWeekdays())
                 .monthDays(spec.getMonthDays())
                 .onceAt(spec.getOnceAt())
+                // INTERVAL 两参数沿用「未涉及的调度字段为 null」惯例；spec 的 intervalDays 是
+                // int 原始值（非 INTERVAL 时为 0），此处按类型裁剪不给消费方残留 0
+                .intervalDays(spec.getType() == ScheduleType.INTERVAL ? Integer.valueOf(spec.getIntervalDays()) : null)
+                .anchorDate(spec.getType() == ScheduleType.INTERVAL ? spec.getAnchorDate() : null)
                 .status(status)
                 .enabled(status == SdkPlanStatus.ACTIVE)
                 .build();

@@ -48,23 +48,29 @@ public class QcmPlan {
     /** 线性/准确度的量程百分比序列 JSON（0~1 小数）；NULL=走默认序列 */
     private String pointPercents;
 
+    /** 校准策略：STANDARD / CALIBRATE_LOW_DRIFT；NULL=STANDARD。适用 zero_check/span_check/multi_zero_check */
+    private String calibrationPolicy;
+
+    /** 同日优先级：NONE / LOW / HIGH；NULL=NONE。行级三态，同日同类让位判定用 */
+    private String sameDayPriority;
+
     /** 计划有效期起（沿用原表 plan_start_time 设计，D18 尊重原表不无故减列）；NULL=立即生效 */
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ssXXX", timezone = "GMT+8")
     private Instant planStartTime;
 
     /** 计划有效期止（沿用原表 plan_end_time 设计）；NULL=长期有效。窗口外调度不触发 */
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ssXXX", timezone = "GMT+8")
     private Instant planEndTime;
 
     /** 计划状态：ACTIVE / PAUSED / FINISHED */
     private String status;
 
     /** 下次触发时刻（调度器维护；PAUSED 置 NULL） */
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ssXXX", timezone = "GMT+8")
     private Instant nextFireTime;
 
     /** 上次触发时刻 */
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ssXXX", timezone = "GMT+8")
     private Instant lastFireTime;
 
     /** 创建人（ruoyi 用户名） */
@@ -74,11 +80,11 @@ public class QcmPlan {
     private String updatedBy;
 
     /** 创建时间 */
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ssXXX", timezone = "GMT+8")
     private Instant createTime;
 
     /** 更新时间 */
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ssXXX", timezone = "GMT+8")
     private Instant updateTime;
 
     /**

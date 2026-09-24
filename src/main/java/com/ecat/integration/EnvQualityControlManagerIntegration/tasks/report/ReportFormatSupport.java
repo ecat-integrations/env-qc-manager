@@ -1,5 +1,6 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.tasks.report;
 
+import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmRecord;
 import com.ecat.integration.EnvQualityControlManagerIntegration.tasks.ReportGenerator;
 import com.ecat.integration.EnvQualityControlManagerIntegration.util.AnalyzerOperatingStatusNormalRanges;
@@ -33,22 +34,23 @@ public final class ReportFormatSupport {
     private ReportFormatSupport() {
     }
 
-    /** 报表时刻展示格式（与旧 SimpleDateFormat 行为一致，站点时区）。 */
+    /** 报表时刻展示格式（与旧 SimpleDateFormat 行为一致）。时区不在此固化：
+     * 平台时区 volatile 可变（启动时从配置加载），格式化时动态挂 {@code DateTimeUtils.getZone()}。 */
     private static final DateTimeFormatter REPORT_TIME_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ReportGenerator.QC_REPORT_ZONE);
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     public static String fmtReportTime(Instant t) {
-        return t != null ? REPORT_TIME_FORMATTER.format(t) : "";
+        return t != null ? REPORT_TIME_FORMATTER.withZone(DateTimeUtils.getZone()).format(t) : "";
     }
 
-    /** 报告日期归日：记录时刻在站点时区下的日历日。 */
+    /** 报告日期归日：记录时刻在平台时区下的日历日。 */
     public static LocalDate reportDateOf(Instant t) {
-        return t.atZone(ReportGenerator.QC_REPORT_ZONE).toLocalDate();
+        return t.atZone(DateTimeUtils.getZone()).toLocalDate();
     }
 
-    /** 报告归日时区直取（子类分桶用）。 */
+    /** 报告归日时区直取（子类分桶用），与计划调度/查询窗/导出展示同源。 */
     public static ZoneId reportZone() {
-        return ReportGenerator.QC_REPORT_ZONE;
+        return DateTimeUtils.getZone();
     }
 
     /**

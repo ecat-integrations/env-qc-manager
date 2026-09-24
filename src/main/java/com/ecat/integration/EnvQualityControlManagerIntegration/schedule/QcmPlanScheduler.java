@@ -1,5 +1,6 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.schedule;
 
+import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan;
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmPlanMapper;
 import org.slf4j.Logger;
@@ -149,7 +150,7 @@ public class QcmPlanScheduler {
         try {
             fireInternal(planId);
         } catch (RuntimeException e) {
-            log.error("[诊断调试] qcm 计划 {} fire 处理失败，rearm 续跑: ", planId, e);
+            log.error("qcm 计划 {} fire 处理失败，rearm 续跑: ", planId, e);
         } finally {
             synchronized (this) {
                 if (!stopped) {
@@ -170,17 +171,17 @@ public class QcmPlanScheduler {
         Instant now = clock.instant();
         Instant due = plan.getNextFireTime();
         if (Duration.between(due, now).compareTo(MISFIRE_THRESHOLD) > 0) {
-            log.warn("[诊断调试] qcm 计划 {}({}) 错过触发时刻 {}（停机 misfire），跳过执行仅重算",
+            log.warn("qcm 计划 {}({}) 错过触发时刻 {}（停机 misfire），跳过执行仅重算",
                     planId, plan.getPlanName(), due);
         } else if (!tryLatchFingerprint(planId, due)) {
             // 指纹闩拦截：孤儿任务与首次执行同指纹 / 写失败 rearm 立即重跑同指纹——action 只执行一次
-            log.error("[诊断调试] qcm 计划 {}({}) 到点 {} 疑似重复触发（指纹闩窗口 {} 内二次进入），跳过 action 仅推进状态",
+            log.error("qcm 计划 {}({}) 到点 {} 疑似重复触发（指纹闩窗口 {} 内二次进入），跳过 action 仅推进状态",
                     planId, plan.getPlanName(), due, FINGERPRINT_WINDOW);
         } else {
             PlanFireAction action = fireActionProvider == null ? null : fireActionProvider.getIfAvailable();
             if (action == null) {
                 // 编排器（2.3）未接线：不静默假装执行成功，每次 fire 都 warn，状态机照常推进
-                log.warn("[诊断调试] qcm 计划 {}({}) 到点 {} 但编排器未接线（PlanFireAction 无实现），跳过执行仅推进状态",
+                log.warn("qcm 计划 {}({}) 到点 {} 但编排器未接线（PlanFireAction 无实现），跳过执行仅推进状态",
                         planId, plan.getPlanName(), due);
             } else {
                 action.fire(planId);
@@ -221,9 +222,10 @@ public class QcmPlanScheduler {
             planMapper.updateStatus(plan.getId(), "FINISHED", SCHEDULER_ACTOR);
             return;
         }
-        Optional<Instant> next = ScheduleCalculator.nextFire(spec, now, clock.getZone());
+        // 墙钟计算时区 = ecat 平台时区（Clock 仅提供 instant），与保存侧 computeNextFire 同源
+        Optional<Instant> next = ScheduleCalculator.nextFire(spec, now, DateTimeUtils.getZone());
         if (!next.isPresent()) {
-            log.info("[诊断调试] qcm 计划 {}({}) 有效期窗口已尽，next_fire_time 置空（此后不再触发）",
+            log.info("qcm 计划 {}({}) 有效期窗口已尽，next_fire_time 置空（此后不再触发）",
                     plan.getId(), plan.getPlanName());
         }
         planMapper.updateNextFireTime(plan.getId(), next.orElse(null), now);
@@ -247,7 +249,7 @@ public class QcmPlanScheduler {
         try {
             runDriftAudit();
         } catch (RuntimeException e) {
-            log.error("[诊断调试] qcm 计划漂移巡检失败，已吞保巡检连续: ", e);
+            log.error("qcm 计划漂移巡检失败，已吞保巡检连续: ", e);
         }
     }
 
@@ -267,7 +269,7 @@ public class QcmPlanScheduler {
                     || !earliest.getNextFireTime().equals(armedFireTime);
         }
         if (mismatch) {
-            log.warn("[诊断调试] qcm 计划漂移：DB 最早=({},{}) vs 内存已挂=({},{})，rearm 校正",
+            log.warn("qcm 计划漂移：DB 最早=({},{}) vs 内存已挂=({},{})，rearm 校正",
                     earliest == null ? null : earliest.getId(),
                     earliest == null ? null : earliest.getNextFireTime(),
                     armedPlanId, armedFireTime);
@@ -313,12 +315,12 @@ public class QcmPlanScheduler {
                     || Duration.between(plan.getNextFireTime(), now).compareTo(MISFIRE_THRESHOLD) <= 0) {
                 continue;
             }
-            log.warn("[诊断调试] qcm 计划 {}({}) 停机期间错过触发时刻 {}，启动扫描按 misfire 跳过仅重算",
+            log.warn("qcm 计划 {}({}) 停机期间错过触发时刻 {}，启动扫描按 misfire 跳过仅重算",
                     plan.getId(), plan.getPlanName(), plan.getNextFireTime());
             try {
                 advancePlan(plan, now);
             } catch (RuntimeException e) {
-                log.error("[诊断调试] qcm 计划 {} 启动 misfire 收口失败，跳过该行继续: ", plan.getId(), e);
+                log.error("qcm 计划 {} 启动 misfire 收口失败，跳过该行继续: ", plan.getId(), e);
             }
         }
     }

@@ -1,7 +1,9 @@
 package com.ecat.integration.EnvQualityControlManagerIntegration.schedule;
 
+import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan;
 import com.ecat.integration.EnvQualityControlManagerIntegration.mapper.QcmPlanMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -66,6 +68,13 @@ class QcmPlanSchedulerTest {
         clock = new SettableClock(wall(2026, 8, 21, 10, 0), ZONE);
         executor = new CapturingExecutor();
         scheduler = new QcmPlanScheduler(planMapper, provider, clock, executor);
+        // nextFire 时区源 = ecat 平台时区单例，钉住与 SettableClock 同 zone 保确定性
+        DateTimeUtils.setZone(ZONE);
+    }
+
+    @AfterEach
+    void restorePlatformZone() {
+        DateTimeUtils.setZone(ZoneId.systemDefault());
     }
 
     // ===== 用例 =====

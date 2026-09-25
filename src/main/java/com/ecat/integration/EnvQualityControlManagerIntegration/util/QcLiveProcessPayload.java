@@ -72,16 +72,7 @@ public final class QcLiveProcessPayload {
     private QcLiveProcessPayload() {
     }
 
-    /** 兼容旧签名（无计划浓度回落，单测直用）。 */
     public static Map<String, Object> build(EcatCore core, QcmRecord record) {
-        return build(core, record, null);
-    }
-
-    /**
-     * @param planSpanPpb 计划表标气浓度（ppb）——执行中 execution_log 未落 params 时的
-     *                    目标浓度线最后一级回落（controller 查 plan 后传入，本类保持无 mapper 纯读）
-     */
-    public static Map<String, Object> build(EcatCore core, QcmRecord record, java.math.BigDecimal planSpanPpb) {
         Objects.requireNonNull(record, "record");
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("recordId", record.getId());
@@ -126,7 +117,7 @@ public final class QcLiveProcessPayload {
             out.put("seriesWindow", null);
             out.put("attrs", new ArrayList<Map<String, Object>>());
             out.put("attrsReason", "ADM 数据 SDK 不可用，无法读取参数目录与实时快照");
-            putMarkLine(out, record, planSpanPpb, targetUnit, curveUnitText);
+            putMarkLine(out, record, targetUnit, curveUnitText);
             return out;
         }
 
@@ -142,7 +133,7 @@ public final class QcLiveProcessPayload {
             out.put("seriesWindow", null);
             out.put("attrs", new ArrayList<Map<String, Object>>());
             out.put("attrsReason", "ADM 参数目录中无该分析仪（" + entryId + "）的参数（STORAGE 配置行未 provision）");
-            putMarkLine(out, record, planSpanPpb, targetUnit, curveUnitText);
+            putMarkLine(out, record, targetUnit, curveUnitText);
             return out;
         }
 
@@ -154,7 +145,7 @@ public final class QcLiveProcessPayload {
         }
         out.put("attrs", snapshotAttrs(sdk, catalog, composerGasKey, targetUnitFullKey));
         out.put("attrsReason", null);
-        putMarkLine(out, record, planSpanPpb, targetUnit, curveUnitText);
+        putMarkLine(out, record, targetUnit, curveUnitText);
         return out;
     }
 
@@ -332,10 +323,11 @@ public final class QcLiveProcessPayload {
     /**
      * 目标浓度辅助线（曲线 markLine 数据源）：
      * 零点类=0（通零气）；跨度/人工核查=标气浓度（优先完成时冻结的 standardValue，
-     * 运行中未冻结时回落 execution_log params.concentrationPpb，均无则不画并说明）；
+     * 运行中未冻结时回落 execution_log params.concentrationPpb、再回落受理快照
+     * record_snapshot.concentrationPpb（受理时冻结，计划删除不失效），均无则不画并说明）；
      * 多点/精密度/准确度/转换率是序列判定无单一目标，不画。值统一换算到曲线单位（CO 为 ppm）。
      */
-    private static void putMarkLine(Map<String, Object> out, QcmRecord record, java.math.BigDecimal planSpanPpb,
+    private static void putMarkLine(Map<String, Object> out, QcmRecord record,
                                     AirVolumeUnit targetUnit, String targetUnitText) {
         String qcTypeCode = record.getQualityControlType();
         QualityControlTypeEnum qcType = qcTypeCode != null ? QualityControlTypeEnum.fromCode(qcTypeCode) : null;
@@ -354,7 +346,7 @@ public final class QcLiveProcessPayload {
                 break;
             case SPAN_CHECK:
             case AUDIT_SPAN_CHECK:
-                ppb = standardValuePpb(record, planSpanPpb);
+                ppb = standardValuePpb(record);
                 label = "标气浓度";
                 break;
             default:
@@ -364,7 +356,7 @@ public final class QcLiveProcessPayload {
         }
         if (ppb == null) {
             out.put("markLine", null);
-            out.put("markLineNote", "跨度类质控未取到标气浓度（standardValue 与任务参数均无），不画目标线");
+            out.put("markLineNote", "跨度类质控未取到标气浓度（standardValue、任务参数与受理快照均无），不画目标线");
             return;
         }
         double valueInCurveUnit = AirVolumeUnit.PPB.equals(targetUnit)
@@ -378,7 +370,7 @@ public final class QcLiveProcessPayload {
     }
 
     /** 标气浓度（ppb）：完成记录取冻结列 standardValue；运行中回落 execution_log.params.concentrationPpb。 */
-    private static Double standardValuePpb(QcmRecord record, java.math.BigDecimal planSpanPpb) {
+    private static Double standardValuePpb(QcmRecord record) {
         if (record.getStandardValue() != null) {
             return record.getStandardValue().doubleValue();
         }
@@ -394,9 +386,18 @@ public final class QcLiveProcessPayload {
             Float parsed = parseFloatOrNull(String.valueOf(conc));
             return parsed != null ? parsed.doubleValue() : null;
         }
-        // 最后一级回落：计划表标气浓度——执行中 execution_log 完成时才写 params，
-        // 计划触发的记录 planId 始终在库，曲线打开即有目标线（controller 查 plan 后传入）
-        return planSpanPpb != null ? planSpanPpb.doubleValue() : null;
+        // 最后一级回落：受理快照标气浓度（受理时冻结，计划/SDK 两源组装均落此键）——
+        // 计划可删除而记录存续（快照自足），不得反查计划表；且快照是受理时实际执行参数，
+        // 计划事后被编辑也不会污染曲线（live 计划值是未来参数）
+        Object snap = QualityControlExecutionLogHelper.parseRootMap(record.getRecordSnapshot()).get("concentrationPpb");
+        if (snap instanceof Number) {
+            return ((Number) snap).doubleValue();
+        }
+        if (snap != null) {
+            Float parsed = parseFloatOrNull(String.valueOf(snap));
+            return parsed != null ? parsed.doubleValue() : null;
+        }
+        return null;
     }
 
     private static Float parseFloatOrNull(String s) {

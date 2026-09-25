@@ -57,9 +57,6 @@ public class QcmRecordController extends BaseController
     protected IQcmRecordService qcmRecordService;
 
     @Autowired
-    private com.ecat.integration.EnvQualityControlManagerIntegration.service.IQcmPlanService qcmPlanService;
-
-    @Autowired
     private EcatCore core;
 
     /**
@@ -202,14 +199,10 @@ public class QcmRecordController extends BaseController
         if (r == null) {
             return error("记录不存在");
         }
-        // 执行中 execution_log 尚未落 params（完成时才写），目标浓度线回落链补「计划表浓度」一级：
-        // 计划触发的记录 planId 始终在库，曲线打开即有目标线（payload 保持无 mapper 纯读）
-        java.math.BigDecimal planSpanPpb = null;
-        if (r.getPlanId() != null) {
-            com.ecat.integration.EnvQualityControlManagerIntegration.domain.QcmPlan plan = qcmPlanService.selectById(r.getPlanId());
-            planSpanPpb = plan != null ? plan.getConcentrationPpb() : null;
-        }
-        return success(QcLiveProcessPayload.build(core, r, planSpanPpb));
+        // 目标浓度线回落链全程自足（standardValue→execution_log params→受理快照），不反查计划表：
+        // 计划可删除而记录存续（快照自足设计），反查 live 计划既会因悬空 planId 抛错，
+        // 也会在计划事后被编辑时画错线（快照才是受理时实际执行参数）
+        return success(QcLiveProcessPayload.build(core, r));
     }
 
     /**

@@ -316,14 +316,38 @@ class QcLiveProcessPayloadTest {
         Map<String, Object> markSpan = (Map<String, Object>) QcLiveProcessPayload.build(core, spanRunning).get("markLine");
         assertEquals(400.0, (Double) markSpan.get("value"), 1e-6, "运行中未冻结，回落任务参数标气浓度");
 
-        // 运行早期 execution_log 未落 params（完成时才写）→ 回落计划表浓度：曲线打开即有目标线
+        // 运行早期 execution_log 未落 params（完成时才写）→ 回落受理快照浓度：曲线打开即有目标线
         QcmRecord spanEarly = baseRecord("1", "1");
-        Map<String, Object> markPlan = (Map<String, Object>) QcLiveProcessPayload
-                .build(core, spanEarly, new BigDecimal("400")).get("markLine");
-        assertEquals(400.0, (Double) markPlan.get("value"), 1e-6, "无冻结无任务参数时，回落计划表标气浓度");
-        // 计划浓度也缺（手动触发无 planId）→ 如实不画线
-        Map<String, Object> markNone = (Map<String, Object>) QcLiveProcessPayload.build(core, spanEarly).get("markLine");
+        spanEarly.setRecordSnapshot("{\"qcType\":\"span_check\",\"concentrationPpb\":400}");
+        Map<String, Object> markSnapshot = (Map<String, Object>) QcLiveProcessPayload
+                .build(core, spanEarly).get("markLine");
+        assertEquals(400.0, (Double) markSnapshot.get("value"), 1e-6, "无冻结无任务参数时，回落受理快照标气浓度");
+        // 快照浓度也缺（无浓度质控源）→ 如实不画线
+        QcmRecord spanNoSnapshot = baseRecord("1", "1");
+        Map<String, Object> markNone = (Map<String, Object>) QcLiveProcessPayload.build(core, spanNoSnapshot).get("markLine");
         assertNull(markNone, "三级全缺时 markLine=null 走 note 说明");
+    }
+
+    /** markLine 末级回落受理快照：计划已删的跨度记录（planId 悬空），目标线取受理时冻结的
+     *  record_snapshot.concentrationPpb——记录快照自足（受理时冻结实际执行参数），不依赖计划表存活。 */
+    @Test
+    @SuppressWarnings("unchecked")
+    void markLineFallsBackToRecordSnapshot_whenPlanDeleted() {
+        AirDeviceDataSdk sdk = mock(AirDeviceDataSdk.class);
+        when(sdk.listStatParams()).thenReturn(Collections.singletonList(
+                meta("logicdevice.so2", "so2", "SO2浓度", AdmParamKind.MONITOR)));
+        when(sdk.queryLatest(anyList(), any())).thenReturn(Collections.emptyList());
+        EcatCore core = coreWithSdk(sdk);
+
+        // 复刻缺陷样本形态：planId 指向已删计划、standardValue 未冻结（运行中）、
+        // execution_log 无 params，受理快照带浓度——目标线必须仍能画
+        QcmRecord running = baseRecord("1", "1");
+        running.setPlanId(242L);
+        running.setRecordSnapshot("{\"qcType\":\"span_check\",\"planName\":\"某已删计划\","
+                + "\"concentrationPpb\":400,\"instruments\":[\"SO2\"]}");
+        Map<String, Object> mark = (Map<String, Object>) QcLiveProcessPayload.build(core, running).get("markLine");
+        assertNotNull(mark, "快照浓度在，目标线必须画（计划已删不影响记录自足）");
+        assertEquals(400.0, (Double) mark.get("value"), 1e-6, "末级回落受理快照浓度");
     }
 
     /** 多点类质控无单一目标浓度线：markLine null + note 说明（不画不猜）。 */

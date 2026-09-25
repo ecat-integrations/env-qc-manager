@@ -25,6 +25,11 @@ dependencies:
   - artifactId: integration-env-calibration-composer
     groupId: com.ecat
     version: ^3.0.0
+  # qcm 引用 ADM 数据 SDK（AirDeviceDataSdk 读 stat 聚合），同样必须声明依赖让 core
+  # 拓扑排序把 ADM 排在前、类加载器按依赖层级挂载
+  - artifactId: integration-env-air-device-manager
+    groupId: com.ecat
+    version: ^3.0.0
 web-platform:
   ui: true
   api: true

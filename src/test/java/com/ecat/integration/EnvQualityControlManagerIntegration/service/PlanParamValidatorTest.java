@@ -690,7 +690,7 @@ class PlanParamValidatorTest {
 
     @Test
     void multiZeroCheck_seedRow1_semanticsPassValidatorAndAssembler() {
-        // seed #1「零点质控-全部仪器」（qcm_data.sql：multi_zero_check/4 台/DAILY 00:00/全默认参数）
+        // seed #1「零点质控-全部仪器」（db/migration-qcm/V4.0.0__init.sql：multi_zero_check/4 台/DAILY 00:00/全默认参数）
         PlanSaveDto dto = multiZeroBase("SO2", "NO2", "CO", "O3");
         dto.setPlanName("零点质控-全部仪器");
         assertValid(dto, validate(dto));

@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class QcmRecordSnapshotMapperTest {
 
-    private static final Path SQL = Paths.get("src/main/resources/sql/qcm_data.sql");
+    private static final Path SQL = Paths.get("src/main/resources/db/migration-qcm/V4.0.0__init.sql");
     private static final Path RECORD_XML =
         Paths.get("src/main/resources/mapper/quality_control/QcmRecordMapper.xml");
 
@@ -45,7 +45,7 @@ class QcmRecordSnapshotMapperTest {
         String sql = new String(Files.readAllBytes(SQL), StandardCharsets.UTF_8);
         Matcher m = Pattern.compile(
             "CREATE TABLE IF NOT EXISTS " + table + " \\((.*?)\\n\\);", Pattern.DOTALL).matcher(sql);
-        assertTrue(m.find(), "qcm_data.sql 应包含 CREATE TABLE " + table);
+        assertTrue(m.find(), "V4.0.0__init.sql 应包含 CREATE TABLE " + table);
         return Arrays.stream(m.group(1).split("\n"))
             .map(String::trim)
             // 去掉行内注释（-- ...），剔除空行与表级约束行

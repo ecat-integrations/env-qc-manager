@@ -5,6 +5,9 @@
 -- 来源拆分与逐表对账由十二域基线生成器产出,对账矩阵与差集记录随交付验收材料提供。
 -- 库：PG 主库 public schema。幂等性说明：CREATE TABLE/INDEX IF NOT EXISTS、COMMENT、
 --   WHERE NOT EXISTS 种子、DO 块守卫均可重跑。
+-- 基准源指纹（sha256，提取日期 2026-10-04；源件随旧件清零删除，git 史可稽）：
+--   b4fab4d7627c0fb9840c2c30937a8e6ceedd4806c23ac313de59f5d2cfea7385  ecat-integrations/env-qc-manager/src/main/resources/sql/qcm_data.sql
+--   f6862cdbf5de92488ac8bf7576b2cd283f2e40b9ba905c32c238d5937d4fb517  ecat-integrations/env-qc-manager/src/main/resources/sql/qcm_auth.sql
 
 -- ============================================================================
 

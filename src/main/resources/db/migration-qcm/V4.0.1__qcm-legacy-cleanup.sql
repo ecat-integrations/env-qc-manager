@@ -6,6 +6,8 @@
 -- sys_job 21~41 为旧 quartz 质控通道遗留任务（换代新通道 = qcm_plan 计划表 + 18 条计划种子）；
 --   id 15（质控报告生成）与 42/43/44/45（人工核查 NO2/CO/O3/SO2，ManualCheck 同族）按需求保留不动（44/45 为 2026-10-04 lead 裁定补记）。
 -- 来源拆分：sql/qcm_data.sql 头部存量处置块原文转正（剥注释壳，SQL 未改动）。
+-- 基准源指纹（sha256，提取日期 2026-10-04；源件随旧件清零删除，git 史可稽）：
+--   b4fab4d7627c0fb9840c2c30937a8e6ceedd4806c23ac313de59f5d2cfea7385  ecat-integrations/env-qc-manager/src/main/resources/sql/qcm_data.sql
 
 -- 1) 删除旧质控任务组 sys_job 21-41（id 15/42~45 不动，FR-06-04）：
 DELETE FROM sys_job WHERE job_id BETWEEN 21 AND 41;

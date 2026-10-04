@@ -55,6 +55,12 @@
     </dependency>
     <dependency>
       <groupId>com.ecat</groupId>
+      <artifactId>integration-ecat-db-migration</artifactId>
+      <version>4.0.0</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.ecat</groupId>
       <artifactId>integration-env-calibration-composer</artifactId>
       <version>3.0.1</version>
       <scope>provided</scope>

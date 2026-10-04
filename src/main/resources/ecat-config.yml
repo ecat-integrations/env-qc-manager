@@ -1,35 +1,35 @@
 # 此文件为ecat集成的配置文件，无此文件则下面均为无。
 
-requires_core: ^3.1.0
+requires_core: ^4.0.0
 dependencies:
   - artifactId: integration-logicdevice
     groupId: com.ecat
-    version: ^3.0.0
+    version: ^4.0.0
   - artifactId: integration-ecat-core-ruoyi
     groupId: com.ecat
-    version: ^3.0.0
+    version: ^4.0.0
   - artifactId: integration-env-data-manager
     groupId: com.ecat
-    version: ^3.0.0
+    version: ^4.0.0
   - artifactId: integration-env-device-manager
     groupId: com.ecat
-    version: ^3.0.0
+    version: ^4.0.0
   - artifactId: integration-logicdevice-airstation
     groupId: com.ecat
-    version: ^3.0.0
+    version: ^4.0.0
   - artifactId: integration-logicdevice-airdevice
     groupId: com.ecat
-    version: ^3.0.0
+    version: ^4.0.0
   # qcm 自 #44 起硬引用 composer 类型（编排/flow 参数/结果回调），必须声明依赖让 core
   # 拓扑排序把 composer 排在前、类加载器按依赖层级挂载——漏声明即 qcm 先加载触发 CNFE
   - artifactId: integration-env-calibration-composer
     groupId: com.ecat
-    version: ^3.0.0
+    version: ^4.0.0
   # qcm 引用 ADM 数据 SDK（AirDeviceDataSdk 读 stat 聚合），同样必须声明依赖让 core
   # 拓扑排序把 ADM 排在前、类加载器按依赖层级挂载
   - artifactId: integration-env-air-device-manager
     groupId: com.ecat
-    version: ^3.0.0
+    version: ^4.0.0
   - artifactId: integration-ecat-db-migration
     groupId: com.ecat
     version: ^4.0.0

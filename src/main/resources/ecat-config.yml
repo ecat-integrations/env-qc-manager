@@ -36,9 +36,3 @@ dependencies:
 web-platform:
   ui: true
   api: true
-db:
-  domain: qcm
-  engine: pg
-  mechanism: flyway
-  historyTable: flyway_schema_history_qcm
-  dumpPolicy: "table-family:qcm_plan,qcm_record,qcm_record_key_param,qcm_record_phase,qcm_record_point,qcm_report"

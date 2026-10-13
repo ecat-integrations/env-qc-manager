@@ -1,11 +1,13 @@
--- qcm 域 V4.0.0 全量基线（空库单轨建库；存量库经 baseline 接管后本脚本跳过）。
+-- qcm 域 V4.0.0 pre-release 终态全量基线（空库单轨建库；存量库经 baseline 接管后本脚本跳过）。
 -- 来源拆分：域主自带两件——sql/qcm_data.sql 六表 DDL 与 18 条质控计划种子（换代种子，
---   WHERE NOT EXISTS 幂等；存量处置块已剥离转正为 V4.0.1 增量）+ sql/qcm_auth.sql（sys_menu 菜单与
+--   WHERE NOT EXISTS 幂等；旧 sys_job 21-41 与旧三表处置不进入新空库基线）+ sql/qcm_auth.sql（sys_menu 菜单与
 --   按钮权限 DO 块种子，跨域写 ruoyi-sys 表；时序由桥仓保证 ruoyi-sys 域先迁移）。
 -- 来源拆分与逐表对账由十二域基线生成器产出,对账矩阵与差集记录随交付验收材料提供。
 -- 库：PG 主库 public schema。幂等性说明：CREATE TABLE/INDEX IF NOT EXISTS、COMMENT、
 --   WHERE NOT EXISTS 种子、DO 块守卫均可重跑。
--- 基准源指纹（sha256，提取日期 2026-10-04；源件随旧件清零删除，git 史可稽）：
+-- 来源指纹（sha256，提取日期 2026-10-04；源件随旧件清零删除，git 史可稽）。
+--   指纹表示来源件溯源，不表示本终态脚本与其逐字节相同；pre-release 终态修正=
+--   旧 V4.0.1 增列/列宽折叠进建表 DDL、sys_menu 统一走序列：
 --   b4fab4d7627c0fb9840c2c30937a8e6ceedd4806c23ac313de59f5d2cfea7385  ecat-integrations/env-qc-manager/src/main/resources/sql/qcm_data.sql
 --   f6862cdbf5de92488ac8bf7576b2cd283f2e40b9ba905c32c238d5937d4fb517  ecat-integrations/env-qc-manager/src/main/resources/sql/qcm_auth.sql
 
@@ -103,9 +105,8 @@ CREATE TABLE IF NOT EXISTS qcm_record (
     gas_concentration_unit varchar(20),
     sampling_start_time  timestamptz,
     sampling_end_time    timestamptz,
-    -- 执行标识与 flow 关联（§4.0.1；trigger_request_id 设计意图为必填，
-    --   DDL 留 nullable 是为已部署库 ALTER 增列不破坏存量行，新写入路径恒有值）
-    trigger_request_id   varchar(36),
+    -- 执行标识与 flow 关联（trigger_request_id 设计必填，新写入路径恒有值）
+    trigger_request_id   varchar(36)  NOT NULL,
     flow_type            varchar(100),
     flow_execution_ref   varchar(100),
     created_by           varchar(50)  NOT NULL,
@@ -141,7 +142,7 @@ COMMENT ON COLUMN qcm_record.gas_concentration IS '标气浓度（完成时冻�
 COMMENT ON COLUMN qcm_record.gas_concentration_unit IS '标气浓度单位（完成时冻结当时值，如 ppm）';
 COMMENT ON COLUMN qcm_record.sampling_start_time IS '采样窗口起（完成时冻结）';
 COMMENT ON COLUMN qcm_record.sampling_end_time IS '采样窗口止（完成时冻结）';
-COMMENT ON COLUMN qcm_record.trigger_request_id IS '触发请求标识（trigger 受理时生成返回调用方，逐 record 落库；SDK 受理→轮询→结果三段同一标识。设计必填，DDL nullable 仅为已部署库 ALTER 兼容）';
+COMMENT ON COLUMN qcm_record.trigger_request_id IS '触发请求标识（trigger 受理时生成返回调用方，逐 record 落库；SDK 受理→轮询→结果三段同一标识。设计必填，新写入路径恒有值）';
 COMMENT ON COLUMN qcm_record.flow_type IS '执行体类型（冻结 composer ExecutorType className，如 air.monitor.calibration.span_check；qc_type 是业务枚举、flow 类名是引擎实现）';
 COMMENT ON COLUMN qcm_record.flow_execution_ref IS '排障关联标识（编排器启动时生成 recordId@startMillis，传入 composer 打日志，可机器关联回 record）';
 COMMENT ON COLUMN qcm_record.execution_status IS '执行状态（ExecutionStatusEnum int4 编码）';
@@ -293,7 +294,7 @@ COMMENT ON COLUMN qcm_report.gas_source IS '标气来源';
 COMMENT ON COLUMN qcm_report.gas_no IS '标气编号';
 
 -- ----------------------------------------------------------------------------
--- 18 条等价计划 seed（FR-06-07，对应旧 sys_job 21-41；4 条零点 job 合并为 #1 多仪器零点）
+-- 18 条等价计划 seed（FR-06-07，替代旧 sys_job 21-41 通道；4 条零点 job 合并为 #1 多仪器零点）
 -- 全部 PAUSED / next_fire_time NULL / 每日 00:00 / created_by=updated_by='system'；
 -- duration_overrides / point_percents 留 NULL = 全默认（Task 2.6 后补，FR-06-08 OPEN-09）。
 -- qc_type 对齐 QualityControlTypeEnum.name（snake_case）；multi_zero_check 为 Phase 4 新类型，
@@ -359,17 +360,21 @@ WHERE NOT EXISTS (SELECT 1 FROM qcm_plan WHERE plan_name = '转换效率检查-N
 DO $$
 DECLARE
     p text;
-    mid bigint;
-    menu bigint := 2200;   -- 「质控任务计划」菜单（C，落库即停用）
+    menu bigint;
 BEGIN
     -- 菜单项（C，落库即停用 status='1'）：component 指向插件页面路径，宿主 loadView 不可解析，
     --   行体保留仅作 F 按钮 parent；计划 perms 由下方 F 行（status='0'）承载，授权收集不受影响
-    IF NOT EXISTS (SELECT 1 FROM sys_menu WHERE menu_name = '质控任务计划' AND menu_type = 'C') THEN
-        INSERT INTO sys_menu(menu_id, menu_name, parent_id, order_num, path, component, query, is_frame, is_cache,
+    IF EXISTS (SELECT 1 FROM sys_menu WHERE menu_name = '质控任务计划' AND menu_type = 'C') THEN
+        SELECT menu_id INTO menu
+        FROM sys_menu
+        WHERE menu_name = '质控任务计划' AND menu_type = 'C';
+    ELSE
+        INSERT INTO sys_menu(menu_name, parent_id, order_num, path, component, query, is_frame, is_cache,
                              menu_type, visible, status, perms, icon, create_time, update_time, remark)
-        VALUES (menu, '质控任务计划', 2000, 65, 'quality_control_plan', 'quality_control/quality_control_plan/index', '', 1, 0,
+        VALUES ('质控任务计划', 2000, 65, 'quality_control_plan', 'quality_control/quality_control_plan/index', '', 1, 0,
                 'C', '0', '1', 'quality_control:plan:list', 'date', now(), now(),
-                'qcm 质控任务计划页（调度计划 CRUD/启停/立即执行）；页面实体在 qcm vue-modules module-config.json');
+                'qcm 质控任务计划页（调度计划 CRUD/启停/立即执行）；页面实体在 qcm vue-modules module-config.json')
+        RETURNING menu_id INTO menu;
     END IF;
     -- 授 admin 角色(role_id=1)
     IF NOT EXISTS (SELECT 1 FROM sys_role_menu rm JOIN sys_menu m ON rm.menu_id = m.menu_id
@@ -381,6 +386,8 @@ BEGIN
     -- 6 个按钮权限（F），逐一对应计划管理 REST 端点 @PreAuthorize（FR-05-04）：
     --   list=列表查询 / query=详情+下次触发时间+调度摘要 / add=新增
     --   edit=编辑+启用暂停（生命周期开关归入 edit）/ remove=删除 / run=立即执行
+    -- C 菜单本体 status='1' 停用，list 权限也必须落成启用 F 行；业务键按 perms+F 判定，
+    -- 禁止被同 perms 的停用 C 行吸收。
     FOREACH p IN ARRAY ARRAY[
         'quality_control:plan:list',
         'quality_control:plan:query',
@@ -389,22 +396,19 @@ BEGIN
         'quality_control:plan:remove',
         'quality_control:plan:run'
     ] LOOP
-        IF NOT EXISTS (SELECT 1 FROM sys_menu WHERE perms = p) THEN
-            mid := (SELECT coalesce(max(menu_id), 0) + 1 FROM sys_menu);
-            -- 守卫：动态 max+1 万一撞进 2200 保留段，顺延跳过
-            IF mid >= 2200 AND mid <= 2210 THEN mid := 2211; END IF;
-            INSERT INTO sys_menu(menu_id, menu_name, parent_id, order_num, path, component, query, is_frame, is_cache,
+        IF NOT EXISTS (SELECT 1 FROM sys_menu WHERE perms = p AND menu_type = 'F') THEN
+            INSERT INTO sys_menu(menu_name, parent_id, order_num, path, component, query, is_frame, is_cache,
                                  menu_type, visible, status, perms, icon, create_time, update_time, remark)
-            VALUES (mid, p, menu, 0, '', NULL, '', 1, 0,
+            VALUES (p, menu, 0, '', NULL, '', 1, 0,
                     'F', '0', '0', p, '#', now(), now(),
                     'qcm 质控任务计划按钮权限(controller @PreAuthorize 对应)');
         END IF;
         -- 授 admin 角色(role_id=1)：admin 用户(user_id=1)持 *:*:* 通配本就全过，
         -- 此授权让非 user_id=1 的 admin 角色用户也获得该权限（asm_auth.sql 同惯例）
         IF NOT EXISTS (SELECT 1 FROM sys_role_menu rm JOIN sys_menu m ON rm.menu_id = m.menu_id
-                       WHERE rm.role_id = 1 AND m.perms = p) THEN
+                       WHERE rm.role_id = 1 AND m.perms = p AND m.menu_type = 'F') THEN
             INSERT INTO sys_role_menu(role_id, menu_id)
-            VALUES (1, (SELECT menu_id FROM sys_menu WHERE perms = p));
+            VALUES (1, (SELECT menu_id FROM sys_menu WHERE perms = p AND menu_type = 'F'));
         END IF;
     END LOOP;
 END $$;

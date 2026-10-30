@@ -394,6 +394,43 @@ public class QualityControlSdkImpl implements QualityControlSdk {
         return out;
     }
 
+    /**
+     * 按「执行结束时间」查询结果快照（§4.1 结束时间版）：时间窗按 {@code qcm_record.end_time}
+     * 半开区间 {@code [begin, end)}，{@code end_time is null} 的行恒剔除；组装/限行与
+     * {@link #queryResults(ResultFilter)} 完全同源（同一 {@link #assemble}、同一 500 行上限）。
+     * <p>归窗语义：一条记录只属于一个「完成窗口」，跨整点结束的长耗时质控不会因开始时在上一窗口而漏推。</p>
+     */
+    @Override
+    public List<SdkExecutionResult> queryResultsByEndTime(ResultFilter filter) {
+        requireNonEmptyFilter(filter, "queryResultsByEndTime");
+        String taskTypeCode = filter.getTriggerSource() == null
+                ? null : internalTriggerSource(filter.getTriggerSource()).getCode();
+        List<QcmRecord> rows = recordMapper.selectByFilterEndTime(filter.getBegin(), filter.getEnd(),
+                filter.getQcType() == null ? null : qcTypeCode(filter.getQcType()),
+                filter.getInstrument() == null ? null : instrumentCode(filter.getInstrument()),
+                taskTypeCode,
+                filter.getBatchId(), filter.getTriggerRequestId(), QUERY_RESULT_LIMIT + 1);
+        if (rows != null && rows.size() > QUERY_RESULT_LIMIT) {
+            throw new IllegalArgumentException("queryResultsByEndTime 命中超过上限 " + QUERY_RESULT_LIMIT
+                    + " 行，请收窄时间窗或增加过滤条件后重试");
+        }
+        List<SdkExecutionResult> out = new ArrayList<>();
+        if (rows != null) {
+            for (QcmRecord row : rows) {
+                out.add(assemble(row));
+            }
+        }
+        return out;
+    }
+
+    /** 过滤条件非空校验（两个查询入口共用，防止全表扫）；消息带方法名便于定位调用方。 */
+    private static void requireNonEmptyFilter(ResultFilter filter, String method) {
+        if (filter == null || filter.isEmpty()) {
+            throw new IllegalArgumentException(method
+                    + " 过滤条件不能全空（至少提供时间窗/类型/仪器/触发源/批次/触发请求之一，防全表扫）");
+        }
+    }
+
     @Override
     public SdkExecutionResult getExecutionResult(long recordId) {
         QcmRecord record = recordService.selectQcmRecordById(recordId);

@@ -509,6 +509,69 @@ class QualityControlSdkImplTest {
         assertTrue(ex.getMessage().contains("收窄"));
     }
 
+    // ===== queryResultsByEndTime（§4.1 结束时间版：end_time 半开区间） =====
+
+    @Test
+    void queryResultsByEndTime_nullOrEmptyFilterThrows() {
+        assertThrows(IllegalArgumentException.class, () -> sdk.queryResultsByEndTime(null));
+        assertThrows(IllegalArgumentException.class,
+                () -> sdk.queryResultsByEndTime(ResultFilter.builder().build()));
+        verify(recordMapper, never()).selectByFilterEndTime(any(), any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    /** 过滤维度与 start_time 版同源：仪器/质控类型落数字码、触发源落任务类型编码、limit=上限+1。 */
+    @Test
+    void queryResultsByEndTime_mapsAllFilterDimensionsToMapperArgs() {
+        Instant begin = Instant.ofEpochMilli(1L);
+        Instant end = Instant.ofEpochMilli(2L);
+        when(recordMapper.selectByFilterEndTime(any(), any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt())).thenReturn(Collections.emptyList());
+
+        sdk.queryResultsByEndTime(ResultFilter.builder()
+                .begin(begin).end(end).qcType(SdkQcType.SPAN_CHECK).instrument(SdkInstrument.SO2)
+                .triggerSource(SdkTriggerSource.REMOTE).batchId("batch-9").triggerRequestId("req-1").build());
+
+        org.mockito.ArgumentCaptor<String> sourceCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(recordMapper).selectByFilterEndTime(eq(begin), eq(end), eq("1"), eq("1"),
+                sourceCaptor.capture(), eq("batch-9"), eq("req-1"),
+                org.mockito.ArgumentMatchers.eq(501));
+        assertEquals(TriggerSource.REMOTE.getCode(), sourceCaptor.getValue());
+    }
+
+    /** 结束时间版与开始时间版共用行数上限（超限抛 IAE，消息带方法名与收窄提示）。 */
+    @Test
+    void queryResultsByEndTime_overLimitThrowsWithNarrowHint() {
+        List<QcmRecord> rows = new ArrayList<>();
+        for (int i = 0; i < 501; i++) {
+            rows.add(record(i, 2));
+        }
+        when(recordMapper.selectByFilterEndTime(any(), any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt())).thenReturn(rows);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> sdk.queryResultsByEndTime(ResultFilter.builder().qcType(SdkQcType.SPAN_CHECK).build()));
+        assertTrue(ex.getMessage().contains("queryResultsByEndTime"));
+        assertTrue(ex.getMessage().contains("500"));
+    }
+
+    /** 结束时间版与开始时间版共用同一组装器：endTime 如实透传（归窗依据不能被吞掉）。 */
+    @Test
+    void queryResultsByEndTime_assemblesEndTimeFromRecord() {
+        QcmRecord endTimeRecord = record(71L, 2);
+        endTimeRecord.setStartTime(Instant.ofEpochMilli(1_700_000_000_000L));
+        endTimeRecord.setEndTime(Instant.ofEpochMilli(1_700_000_900_000L));
+        when(recordMapper.selectByFilterEndTime(any(), any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt())).thenReturn(Collections.singletonList(endTimeRecord));
+
+        List<SdkExecutionResult> results = sdk.queryResultsByEndTime(
+                ResultFilter.builder().begin(Instant.ofEpochMilli(0L)).end(Instant.ofEpochMilli(4_000_000_000_000L)).build());
+
+        assertEquals(1, results.size());
+        assertEquals(Instant.ofEpochMilli(1_700_000_900_000L), results.get(0).getEndTime());
+    }
+
     @Test
     void getExecutionResult_missingRecordThrows() {
         when(recordService.selectQcmRecordById(99L)).thenReturn(null);

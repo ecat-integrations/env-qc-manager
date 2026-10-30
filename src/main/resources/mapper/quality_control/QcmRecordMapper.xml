@@ -123,6 +123,26 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         limit #{limit}
     </select>
 
+    <!-- SDK 结果过滤查询（§4.1 结束时间版）：时间窗按 end_time 半开区间 [begin, end)，
+         end_time is null 的行恒剔除（等待/执行中/中止中不属“已完成”）；
+         半开区间使一条记录的 end_time 唯一落窗，不会跨窗口重复；
+         调用方以 limit=上限+1 探测超限（防大窗全量拉取）。 -->
+    <select id="selectByFilterEndTime" resultMap="QcmRecordResult">
+        <include refid="selectQcmRecordVo"/>
+        <where>
+            and end_time is not null
+            <if test="begin != null"> and end_time &gt;= #{begin,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP}</if>
+            <if test="end != null"> and end_time &lt; #{end,typeHandler=com.ecat.integration.EnvQualityControlManagerIntegration.support.TimestamptzInstantTypeHandler,jdbcType=TIMESTAMP}</if>
+            <if test="qcType != null and qcType != ''"> and quality_control_type = #{qcType}</if>
+            <if test="instrument != null and instrument != ''"> and parameter = #{instrument}</if>
+            <if test="triggerSource != null and triggerSource != ''"> and task_type = #{triggerSource}</if>
+            <if test="batchId != null and batchId != ''"> and batch_id = #{batchId}</if>
+            <if test="triggerRequestId != null and triggerRequestId != ''"> and trigger_request_id = #{triggerRequestId}</if>
+        </where>
+        order by end_time asc, id asc
+        limit #{limit}
+    </select>
+
     <!-- 中止入口轻量查询（G-PERF-6）：只取存在性/批次定位三列，不加载 execution_log 大字段 -->
     <select id="selectStopTargetById" parameterType="Long" resultMap="QcmRecordResult">
         select id, batch_id, execution_status from qcm_record where id = #{id}

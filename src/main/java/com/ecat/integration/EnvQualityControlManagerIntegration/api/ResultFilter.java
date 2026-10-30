@@ -6,10 +6,16 @@ import lombok.Value;
 import java.time.Instant;
 
 /**
- * {@link QualityControlSdk#queryResults(ResultFilter)} 过滤条件（§4.1）：
+ * {@link QualityControlSdk#queryResults(ResultFilter)} 与
+ * {@link QualityControlSdk#queryResultsByEndTime(ResultFilter)} 共用的过滤条件（§4.1）：
  * 全部可选，但至少须提供一个——全空过滤等价全表扫，实现侧直接拒绝。
  *
- * <p>时间窗按 {@code qcm_record.start_time} 过滤，边界含（&gt;= begin 且 &lt;= end）。</p>
+ * <p>时间窗的归属列与区间开闭由<b>调用的方法</b>决定：</p>
+ * <ul>
+ *   <li>{@code queryResults}：按 {@code qcm_record.start_time}，闭区间 {@code [begin, end]}；</li>
+ *   <li>{@code queryResultsByEndTime}：按 {@code qcm_record.end_time}，半开区间 {@code [begin, end)}，
+ *       且 {@code end_time is null} 的行不出现在结果里。</li>
+ * </ul>
  *
  * @author coffee
  */
@@ -17,10 +23,10 @@ import java.time.Instant;
 @Builder
 public class ResultFilter {
 
-    /** 时间窗起（含）：按 start_time */
+    /** 时间窗起（含）：queryResults 按 start_time；queryResultsByEndTime 按 end_time */
     Instant begin;
 
-    /** 时间窗止（含）：按 start_time */
+    /** 时间窗止：queryResults 按 start_time 且含（&lt;=）；queryResultsByEndTime 按 end_time 且不含（&lt;） */
     Instant end;
 
     /** 质控类型（精确；内部换算为存储词汇后下查） */

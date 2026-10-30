@@ -76,6 +76,23 @@ public interface QcmRecordMapper {
                                    @Param("limit") int limit);
 
     /**
+     * SDK 结果过滤查询（§4.1 结束时间版）：时间窗按 <b>end_time 半开区间</b>
+     * （{@code begin <= end_time < end}），且 {@code end_time is null} 的行恒剔除；其余维度与
+     * {@link #selectByFilter} 同义，按 {@code end_time, id} 升序。
+     * 
+     * <p>与 start_time 版的差别：归属列不同（前者只看开始时刻，这里只看完成时刻），
+     * 半开区间使一条记录的 end_time 只属于一个窗口（不跨窗重复）；行数上限探测同 selectByFilter。</p>
+     */
+    List<QcmRecord> selectByFilterEndTime(@Param("begin") Instant begin,
+                                          @Param("end") Instant end,
+                                          @Param("qcType") String qcType,
+                                          @Param("instrument") String instrument,
+                                          @Param("triggerSource") String triggerSource,
+                                          @Param("batchId") String batchId,
+                                          @Param("triggerRequestId") String triggerRequestId,
+                                          @Param("limit") int limit);
+
+    /**
      * 新增记录（useGeneratedKeys 回填 id）。
      */
     int insert(QcmRecord record);

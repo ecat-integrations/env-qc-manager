@@ -68,12 +68,34 @@ public interface QualityControlSdk {
 
     /**
      * 按过滤条件查询执行结果快照（§4.0/§4.1）：读强类型列+三子表，零 JSON 解析、零 live 查询，
-     * 不依赖报告生成任务跑过（queryResults 即补数）。结果按 start_time 降序。
+     * 不依赖报告生成任务跑过（queryResults 即补数）。
+     * <p><b>时间窗按 {@code qcm_record.start_time}、闭区间 {@code [begin, end]}、结果按 start_time 降序</b>。
      *
      * @throws IllegalArgumentException filter 为 null 或全空（防全表扫）；或窗口命中超过上限
      *         （500 行，消息带命中行数，提示收窄时间窗）
      */
     List<SdkExecutionResult> queryResults(ResultFilter filter);
+
+    /**
+     * 按「执行结束时间」查询执行结果快照（§4.0/§4.1 的时间窗变体，与
+     * {@link #queryResults(ResultFilter)} 同构：同一组装器、同一行数上限、同一过滤维度）。
+     *
+     * <p><b>口径（与 start_time 版刻意区分，不可互换）</b>：</p>
+     * <ul>
+     *   <li>时间窗按 {@code qcm_record.end_time}，<b>半开区间 {@code [begin, end)}</b>——
+     *       begin 含、end 不含，一条记录的 end_time 唯一落窗，不会跨窗口重复命中；</li>
+     *   <li>{@code end_time is null} 的行（等待中/执行中/中止中）一律不返回；</li>
+     *   <li>结果按 {@code end_time} 升序（同一时刻再按 recordId 升序），便于按完成顺序推送；</li>
+     *   <li>时间窗缺省（只给批次/类型等）时不加时间条件，但 {@code end_time is null} 恒剔除。</li>
+     * </ul>
+     *
+     * <p><b>典型用途</b>：按「完成时刻」归窗的业务（如内蒙古方法23 质控日报每小时推送上一小时
+     * <b>完成</b>的质控记录），跨整点结束的长耗时质控天然落到完成所在窗口，不会因开始时在上一窗口而永久漏推。</p>
+     *
+     * @throws IllegalArgumentException filter 为 null 或全空（防全表扫）；或窗口命中超过上限
+     *         （500 行，消息带命中行数，提示收窄时间窗）
+     */
+    List<SdkExecutionResult> queryResultsByEndTime(ResultFilter filter);
 
     /**
      * 单条执行结果快照（getRecordDetail 的强类型升级，五层结构同构）。
